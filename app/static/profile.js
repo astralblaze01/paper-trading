@@ -76,14 +76,17 @@ async function openCropper(file){
   let image;
   try{image=await createImageBitmap(file);}catch{throw Error('올바른 이미지 파일이 아닙니다.');}
   if(crop?.image)crop.image.close();
-  crop={image,zoom:1,x:0,y:0,pointers:new Map(),pinch:null};
+  // Zoom 1 fills the frame; zooming out goes down to half of "whole photo visible".
+  const fit=Math.min(image.width,image.height)/Math.max(image.width,image.height);
+  crop={image,zoom:1,minZoom:fit*.5,x:0,y:0,pointers:new Map(),pinch:null};
   const canvas=$('cropCanvas'),dpr=window.devicePixelRatio||1;canvas.width=CROP_STAGE*dpr;canvas.height=CROP_STAGE*dpr;
-  $('cropZoom').value='1';$('cropApply').disabled=false;
+  $('cropZoom').min=String(crop.minZoom);$('cropZoom').value='1';$('cropApply').disabled=false;
   $('cropDialog').showModal();drawCrop();canvas.focus();
 }
 // Image scale that covers the square stage at zoom 1.
 function cropScale(){return CROP_STAGE/Math.min(crop.image.width,crop.image.height)*crop.zoom;}
-function clampCrop(){const s=cropScale(),mx=Math.max(0,(crop.image.width*s-CROP_STAGE)/2),my=Math.max(0,(crop.image.height*s-CROP_STAGE)/2);crop.x=Math.min(mx,Math.max(-mx,crop.x));crop.y=Math.min(my,Math.max(-my,crop.y));}
+// A photo larger than the frame must keep covering it; a smaller one must stay inside it.
+function clampCrop(){const s=cropScale(),mx=Math.abs(crop.image.width*s-CROP_STAGE)/2,my=Math.abs(crop.image.height*s-CROP_STAGE)/2;crop.x=Math.min(mx,Math.max(-mx,crop.x));crop.y=Math.min(my,Math.max(-my,crop.y));}
 function paintCrop(ctx,size){
   const k=size/CROP_STAGE,s=cropScale()*k,w=crop.image.width*s,h=crop.image.height*s;
   ctx.fillStyle='#fff';ctx.fillRect(0,0,size,size);
@@ -99,11 +102,13 @@ function drawCrop(){
   ctx.strokeStyle='rgba(255,255,255,.9)';ctx.lineWidth=2*(window.devicePixelRatio||1);ctx.beginPath();ctx.arc(size/2,size/2,size/2-2,0,Math.PI*2);ctx.stroke();
 }
 function setCropZoom(zoom){
-  const next=Math.min(CROP_MAX_ZOOM,Math.max(1,zoom)),ratio=next/crop.zoom;
+  const next=Math.min(CROP_MAX_ZOOM,Math.max(crop.minZoom,zoom)),ratio=next/crop.zoom;
   crop.x*=ratio;crop.y*=ratio;crop.zoom=next;$('cropZoom').value=String(next);drawCrop();
 }
 function stageUnits(){return CROP_STAGE/$('cropCanvas').getBoundingClientRect().width;}
 $('cropZoom').addEventListener('input',()=>{if(crop)setCropZoom(Number($('cropZoom').value));});
+$('cropZoomOut').addEventListener('click',()=>{if(crop)setCropZoom(crop.zoom/1.15);});
+$('cropZoomIn').addEventListener('click',()=>{if(crop)setCropZoom(crop.zoom*1.15);});
 $('cropCanvas').addEventListener('wheel',e=>{if(!crop)return;e.preventDefault();setCropZoom(crop.zoom*(e.deltaY<0?1.08:1/1.08));},{passive:false});
 $('cropCanvas').addEventListener('pointerdown',e=>{if(!crop)return;e.currentTarget.setPointerCapture(e.pointerId);crop.pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});e.currentTarget.classList.add('dragging');});
 $('cropCanvas').addEventListener('pointermove',e=>{

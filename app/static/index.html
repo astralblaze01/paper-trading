@@ -4,10 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{BRAND_NAME}} · 모의투자</title>
-  <link rel="stylesheet" href="/static/style.css?v=21">
-  <script src="/static/app.js?v=21" defer></script>
-  <script src="/static/portal.js?v=21" defer></script>
-  <script src="/static/profile.js?v=21" defer></script>
+  <link rel="stylesheet" href="/static/style.css?v=22">
+  <script src="/static/app.js?v=22" defer></script>
+  <script src="/static/portal.js?v=22" defer></script>
+  <script src="/static/profile.js?v=22" defer></script>
 </head>
 <body>
   <header>
@@ -148,9 +148,9 @@
   <dialog id="cropDialog" class="confirm-dialog crop-dialog" aria-labelledby="cropTitle">
     <form id="cropForm" method="dialog">
       <h2 id="cropTitle">표시할 영역 선택</h2>
-      <p>사진을 끌어서 위치를 옮기고, 확대로 크기를 맞추세요. 원 안의 영역이 프로필 사진이 됩니다.</p>
+      <p>사진을 끌어서 위치를 옮기고, 확대·축소로 크기를 맞추세요. 원 안의 영역이 프로필 사진이 되며 빈 곳은 흰색으로 채워집니다.</p>
       <canvas id="cropCanvas" class="crop-canvas" tabindex="0" aria-label="프로필 사진 영역 선택. 화살표 키로 이동, 더하기와 빼기 키로 확대·축소"></canvas>
-      <div class="crop-zoom"><label for="cropZoom">확대</label><input id="cropZoom" type="range" min="1" max="4" step="0.01" value="1"></div>
+      <div class="crop-zoom"><button type="button" id="cropZoomOut" class="secondary crop-step" aria-label="축소">−</button><input id="cropZoom" type="range" min="0.25" max="4" step="0.01" value="1" aria-label="확대·축소"><button type="button" id="cropZoomIn" class="secondary crop-step" aria-label="확대">+</button></div>
       <div class="dialog-actions"><button type="button" id="cropCancel" class="secondary">취소</button><button id="cropApply">적용</button></div>
     </form>
   </dialog>

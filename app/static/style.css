@@ -442,3 +442,4 @@ table { font-size:15px; }
 .crop-zoom { display:flex; align-items:center; gap:12px; max-width:300px; margin:0 auto; }
 .crop-zoom label { margin:0; flex-shrink:0; }
 .crop-zoom input[type="range"] { height:auto; padding:0; border:0; accent-color:var(--accent); }
+.crop-zoom .crop-step { min-width:40px; min-height:36px; padding:0; font-size:20px; line-height:1; }
