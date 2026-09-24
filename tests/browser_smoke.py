@@ -170,6 +170,9 @@ with sync_playwright() as p:
         page.locator('#profileImageInput').set_input_files({'name':'avatar.png','mimeType':'image/png','buffer':png(200,100)})
         for _ in range(6): page.locator('#cropZoomOut').click()
         assert float(page.locator('#cropZoom').input_value())<.5
+        # Any zoom the slider or buttons produce is valid; the form never shows a validity message.
+        page.locator('#cropZoom').fill('0.4173')
+        assert page.evaluate("document.getElementById('cropZoom').validity.valid && document.getElementById('cropForm').checkValidity()")
         page.locator('#cropApply').click()
         expect(page.locator('#myProfile .avatar')).to_have_attribute('src',f'/api/users/{name}/avatar?v=2')
         pixels=page.evaluate('''async url=>{const b=await createImageBitmap(await (await fetch(url)).blob());const c=document.createElement('canvas');c.width=b.width;c.height=b.height;const x=c.getContext('2d');x.drawImage(b,0,0);const at=(px,py)=>[...x.getImageData(px,py,1,1).data].slice(0,3);return {top:at(256,30),center:at(256,256)};}''',f'/api/users/{name}/avatar?v=2')
