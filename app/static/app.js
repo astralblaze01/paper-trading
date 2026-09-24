@@ -44,7 +44,7 @@ function renderRanking(){if(!rankingCache)return;
   }
   table($('ranking'),['순위','사용자 · 포트폴리오 보기','총 평가금액 ('+viewCurrency('KRW')+')','수익률'],rankingCache.rows.map(x=>[x.rank,userLink(x.username),viewMoney(x.equity,'KRW',x.fx||viewFx),signedPct(x.return_pct)]));
 }
-function syncCurrency(){for(const id of ['displayCurrency','detailCurrency','exploreCurrency'])$(id).value=displayMode;$('displayRateNote').textContent=viewFx?`${viewFx.date} 기준 · 1 USD = ${Number(viewFx.rate).toLocaleString('ko-KR',{maximumFractionDigits:2})} KRW · 환산 표시만 변경`:'환율 확인 중';}
+function syncCurrency(){$('displayCurrency').value=displayMode;$('displayRateNote').textContent=viewFx?`${viewFx.date} 기준 · 1 USD = ${Number(viewFx.rate).toLocaleString('ko-KR',{maximumFractionDigits:2})} KRW · 환산 표시만 변경`:'환율 확인 중';}
 async function changeDisplayCurrency(value){displayMode=value;try{localStorage.setItem(storageNamespace+':currency',value);}catch{}syncCurrency();renderPortfolio();renderRanking();renderHistory();if(weeklyCache)renderWeekly();window.dispatchEvent(new Event('displaycurrencychange'));}
 $('displayCurrency').addEventListener('change',e=>changeDisplayCurrency(e.target.value));
 function message(text) { $('status').textContent = text; }

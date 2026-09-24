@@ -38,7 +38,7 @@ window.routePage = async function() {
 window.openStock = function(symbol) { if(location.hash==='#detail/'+encodeURIComponent(symbol))loadStock(true).catch(e=>message(e.message));else location.hash='detail/'+encodeURIComponent(symbol); };
 window.addEventListener('hashchange',routePage);
 function displayedPrice(r) {
-  const currency=$('exploreCurrency').value;
+  const currency=displayMode;
   if(r.price==null)return '—';
   if(currency==='native'||currency===r.currency)return nativeMoney(r.price,r.currency);
   if(!displayFx)return '환율 확인 대기';
@@ -47,7 +47,7 @@ function displayedPrice(r) {
 }
 function displayedTurnover(r){
   if(r.turnover==null || !Number.isFinite(Number(r.turnover)) || Number(r.turnover)<0)return '—';
-  const selected=$('exploreCurrency').value,currency=selected==='native'?r.currency:selected;
+  const selected=displayMode,currency=selected==='native'?r.currency:selected;
   if(currency!==r.currency&&!displayFx)return '환율 확인 대기';
   const rate=Number(displayFx?.rate||1),value=Number(r.turnover)*(currency===r.currency?1:r.currency==='USD'?rate:1/rate);
   const unit=currency==='KRW'?'억원':'백만 달러',divisor=currency==='KRW'?1e8:1e6;
@@ -84,8 +84,6 @@ async function explore(silent=false) {
 $('exploreMarkets').addEventListener('click',e=>{const b=e.target.closest('[data-asset]');if(!b)return;$('exploreMarket').value=b.dataset.asset;explore();});
 $('exploreKinds').addEventListener('click',e=>{const b=e.target.closest('[data-kind]');if(!b)return;$('exploreKind').value=b.dataset.kind;explore();});
 handle('exploreMarket','change',()=>explore());handle('exploreKind','change',()=>explore());
-$('exploreCurrency').addEventListener('change',e=>changeDisplayCurrency(e.target.value));
-$('detailCurrency').addEventListener('change',e=>changeDisplayCurrency(e.target.value));
 window.addEventListener('displaycurrencychange',()=>{displayFx=viewFx;stockTable($('exploreRows'),exploreRowsCache,explorePopular);renderDetailQuote();renderOrderPreview();drawChart();renderPublic();renderWatchlist();});
 handle('discoverySearch','submit',async()=>{exploreMode='search';++exploreVersion;const query=$('discoveryQuery').value;const rows=await api('search?'+new URLSearchParams({q:query,category:$('exploreMarket').value}));exploreRowsCache=rows;explorePopular=false;stockTable($('exploreRows'),rows);$('exploreNotice').textContent='검색 결과 · 등록 종목 목록이며 가격은 종목 상세에서 확인합니다.';if(rows.length===1)await api('popularity',{symbol:rows[0].symbol,kind:'search'});});
 setInterval(()=>{if(!document.hidden&&(!location.hash||location.hash==='#explore')&&!$('dashboard').hidden&&exploreMode==='ranking')explore(true);},30000);
