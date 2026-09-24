@@ -435,3 +435,10 @@ table { font-size:15px; }
  .allocation-legend .legend-name small { display:inline; margin-left:8px; }
  .allocation-legend .legend-name strong { display:inline; }
 }
+/* Profile photo area selection. */
+.crop-dialog { max-width:380px; }
+.crop-canvas { display:block; width:100%; max-width:300px; aspect-ratio:1; margin:14px auto 10px; border-radius:6px; background:#26374a; cursor:grab; touch-action:none; }
+.crop-canvas.dragging { cursor:grabbing; }
+.crop-zoom { display:flex; align-items:center; gap:12px; max-width:300px; margin:0 auto; }
+.crop-zoom label { margin:0; flex-shrink:0; }
+.crop-zoom input[type="range"] { height:auto; padding:0; border:0; accent-color:var(--accent); }

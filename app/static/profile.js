@@ -63,7 +63,74 @@ async function uploadProfileImage(file){
 }
 async function deleteProfileImage(){myProfile={...myProfile,...await api('profile/image/delete',{})};renderMyProfile();if(rankingCache)renderRanking();toast('프로필 사진을 삭제했습니다.','success');}
 (function(){const input=document.createElement('input');input.type='file';input.id='profileImageInput';input.accept=IMAGE_TYPES.join(',');input.hidden=true;document.body.append(input);
-  input.addEventListener('change',async()=>{const file=input.files[0];input.value='';if(file)try{await uploadProfileImage(file);}catch(e){toast(e.message,'error');}});})();
+  input.addEventListener('change',async()=>{const file=input.files[0];input.value='';if(file)try{await openCropper(file);}catch(e){toast(e.message,'error');}});})();
+
+/* Area selection before upload. The chosen square is drawn to a 512px canvas
+   and uploaded as JPEG; the server still decodes, checks and re-encodes it.
+   createImageBitmap avoids blob: URLs, which the page's CSP does not allow. */
+const CROP_STAGE=300, CROP_OUTPUT=512, CROP_MAX_ZOOM=4;
+let crop=null;
+async function openCropper(file){
+  if(!IMAGE_TYPES.includes(file.type))throw Error('JPG, PNG, WEBP 이미지만 업로드할 수 있습니다.');
+  if(file.size>IMAGE_MAX_BYTES)throw Error('이미지는 최대 5MB까지 업로드할 수 있습니다.');
+  let image;
+  try{image=await createImageBitmap(file);}catch{throw Error('올바른 이미지 파일이 아닙니다.');}
+  if(crop?.image)crop.image.close();
+  crop={image,zoom:1,x:0,y:0,pointers:new Map(),pinch:null};
+  const canvas=$('cropCanvas'),dpr=window.devicePixelRatio||1;canvas.width=CROP_STAGE*dpr;canvas.height=CROP_STAGE*dpr;
+  $('cropZoom').value='1';$('cropApply').disabled=false;
+  $('cropDialog').showModal();drawCrop();canvas.focus();
+}
+// Image scale that covers the square stage at zoom 1.
+function cropScale(){return CROP_STAGE/Math.min(crop.image.width,crop.image.height)*crop.zoom;}
+function clampCrop(){const s=cropScale(),mx=Math.max(0,(crop.image.width*s-CROP_STAGE)/2),my=Math.max(0,(crop.image.height*s-CROP_STAGE)/2);crop.x=Math.min(mx,Math.max(-mx,crop.x));crop.y=Math.min(my,Math.max(-my,crop.y));}
+function paintCrop(ctx,size){
+  const k=size/CROP_STAGE,s=cropScale()*k,w=crop.image.width*s,h=crop.image.height*s;
+  ctx.fillStyle='#fff';ctx.fillRect(0,0,size,size);
+  ctx.imageSmoothingQuality='high';
+  ctx.drawImage(crop.image,size/2+crop.x*k-w/2,size/2+crop.y*k-h/2,w,h);
+}
+function drawCrop(){
+  if(!crop)return;clampCrop();
+  const canvas=$('cropCanvas'),ctx=canvas.getContext('2d'),size=canvas.width;
+  paintCrop(ctx,size);
+  // Shade outside the circle the avatar is shown in.
+  ctx.fillStyle='rgba(20,30,40,.55)';ctx.beginPath();ctx.rect(0,0,size,size);ctx.arc(size/2,size/2,size/2-1,0,Math.PI*2,true);ctx.fill();
+  ctx.strokeStyle='rgba(255,255,255,.9)';ctx.lineWidth=2*(window.devicePixelRatio||1);ctx.beginPath();ctx.arc(size/2,size/2,size/2-2,0,Math.PI*2);ctx.stroke();
+}
+function setCropZoom(zoom){
+  const next=Math.min(CROP_MAX_ZOOM,Math.max(1,zoom)),ratio=next/crop.zoom;
+  crop.x*=ratio;crop.y*=ratio;crop.zoom=next;$('cropZoom').value=String(next);drawCrop();
+}
+function stageUnits(){return CROP_STAGE/$('cropCanvas').getBoundingClientRect().width;}
+$('cropZoom').addEventListener('input',()=>{if(crop)setCropZoom(Number($('cropZoom').value));});
+$('cropCanvas').addEventListener('wheel',e=>{if(!crop)return;e.preventDefault();setCropZoom(crop.zoom*(e.deltaY<0?1.08:1/1.08));},{passive:false});
+$('cropCanvas').addEventListener('pointerdown',e=>{if(!crop)return;e.currentTarget.setPointerCapture(e.pointerId);crop.pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});e.currentTarget.classList.add('dragging');});
+$('cropCanvas').addEventListener('pointermove',e=>{
+  if(!crop||!crop.pointers.has(e.pointerId))return;
+  const last=crop.pointers.get(e.pointerId),unit=stageUnits();crop.pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(crop.pointers.size>=2){const [a,b]=[...crop.pointers.values()],distance=Math.hypot(a.x-b.x,a.y-b.y);if(crop.pinch)setCropZoom(crop.zoom*distance/crop.pinch);crop.pinch=distance;return;}
+  crop.x+=(e.clientX-last.x)*unit;crop.y+=(e.clientY-last.y)*unit;drawCrop();
+});
+for(const type of ['pointerup','pointercancel'])$('cropCanvas').addEventListener(type,e=>{if(!crop)return;crop.pointers.delete(e.pointerId);if(crop.pointers.size<2)crop.pinch=null;if(!crop.pointers.size)e.currentTarget.classList.remove('dragging');});
+$('cropCanvas').addEventListener('keydown',e=>{
+  if(!crop)return;const moves={ArrowLeft:[-10,0],ArrowRight:[10,0],ArrowUp:[0,-10],ArrowDown:[0,10]};
+  if(moves[e.key]){e.preventDefault();crop.x+=moves[e.key][0];crop.y+=moves[e.key][1];drawCrop();}
+  else if(e.key==='+'||e.key==='='){e.preventDefault();setCropZoom(crop.zoom*1.1);}
+  else if(e.key==='-'){e.preventDefault();setCropZoom(crop.zoom/1.1);}
+});
+function closeCropper(){$('cropDialog').close();}
+$('cropDialog').addEventListener('close',()=>{if(crop?.image)crop.image.close();crop=null;});
+$('cropCancel').addEventListener('click',closeCropper);
+$('cropForm').addEventListener('submit',async e=>{
+  e.preventDefault();if(!crop)return;$('cropApply').disabled=true;
+  try{
+    const out=document.createElement('canvas');out.width=out.height=CROP_OUTPUT;paintCrop(out.getContext('2d'),CROP_OUTPUT);
+    const blob=await new Promise(resolve=>out.toBlob(resolve,'image/jpeg',.92));
+    if(!blob)throw Error('사진을 처리하지 못했습니다.');
+    await uploadProfileImage(blob);closeCropper();
+  }catch(err){toast(err.message,'error');$('cropApply').disabled=false;}
+});
 
 /* Asset allocation donut: every holding by value, plus cash.
    Holdings take the validated categorical slots in fixed order (seven, with

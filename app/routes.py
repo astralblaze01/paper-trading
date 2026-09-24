@@ -12,7 +12,7 @@ from .db import Session, User, Wallet, Position, Transaction, FxTransaction, Wat
 from .instruments import SYMBOL_PATTERN, valid_symbol, instrument, CATALOG
 from .market import MarketError
 from .fx import preview, exchange
-from .money import wallets, initial_amount, bps
+from .money import wallets, initial_amount, bps, rounded
 from .trading import preview_order
 from .providers import RANGES
 from .branding import BRAND_NAME
@@ -132,6 +132,14 @@ def install(app,ctx):
             q['balances_after']={c:w.balance for c,w in ws.items()}
             q['balances_after'][data.source]-=data.amount; q['balances_after'][q['target']]+=q['received']
         return q
+    @app.get('/api/fx/share')
+    def fx_share(source:Literal['USD','KRW'],percent:int=Query(ge=1,le=100),uid=Depends(user)):
+        # The FX fee comes out of the amount sent, so a share of the balance is always exchangeable.
+        if percent not in (5,10,25,50,100): raise HTTPException(422,'지원하지 않는 비율입니다.')
+        with Session.begin() as db:
+            u=db.scalar(select(User).where(User.id==uid).with_for_update())
+            balance=wallets(db,u)[source].balance
+        return {'source':source,'percent':percent,'balance':balance,'amount':rounded(balance*Decimal(percent)/100,source)}
     @app.post('/api/fx/exchange',dependencies=[Depends(csrf)])
     def fx_exchange(data:FxOrder,uid=Depends(user)): return exchange(uid,data,ctx.fx)
     @app.get('/api/fx/history')

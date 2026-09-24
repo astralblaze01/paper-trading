@@ -2,7 +2,8 @@ import time,zlib,struct
 from playwright.sync_api import sync_playwright,expect
 
 def png(width=64,height=64):
-    raw=b''.join(b'\x00'+bytes([40,120,200])*width for _ in range(height))
+    """Left half red, right half blue, so a crop position can be checked."""
+    raw=b''.join(b'\x00'+b''.join(bytes([220,30,30] if x<width//2 else [30,30,220]) for x in range(width)) for _ in range(height))
     chunk=lambda kind,data:struct.pack('>I',len(data))+kind+data+struct.pack('>I',zlib.crc32(kind+data))
     return b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',width,height,8,2,0,0,0))+chunk(b'IDAT',zlib.compress(raw))+chunk(b'IEND',b'')
 
@@ -45,6 +46,12 @@ with sync_playwright() as p:
         page.locator('#fxSource').select_option('KRW')
         expect(page.locator('#fxAmountUnit')).to_have_text('KRW')
         expect(page.locator('#fxAvailable')).to_contain_text('998,500')
+        page.locator('[data-fx-share="50"]').click()
+        expect(page.locator('#fxAmount')).to_have_value('499250')
+        expect(page.locator('#fxEstimate')).to_contain_text('최종 수령')
+        page.locator('#fxSource').select_option('USD')
+        page.locator('[data-fx-share="100"]').click()
+        expect(page.locator('#fxAmount')).to_have_value('99000')
         page.locator('a[href="#explore"]').click()
         expect(page.locator('#exploreMarkets button')).to_have_count(5)
         expect(page.locator('#exploreKinds button')).to_have_text(['거래대금','거래량','급상승','급하락','VANTAGE 인기'])
@@ -144,8 +151,21 @@ with sync_playwright() as p:
         page.locator('#bioInput').fill('장기 투자 위주로 하고 있습니다.')
         page.locator('#myProfile').get_by_text('소개 저장').click()
         expect(page.locator('#myProfile .profile-bio')).to_have_text('장기 투자 위주로 하고 있습니다.')
-        page.locator('#profileImageInput').set_input_files({'name':'avatar.png','mimeType':'image/png','buffer':png()})
+        page.locator('#profileImageInput').set_input_files({'name':'avatar.png','mimeType':'image/png','buffer':png(200,100)})
+        expect(page.locator('#cropDialog')).to_be_visible()
+        page.locator('#cropCancel').click()
+        expect(page.locator('#cropDialog')).to_be_hidden()
+        expect(page.locator('#myProfile .avatar')).to_have_attribute('src','/static/avatar-default.svg')
+        page.locator('#profileImageInput').set_input_files({'name':'avatar.png','mimeType':'image/png','buffer':png(200,100)})
+        box=page.locator('#cropCanvas').bounding_box()
+        # The wide image covers the square; dragging left brings its right (blue) half into the frame.
+        page.mouse.move(box['x']+box['width']*.75,box['y']+box['height']/2);page.mouse.down()
+        page.mouse.move(box['x']+box['width']*.25,box['y']+box['height']/2,steps=8);page.mouse.up()
+        page.locator('#cropApply').click()
+        expect(page.locator('#cropDialog')).to_be_hidden()
         expect(page.locator('#myProfile .avatar')).to_have_attribute('src',f'/api/users/{name}/avatar?v=1')
+        center=page.evaluate('''async url=>{const b=await createImageBitmap(await (await fetch(url)).blob());const c=document.createElement('canvas');c.width=b.width;c.height=b.height;const x=c.getContext('2d');x.drawImage(b,0,0);return [b.width,[...x.getImageData(b.width/2,b.height/2,1,1).data].slice(0,3)];}''',f'/api/users/{name}/avatar?v=1')
+        assert center[0]==512 and center[1][2]>150 and center[1][0]<100, center
         page.locator('#profileImageInput').set_input_files({'name':'avatar.png','mimeType':'image/png','buffer':b'MZ not a png'})
         expect(page.locator('#toasts')).to_contain_text('올바른 이미지 파일이 아닙니다')
         expect(page.locator('#positions .portfolio-stock-link')).to_have_attribute('href','#detail/AAPL')

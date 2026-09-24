@@ -370,3 +370,17 @@ def test_reads_and_previews_do_not_spend_the_trade_limit(client):
         assert client.get('/api/limit-orders').status_code == 200
         assert client.post('/api/transfers/preview', headers=headers, json=body).status_code == 200
     assert client.post('/api/transfers', headers=headers, json=body | {'request_id': str(uuid4())}).status_code == 200
+
+
+def test_fx_share_amounts_use_currency_units(client):
+    headers = {'x-csrf-token': register(client, 'trader')}
+    with Session.begin() as db: db.get(Wallet, (uid_of('trader'), 'KRW')).balance = D(12345)
+    assert client.get('/api/fx/share?source=USD&percent=100').json()['amount'] == 100000
+    assert D(str(client.get('/api/fx/share?source=USD&percent=5').json()['amount'])) == 5000
+    assert client.get('/api/fx/share?source=KRW&percent=50').json()['amount'] == 6172  # whole won, rounded down
+    assert client.get('/api/fx/share?source=KRW&percent=30').status_code == 422
+    assert client.get('/api/fx/share?source=EUR&percent=50').status_code == 422
+    # The full-balance amount is exchangeable as is (the fee is taken from it).
+    body = {'source': 'KRW', 'amount': str(client.get('/api/fx/share?source=KRW&percent=100').json()['amount']), 'request_id': str(uuid4())}
+    assert client.post('/api/fx/exchange', headers=headers, json=body).status_code == 200
+    assert balances(uid_of('trader'))['KRW'] == 0
