@@ -18,6 +18,7 @@ def main():
     market = MultiMarket()
     interval = max(5, int(os.getenv('QUOTE_TTL', '15')))
     refreshed = {}
+    retry_after = {}
     master_refreshed=0
     try:
         while True:
@@ -34,6 +35,8 @@ def main():
             for symbol in dict.fromkeys(symbols):
                 if not symbol or not valid_symbol(symbol):
                     continue
+                if now < retry_after.get(symbol, 0):
+                    continue
                 if symbol != urgent and now - refreshed.get(symbol, 0) < interval:
                     continue
                 try:
@@ -41,8 +44,10 @@ def main():
                     quote['_cached_at'] = time.time()
                     redis_cache.set_json(f'market:price:{symbol}', quote, max(30, interval * 3))
                     refreshed[symbol] = time.monotonic()
+                    retry_after.pop(symbol, None)
                 except Exception as exc:
                     # Do not leak provider credentials or response bodies.
+                    retry_after[symbol] = time.monotonic() + max(30, interval * 2)
                     log.warning('market refresh failed',extra={'path':symbol,'status_code':type(exc).__name__})
     finally:
         market.close()
