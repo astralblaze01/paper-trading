@@ -8,6 +8,7 @@ from .multi_market import MultiMarket
 from .redis_cache import redis_cache
 from .logging_config import configure_logging
 from .kr_symbols import refresh_master
+from .us_symbols import refresh_master as refresh_us_master
 
 configure_logging()
 log=logging.getLogger('market-worker')
@@ -29,6 +30,11 @@ def main():
                 except Exception as exc:
                     master_refreshed=time.monotonic()-82800
                     log.warning('Korean symbol master refresh failed',extra={'status_code':type(exc).__name__})
+                try:
+                    count=refresh_us_master();log.info(f'US symbol master refreshed ({count} symbols)')
+                except Exception as exc:
+                    master_refreshed=time.monotonic()-82800
+                    log.warning('US symbol master refresh failed',extra={'status_code':type(exc).__name__})
             urgent = redis_cache.next_refresh(timeout=1)
             symbols = ([urgent] if urgent else []) + redis_cache.requested_symbols()
             now = time.monotonic()

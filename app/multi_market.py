@@ -212,6 +212,14 @@ class MultiMarket:
                 rows.append(row)
             return rows
         if category == 'kr': return rows
+        from .us_symbols import has_hangul, search_master as search_us_master
+        if has_hangul(query):
+            # Finnhub only matches English names; Korean names of US listings
+            # come from the KIS overseas master.
+            for row in search_us_master(query):
+                if row['symbol'] not in {r['symbol'] for r in rows}:
+                    rows.append(instrument(row['symbol']) | {'name': row['name']})
+            return rows[:30]
         if self.us.key:
             for row in self.us.search(query):
                 if valid_symbol(row['symbol']) and row['symbol'] not in {r['symbol'] for r in rows}:

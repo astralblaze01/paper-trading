@@ -403,3 +403,61 @@ def test_maintenance_notice_is_admin_controlled_and_blocks_nothing(client):
     assert other.get('/api/notice').json() == {'maintenance': False}
     assert [r['action'] for r in client.get('/api/admin/audit').json()][:2] == ['maintenance_notice', 'maintenance_notice']
     other.close()
+
+
+# 한글 종목명 검색 ---------------------------------------------------------
+
+US_MASTER_SAMPLE = '\n'.join('\t'.join(fields) for fields in [
+    ['US', '22', 'NAS', '나스닥', 'TSLA', 'NASTSLA', '테슬라', 'TESLA INC', '2', 'USD', '4', ''],
+    ['US', '22', 'NAS', '나스닥', 'TSLL', 'NASTSLL', '디렉시온 테슬라 2배 ETF', 'DIREXION DAILY TSLA BULL 2X', '3', 'USD', '4', ''],
+    ['US', '22', 'NAS', '나스닥', 'RETO', 'NASRETO', '리토 에코 솔루션스', 'RETO ECO SOLUTIONS INC', '2', 'USD', '4', ''],
+    ['US', '21', 'NYS', '뉴욕', 'BRK/B', 'NYSBRK/B', '버크셔 해서웨이 B', 'BERKSHIRE HATHAWAY INC', '2', 'USD', '4', ''],
+    ['US', '22', 'NAS', '나스닥', 'PLTR', 'NASPLTR', '팔란티어 테크', 'PALANTIR TECH INC', '2', 'USD', '4', ''],
+]).encode('cp949')
+
+
+def test_us_master_parses_korean_names_and_skips_invalid_symbols():
+    from app.us_symbols import parse_master
+    rows = parse_master(US_MASTER_SAMPLE, 'NAS')
+    assert [r['symbol'] for r in rows] == ['TSLA', 'TSLL', 'RETO', 'PLTR']
+    assert rows[0] == {'symbol': 'TSLA', 'name': '테슬라', 'english': 'TESLA INC', 'exchange': 'NAS', 'etf': False}
+    assert rows[1]['etf'] is True
+
+
+def us_market(monkeypatch):
+    from app.multi_market import MultiMarket
+    from app.us_symbols import parse_master
+    monkeypatch.setattr('app.us_symbols._rows', lambda: parse_master(US_MASTER_SAMPLE, 'NAS'))
+    market = MultiMarket(); market.us.key = 'test'
+    finnhub = []
+    def search(query):
+        finnhub.append(query)
+        return [{'symbol': 'TSLA', 'name': 'TESLA INC'}] if query.lower() in ('tesla', 'tsla') else []
+    monkeypatch.setattr(market.us, 'search', search)
+    return market, finnhub
+
+
+def test_korean_names_find_us_listings_without_finnhub(monkeypatch):
+    market, finnhub = us_market(monkeypatch)
+    rows = market.search('테슬라', 'us')
+    assert [r['symbol'] for r in rows] == ['TSLA', 'TSLL']  # exact name first, ETF after
+    assert rows[0] | {} == {'symbol': 'TSLA', 'name': '테슬라', 'category': 'us', 'currency': 'USD'}
+    assert [r['symbol'] for r in market.search('리토 에코', 'us')] == ['RETO']
+    assert [r['symbol'] for r in market.search('리토에코솔루션스', 'us')] == ['RETO']  # spaces ignored
+    assert [r['symbol'] for r in market.search('팔란티어', 'all')] == ['PLTR']
+    # Existing aliases still come first and are not duplicated.
+    assert [r['symbol'] for r in market.search('애플', 'us')] == ['AAPL']
+    assert finnhub == []  # Korean queries never reach Finnhub, which cannot match them
+    market.close()
+
+
+def test_english_code_and_korean_market_searches_unchanged(monkeypatch):
+    market, finnhub = us_market(monkeypatch)
+    assert [r['symbol'] for r in market.search('Tesla', 'us')] == ['TSLA']
+    assert market.search('Tesla', 'us')[0]['name'] == 'TESLA INC'
+    assert [r['symbol'] for r in market.search('TSLA', 'us')] == ['TSLA']
+    assert finnhub == ['Tesla', 'Tesla', 'TSLA']
+    # Korean-market search does not add US listings.
+    assert all(r['symbol'].startswith('KR:') for r in market.search('테슬라', 'kr'))
+    assert [r['symbol'] for r in market.search('삼성', 'kr')] == ['KR:005930']
+    market.close()
