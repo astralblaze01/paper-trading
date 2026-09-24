@@ -165,7 +165,7 @@ $('priceChart').addEventListener('keydown',e=>{if(['ArrowLeft','ArrowRight'].inc
 new ResizeObserver(drawChart).observe($('priceChart'));
 setInterval(async()=>{if(document.hidden||!location.hash.startsWith('#detail/')||$('dashboard').hidden||stockLoading)return;stockLoading=true;try{await loadStock(detailMarketOpen&&currentRange==='1D');}catch(e){message(e.message);}finally{stockLoading=false;}},30000);
 function renderPublic(){if(!publicCache)return;const p=publicCache;$('publicTitle').textContent=p.username+'님의 투자 현황';
-  if(window.renderProfileCard)renderProfileCard($('publicProfile'),{username:p.username,bio:p.profile?.bio,image_version:p.profile?.image_version,equity_usd:p.equity_usd,return_pct:p.return_pct,rank:rankOf(p.username)},false);
+  if(window.renderProfileCard)renderProfileCard($('publicProfile'),{username:p.username,bio:p.profile?.bio,image_version:p.profile?.image_version,equity_usd:p.equity_usd,return_pct:p.return_pct,rank:rankOf(p.username),member_days:p.member_days,member_since:p.member_since},false);
   renderMetrics($('publicMetrics'),p);if(window.renderAllocation)renderAllocation($('publicAllocation'),p);renderPositions($('publicPositions'),p);
   $('publicNotice').textContent=(p.return_basis||'초기 KRW 평가액 대비 (외부 입출금 반영)')+(p.errors.length?' · '+p.errors.join(' · '):'')+(p.stale?' · 마지막 시세 기준 평가':'');}
 function rankOf(username){if(!rankingCache||rankingCache.incomplete&&!rankingCache.rows?.length)return null;const row=(rankingCache.rows||[]).find(r=>r.username===username);return row?row.rank:null;}

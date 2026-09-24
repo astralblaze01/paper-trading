@@ -296,12 +296,13 @@ def public_portfolio(username: str, uid=Depends(current_user)):
         target=db.scalar(select(User).where(User.username==username,User.active.is_(True),User.is_admin.is_(False)))
         if not target: raise HTTPException(404,'공개 포트폴리오를 찾을 수 없습니다.')
         target_id=target.id
-        from .accounts import profile_of
+        from .accounts import profile_of, membership_days
         profile=profile_of(db,target_id)
+        member={'member_since':target.created_at,'member_days':membership_days(target.created_at)}
     p=wallet_portfolio(target_id,market,fx)
     # Explicit read-only projection. No internal IDs, credentials, admin memo,
     # transactions or order IDs.
-    return {k:p[k] for k in ('username','wallets','positions','equity','equity_usd','base_currency','pnl','return_pct','return_basis','fx','errors','stale')}|{'profile':profile}
+    return {k:p[k] for k in ('username','wallets','positions','equity','equity_usd','base_currency','pnl','return_pct','return_basis','fx','errors','stale')}|{'profile':profile}|member
 
 
 @app.get('/api/transactions')

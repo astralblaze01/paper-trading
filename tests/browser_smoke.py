@@ -229,6 +229,8 @@ with sync_playwright() as p:
         other.click()
         expect(page.locator('#publicTitle')).to_contain_text(other_name+'님의 투자 현황')
         expect(page.locator('#publicProfile .profile-name')).to_have_text(other_name)
+        expect(page.locator('#publicProfile .member-days')).to_contain_text('가입 기간')
+        expect(page.locator('#publicProfile .member-days dd')).to_have_text(re.compile(r'^[0-9,]+일$'))
         expect(page.locator('#publicProfile')).not_to_contain_text('소개 수정')
         expect(page.locator('#publicProfile')).not_to_contain_text('사진 변경')
         expect(page.locator('#publicAllocation .allocation-legend')).to_be_visible()

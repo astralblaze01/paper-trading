@@ -271,6 +271,7 @@ def test_public_profile_hides_private_fields_and_cannot_be_edited_by_others(clie
     public = other.get('/api/portfolios/owner').json()
     assert public['profile'] == {'bio': '미국 성장주와 ETF 위주', 'image_version': 0}
     assert public['equity_usd'] == 100000
+    assert public['member_days'] == 1 and public['member_since']  # same rule as the own profile
     text = str(public)
     for secret in ('password', 'argon2', 'user_id', "'id'", 'note', 'csrf'):
         assert secret not in text

@@ -40,8 +40,8 @@ window.renderProfileCard=function(target,p,editable){
   }
   const stats=node('dl',null,'profile-stats');
   stats.append(profileStat('랭킹',p.rank?`${p.rank}위`:'—'),profileStat('누적 수익률',signedPct(p.return_pct)),profileStat('총 평가금액',viewMoney(p.equity_usd,'USD')));
-  // Own profile only: days since sign-up, the sign-up day counting as day 1.
-  if(editable&&p.member_days){const since=profileStat('가입 기간',`${p.member_days.toLocaleString()}일`);since.classList.add('member-days');if(p.member_since)since.title=new Date(p.member_since).toLocaleDateString('ko-KR',{timeZone:'Asia/Seoul'})+' 가입';stats.append(since);}
+  // Days since sign-up in Korea time, the sign-up day counting as day 1 (own and public profiles).
+  if(p.member_days){const since=profileStat('가입 기간',`${p.member_days.toLocaleString()}일`);since.classList.add('member-days');if(p.member_since)since.title=new Date(p.member_since).toLocaleDateString('ko-KR',{timeZone:'Asia/Seoul'})+' 가입';stats.append(since);}
   info.append(stats);
   target.append(media,info);
 };
