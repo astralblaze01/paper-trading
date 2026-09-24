@@ -39,7 +39,7 @@ window.renderProfileCard=function(target,p,editable){
     if(editable){const edit=node('button','소개 수정','text-button');edit.type='button';edit.addEventListener('click',()=>{bioEditing=true;bioDraft=myProfile?.bio||'';renderMyProfile();});info.append(edit);}
   }
   const stats=node('dl',null,'profile-stats');
-  stats.append(profileStat('랭킹',p.rank?`${p.rank}위`:'—'),profileStat('누적 수익률',signedPct(p.return_pct)),profileStat('총 평가금액',nativeMoney(p.equity_usd,'USD')));
+  stats.append(profileStat('랭킹',p.rank?`${p.rank}위`:'—'),profileStat('누적 수익률',signedPct(p.return_pct)),profileStat('총 평가금액',viewMoney(p.equity_usd,'USD')));
   info.append(stats);
   target.append(media,info);
 };

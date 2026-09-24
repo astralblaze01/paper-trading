@@ -63,7 +63,8 @@ function renderRanking(){if(!rankingCache)return;
         : `기준 ${asOf} · 다음 갱신 ${next}${markets?' · '+markets:''} · 10초 단위`);
   }
   const person=x=>{const box=document.createElement('span');box.className='rank-user';if(window.avatar)box.append(avatar(x.username,x.image_version,'small'));box.append(userLink(x.username));return box;};
-  table($('ranking'),['순위','사용자 · 프로필 보기','총 평가금액 (USD)','누적 수익률'],rankingCache.rows.map(x=>[x.rank,person(x),nativeMoney(x.equity_usd,'USD'),signedPct(x.return_pct)]));
+  // Ranked by USD value; shown in the selected display currency at the snapshot's rate.
+  table($('ranking'),['순위','사용자 · 프로필 보기','총 평가금액 ('+viewCurrency('USD')+')','누적 수익률'],rankingCache.rows.map(x=>[x.rank,person(x),viewMoney(x.equity_usd,'USD',x.fx||viewFx),signedPct(x.return_pct)]));
   if(window.renderMyProfile)renderMyProfile();
 }
 function syncCurrency(){$('displayCurrency').value=displayMode;$('displayRateNote').textContent=viewFx?`${viewFx.date} 기준 · 1 USD = ${Number(viewFx.rate).toLocaleString('ko-KR',{maximumFractionDigits:2})} KRW · 환산 표시만 변경`:'환율 확인 중';}

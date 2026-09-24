@@ -360,3 +360,13 @@ def test_dividend_yield_statuses():
     class Empty:
         def get(self, *args): return {'output1': []}
     assert dividend_info('KR:035720', type('M', (), {'kr': Empty()})())['status'] == 'none'
+
+
+def test_reads_and_previews_do_not_spend_the_trade_limit(client):
+    headers = {'x-csrf-token': register(client, 'sender')}
+    other, _ = second_client('receiver'); other.close()
+    body = {'recipient': 'receiver', 'currency': 'USD', 'amount': '1'}
+    for _ in range(35):
+        assert client.get('/api/limit-orders').status_code == 200
+        assert client.post('/api/transfers/preview', headers=headers, json=body).status_code == 200
+    assert client.post('/api/transfers', headers=headers, json=body | {'request_id': str(uuid4())}).status_code == 200
