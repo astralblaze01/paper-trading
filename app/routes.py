@@ -8,7 +8,7 @@ from fastapi import Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select, func, delete, text
 from sqlalchemy.dialects.postgresql import insert
-from .db import Session, User, Wallet, Position, Transaction, FxTransaction, Watchlist, PopularityEvent, Settings, SeasonArchive, WeeklyState, LimitOrder, AdminAudit, WalletTransfer
+from .db import Session, User, Wallet, Position, Transaction, FxTransaction, Watchlist, PopularityEvent, Settings, SeasonArchive, WeeklyState, LimitOrder, AdminAudit, WalletTransfer, UserAdminNote
 from .instruments import SYMBOL_PATTERN, valid_symbol, instrument, CATALOG
 from .market import MarketError
 from .fx import preview, exchange
@@ -58,7 +58,7 @@ def curated_market_rows(market, asset, kind, unavailable=None):
             failures.append(str(exc))
             row |= {'price':None,'change_pct':None,'volume':None,'turnover':None,'data_time':None,'data_status':str(exc)}
         rows.append(row)
-    sort_key='turnover' if kind=='volume' else 'change_pct'
+    sort_key={'volume':'turnover','shares':'volume'}.get(kind,'change_pct')
     def score(row):
         try:
             value=Decimal(str(row.get(sort_key)))
@@ -71,8 +71,9 @@ def curated_market_rows(market, asset, kind, unavailable=None):
         rows.sort(key=lambda r:(scores[r['symbol']] is None,
                                 -scores[r['symbol']] if kind!='down' and scores[r['symbol']] is not None else scores[r['symbol']] or Decimal(0)))
     notes=['등록 종목의 실제 공급자 시세입니다. 전체 시장 순위가 아닙니다.']
-    if kind=='volume' and not priced: notes.append('이 시세 공급자는 거래대금을 제공하지 않아 거래대금순으로 정렬할 수 없습니다.')
-    if kind=='volume' and priced: notes.append('거래대금이 제공된 종목만 그 금액으로 정렬하고 나머지는 뒤에 표시합니다.')
+    measure={'volume':'거래대금','shares':'거래량'}.get(kind)
+    if measure and not priced: notes.append(f'이 시세 공급자는 {measure}을 제공하지 않아 {measure}순으로 정렬할 수 없습니다.')
+    if measure and priced: notes.append(f'{measure}이 제공된 종목만 그 값으로 정렬하고 나머지는 뒤에 표시합니다.')
     if unavailable: notes.append(str(unavailable))
     if failures: notes.append(f'{len(failures)}개 종목 시세 조회 실패/공급자 설정 필요')
     return {'rows':rows,'scope':'등록 종목 둘러보기','notice':' '.join(notes),'unavailable':bool(unavailable),
@@ -113,7 +114,13 @@ def install(app,ctx):
     def order_preview(symbol: str, side: Literal['buy','sell']='buy', quantity: int=Query(1,ge=1,le=1000000),share: int|None=Query(None),uid=Depends(user)):
         if not valid_symbol(symbol): raise HTTPException(422,'잘못된 종목코드입니다.')
         if share is not None and share not in (5,10,25,50,100): raise HTTPException(422,'지원하지 않는 수량 비율입니다.')
-        return preview_order(uid,symbol,side,quantity,ctx.market,share=share)
+        return preview_order(uid,symbol,side,quantity,ctx.market,share=share)|{'market_closed':ctx.closed_market_message(symbol)}
+
+    @app.get('/api/wallets')
+    def wallet_balances(uid=Depends(user)):
+        with Session.begin() as db:
+            u=db.scalar(select(User).where(User.id==uid).with_for_update())
+            return {c:w.balance for c,w in wallets(db,u).items()}
 
     @app.get('/api/fx')
     def fx_rate(uid=Depends(user)): return ctx.fx.current_rate('USD','KRW')
@@ -144,7 +151,7 @@ def install(app,ctx):
     @app.get('/api/market-status/{symbol}')
     def status(symbol:str,uid=Depends(user)): return provider(symbol).market_status()
     @app.get('/api/explore')
-    def explore(market:Literal['US','KR']='US',asset:Literal['kr','us','kr_bond','us_bond','gold']|None=None,kind:Literal['volume','up','down','popular']='volume',hours:Literal[1,24]=24,uid=Depends(user)):
+    def explore(market:Literal['US','KR']='US',asset:Literal['kr','us','kr_bond','us_bond','gold']|None=None,kind:Literal['volume','shares','up','down','popular']='volume',hours:Literal[1,24]=24,uid=Depends(user)):
         asset=asset or ('kr' if market=='KR' else 'us')
         market='KR' if asset in ('kr','kr_bond') else 'US'
         if kind=='popular':
@@ -172,6 +179,7 @@ def install(app,ctx):
         p=ctx.market.providers[market]
         try:
             # Provider results are cached. Never append UI notices onto that shared object.
+            # kind 'volume' is the historical name of the turnover (거래대금) ranking.
             result=dict(p.volume_leaders() if kind=='volume' else p.movers(kind))
             result['rows']=[r for r in result['rows'] if instrument(r['symbol'])['category']==asset]
             result['rows']=result['rows'][:100]
@@ -205,7 +213,8 @@ def install(app,ctx):
     def admin_info(uid=Depends(admin)):
         names=['TRANSFER_FEE_BPS','FX_FEE_BPS','FX_SPREAD_BPS','US_BUY_FEE_BPS','US_SELL_FEE_BPS','KR_BUY_FEE_BPS','KR_SELL_FEE_BPS','KR_SELL_TAX_BPS']
         with Session() as db:
-            users=[{'id':u.id,'username':u.username,'active':u.active,'admin':u.is_admin,'initial_usd':u.initial_usd,'initial_krw':u.initial_krw,'wallets':{w.currency:w.balance for w in db.scalars(select(Wallet).where(Wallet.user_id==u.id))}} for u in db.scalars(select(User).order_by(User.id))]
+            notes=dict(db.execute(select(UserAdminNote.user_id,UserAdminNote.note)).all())
+            users=[{'id':u.id,'username':u.username,'active':u.active,'admin':u.is_admin,'initial_usd':u.initial_usd,'initial_krw':u.initial_krw,'note':notes.get(u.id,''),'wallets':{w.currency:w.balance for w in db.scalars(select(Wallet).where(Wallet.user_id==u.id))}} for u in db.scalars(select(User).order_by(User.id))]
             amount=initial_amount(db)
             counts={'users':db.scalar(select(func.count()).select_from(User)),'transactions':db.scalar(select(func.count()).select_from(Transaction)),'positions':db.scalar(select(func.count()).select_from(Position)),'pending_orders':db.scalar(select(func.count()).select_from(LimitOrder).where(LimitOrder.status=='pending')),'transfers':db.scalar(select(func.count()).select_from(WalletTransfer))}
         return {'users':users,'initial_usd':amount,'fees':{n:bps(n,'10' if n in ('FX_FEE_BPS','TRANSFER_FEE_BPS') else '5' if n=='FX_SPREAD_BPS' else '0') for n in names},'health':ctx.health(),'providers':ctx.market.status(),'counts':counts}

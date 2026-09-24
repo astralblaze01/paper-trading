@@ -1,7 +1,7 @@
 import os
 from decimal import Decimal
 from datetime import datetime
-from sqlalchemy import create_engine, String, Numeric, Integer, ForeignKey, DateTime, Boolean, CheckConstraint, UniqueConstraint, URL
+from sqlalchemy import create_engine, String, Numeric, Integer, ForeignKey, DateTime, Boolean, CheckConstraint, UniqueConstraint, URL, LargeBinary
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 url = os.getenv('DATABASE_URL') or URL.create('postgresql+psycopg', username='paper', password=os.environ['DB_PASSWORD'], host=os.getenv('DB_HOST', 'db'), database='paper')
@@ -172,8 +172,9 @@ class AdminAudit(Base):
 class WalletTransfer(Base):
     __tablename__ = 'wallet_transfers'
     id: Mapped[int] = mapped_column(primary_key=True)
-    sender_id: Mapped[int] = mapped_column(ForeignKey('users.id'), index=True)
-    recipient_id: Mapped[int] = mapped_column(ForeignKey('users.id'), index=True)
+    # NULL once that side withdraws: the counterparty keeps its history.
+    sender_id: Mapped[int | None] = mapped_column(ForeignKey('users.id'), index=True, nullable=True)
+    recipient_id: Mapped[int | None] = mapped_column(ForeignKey('users.id'), index=True, nullable=True)
     request_id: Mapped[str] = mapped_column(String(36))
     currency: Mapped[str] = mapped_column(String(3))
     amount: Mapped[Decimal] = mapped_column(Numeric(24,4))
@@ -183,3 +184,28 @@ class WalletTransfer(Base):
     rate_date: Mapped[str] = mapped_column(String(10))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     __table_args__ = (UniqueConstraint('sender_id','request_id'), CheckConstraint('amount > 0'), CheckConstraint('fee >= 0'), CheckConstraint('sender_id != recipient_id'))
+
+class UserAdminNote(Base):
+    """Administrator-only memo. Kept out of users so no user projection can leak it."""
+    __tablename__ = 'user_admin_notes'
+    user_id: Mapped[int] = mapped_column(ForeignKey('users.id'), primary_key=True)
+    note: Mapped[str] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+class UserProfile(Base):
+    __tablename__ = 'user_profiles'
+    user_id: Mapped[int] = mapped_column(ForeignKey('users.id'), primary_key=True)
+    bio: Mapped[str] = mapped_column(String(160), default='', server_default='')
+    # 0 means no image; bumped on every change so avatar URLs can be cached.
+    image_version: Mapped[int] = mapped_column(Integer, default=0, server_default='0')
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+class UserProfileImage(Base):
+    """Re-encoded WebP bytes; the uploaded file and its name are never stored."""
+    __tablename__ = 'user_profile_images'
+    user_id: Mapped[int] = mapped_column(ForeignKey('users.id'), primary_key=True)
+    content_type: Mapped[str] = mapped_column(String(20))
+    data: Mapped[bytes] = mapped_column(LargeBinary)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

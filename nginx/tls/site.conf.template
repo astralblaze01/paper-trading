@@ -35,6 +35,16 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Request-ID $request_id;
     }
+    # Profile images: the app re-checks the 5MB limit and the image content.
+    location = /api/profile/image {
+        client_max_body_size 6m;
+        limit_req zone=api burst=10 nodelay;
+        limit_req_status 429;
+        proxy_pass $web_upstream;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Request-ID $request_id;
+    }
     location / {
         limit_req zone=api burst=30 nodelay;
         limit_req_status 429;

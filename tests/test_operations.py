@@ -75,14 +75,17 @@ def test_rebase_preserves_assets_clear_archives_and_removes_records(client):
         db.add(WalletTransfer(sender_id=admin_id,recipient_id=uid,request_id=str(uuid4()),currency='USD',amount=10,fee=0,fee_bps=0,fx_rate=1000,rate_date='2026-09-24',created_at=datetime.now(timezone.utc)))
     assert client.post(f'/api/admin/users/{uid}/manage',headers=headers,json=command('rebase')).status_code==200
     with Session() as db: assert db.scalar(select(func.count()).select_from(Transaction))==1
-    assert client.post(f'/api/admin/users/{uid}/manage',headers=headers,json=command('clear')).status_code==422
-    assert client.post(f'/api/admin/users/{uid}/manage',headers=headers,json=command('clear',confirmation='CLEAR investor')).status_code==200
+    # No target confirmation phrase is required any more.
+    assert client.post(f'/api/admin/users/{uid}/manage',headers=headers,json=command('clear',confirmation='')).status_code==200
     with Session() as db:
         assert db.scalar(select(func.count()).select_from(Transaction))==0
         assert db.scalar(select(SeasonArchive)).data['transactions'][0]['quantity']==2
         assert db.get(Wallet,(uid,'USD')).balance==100000
         assert db.get(User,uid).net_contributions_krw==0
-        assert db.scalar(select(func.count()).select_from(WalletTransfer))==0
+        # The transfer also belongs to the sender: it stays in their history
+        # and is only hidden from the reset account.
+        assert db.scalar(select(func.count()).select_from(WalletTransfer))==1
+        assert db.get(User,uid).records_since is not None
 
 def test_normal_user_cannot_admin_manage(client):
     token=register(client)
@@ -108,7 +111,8 @@ def test_company_cache_and_provider_outage():
         def get(self,*args):self.calls+=1;return {'name':'Test Co','finnhubIndustry':'Technology','weburl':'https://example.com'}
     m=type('M',(),{'us':Adapter()})()
     assert company_info('PROFILETEST',m)['name']=='Test Co'
-    company_info('PROFILETEST',m);assert m.us.calls==1
+    calls=m.us.calls  # profile + dividend metric
+    company_info('PROFILETEST',m);assert m.us.calls==calls==2
     m.us.get=lambda *args:(_ for _ in ()).throw(MarketError('offline'))
     assert company_info('OFFLINETEST',m)['notice']
 

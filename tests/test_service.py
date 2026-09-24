@@ -53,9 +53,12 @@ def client():
 FakeMarket.client = type('Client', (), {'close': lambda self: None})()
 
 def register(c, name='alice'):
+    """Create an account, then sign in: registration itself does not log in."""
     token = c.get('/api/session').json()['csrf']
-    r = c.post('/api/register', headers={'x-csrf-token': token}, json={'username': name, 'password': 'a-secure-password-123'})
+    credentials = {'username': name, 'password': 'a-secure-password-123'}
+    r = c.post('/api/register', headers={'x-csrf-token': token}, json=credentials | {'password_confirm': credentials['password']})
     assert r.status_code == 200, r.text
+    assert c.post('/api/login', headers={'x-csrf-token': token}, json=credentials).status_code == 200
     return c.get('/api/session').json()['csrf']
 
 def order(**changes):
@@ -190,7 +193,7 @@ def test_ranking(client):
     r=client.get('/api/ranking').json()
     assert r['rows'][0]['username']=='alice'
     assert float(r['rows'][0]['return_pct'])==0
-    assert r['base_currency']=='KRW'
+    assert r['base_currency']=='USD' and Decimal(str(r['rows'][0]['equity_usd']))==100000
     assert r['refresh_interval_seconds']==10
     assert r['return_basis']=='초기 KRW 평가액 대비 (외부 입출금 반영)'
     assert r['next_refresh_at']
@@ -227,18 +230,27 @@ def test_ranking_ten_second_boundary_and_last_good_snapshot(client,monkeypatch):
     with Session.begin() as db: db.scalar(select(User).where(User.username=='alice')).is_admin=True
     assert not client.get('/api/ranking').json()['rows']
 
-def test_eight_character_password_registration_and_login(client):
+def test_registration_validation_and_separate_login(client):
     token = client.get('/api/session').json()['csrf']
     headers = {'x-csrf-token': token}
-    assert client.post('/api/register', headers=headers, json={
-        'username': 'shortpass', 'password': '1234567'
-    }).status_code == 422
-    credentials = {'username': 'eightpass', 'password': 'abcd1234'}
-    assert client.post('/api/register', headers=headers, json=credentials).status_code == 200
-    token = client.get('/api/session').json()['csrf']
-    assert client.post('/api/logout', headers={'x-csrf-token': token}, json={}).status_code == 200
-    token = client.get('/api/session').json()['csrf']
-    assert client.post('/api/login', headers={'x-csrf-token': token}, json=credentials).status_code == 200
+    def signup(username, password, confirm=None):
+        return client.post('/api/register', headers=headers, json={'username': username, 'password': password, 'password_confirm': password if confirm is None else confirm})
+    assert signup('shortpass', '1234567').status_code == 422
+    assert signup('', 'abcd1234').status_code == 422
+    assert signup('emptypass', '').status_code == 422
+    mismatch = signup('mismatch', 'abcd1234', 'abcd12345')
+    assert mismatch.status_code == 422 and mismatch.json()['detail'] == '비밀번호가 일치하지 않습니다.'
+    assert client.post('/api/register', headers=headers, json={'username': 'noconfirm', 'password': 'abcd1234'}).status_code == 422
+    with Session() as db: assert not db.scalar(select(func.count()).select_from(User))
+    assert signup('eightpass', 'abcd1234').json() == {'ok': True, 'username': 'eightpass'}
+    # A new account signs in from the start page; registration itself does not log in.
+    assert client.get('/api/session').json()['username'] is None
+    assert signup('EightPass', 'abcd1234').status_code == 409
+    with Session() as db:
+        user = db.scalar(select(User).where(User.username == 'eightpass'))
+        assert user.password_hash.startswith('$argon2') and 'abcd1234' not in user.password_hash
+    assert client.post('/api/login', headers=headers, json={'username': 'eightpass', 'password': 'abcd1234'}).status_code == 200
+    assert client.get('/api/session').json()['username'] == 'eightpass'
 
 def test_korean_trade_stores_fx_and_preserves_usd_account():
     uid = seed()

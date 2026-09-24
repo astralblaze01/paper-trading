@@ -71,3 +71,9 @@ def migrate(engine):
             db.execute(text('CREATE INDEX IF NOT EXISTS idx_limit_orders_user_created_at ON limit_orders(user_id, created_at DESC)'))
             db.execute(text('CREATE INDEX IF NOT EXISTS idx_limit_orders_symbol ON limit_orders(symbol)'))
             db.execute(text('INSERT INTO schema_migrations(version) VALUES (6)'))
+
+        if not db.scalar(text('SELECT 1 FROM schema_migrations WHERE version=7')):
+            # Transfers survive a withdrawal with the departed side detached.
+            db.execute(text('ALTER TABLE wallet_transfers ALTER COLUMN sender_id DROP NOT NULL'))
+            db.execute(text('ALTER TABLE wallet_transfers ALTER COLUMN recipient_id DROP NOT NULL'))
+            db.execute(text('INSERT INTO schema_migrations(version) VALUES (7)'))

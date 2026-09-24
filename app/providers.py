@@ -122,7 +122,7 @@ class USProvider:
             except (httpx.HTTPError,ValueError): raise MarketError('미국 순위 공급자 한도/응답 오류입니다.')
         return self.cache.get('leaders',3600,load)
     def _alpha_movers(self,direction):
-        data=self._leaders(); key={'up':'top_gainers','down':'top_losers','volume':'most_actively_traded'}[direction]
+        data=self._leaders(); key={'up':'top_gainers','down':'top_losers','volume':'most_actively_traded','shares':'most_actively_traded'}[direction]
         rows=[]
         for row in data.get(key,[]):
             if valid_symbol(row['ticker']):
@@ -131,13 +131,16 @@ class USProvider:
                 except (ArithmeticError,ValueError): estimated=None
                 rows.append({'symbol':row['ticker'],'name':row['ticker'],'price':row['price'],'change_pct':row['change_percentage'].rstrip('%'),'volume':row['volume'],'turnover':estimated,'turnover_estimated':True,'market':'US','currency':'USD','data_time':data.get('last_updated'),'data_status':'공급자 순위 스냅샷 · 실시간 아님'})
         if direction=='volume': rows.sort(key=lambda r:Decimal(str(r['turnover'] or 0)) if r['turnover'] is not None else Decimal(0),reverse=True)
-        return {'rows':rows,'source':'Alpha Vantage','data_time':data.get('last_updated'),'scope':'미국 거래량 상위 후보 · 거래대금 추정 정렬' if direction=='volume' else '미국 시장 · 공급자 순위','notice':'미국 거래대금은 스냅샷 가격×누적 거래량 추정치입니다. 전체 시장 거래대금 상위 순위는 아닙니다.' if direction=='volume' else '요금제별 갱신 주기/데이터 권한이 적용됩니다.'}
-    def _kis_rank_rows(self):
+        if direction=='shares': rows.sort(key=lambda r:Decimal(str(r['volume'] or 0)),reverse=True)
+        return {'rows':rows,'source':'Alpha Vantage','data_time':data.get('last_updated'),'scope':'미국 거래량 상위 후보 · 거래대금 추정 정렬' if direction=='volume' else '미국 거래량 상위' if direction=='shares' else '미국 시장 · 공급자 순위','notice':'미국 거래대금은 스냅샷 가격×누적 거래량 추정치입니다. 전체 시장 거래대금 상위 순위는 아닙니다.' if direction=='volume' else '요금제별 갱신 주기/데이터 권한이 적용됩니다.'}
+    def _kis_rank_rows(self,measure='turnover'):
         if not self.kis or not self.kis.configured: raise MarketError('KIS 미국 순위 공급자 설정이 필요합니다.')
+        # Same response layout for both KIS rankings: 거래대금(trade-pbmn), 거래량(trade-vol).
+        path,tr_id,label={'turnover':('trade-pbmn','HHDFS76320010','거래대금'),'volume':('trade-vol','HHDFS76310010','거래량')}[measure]
         def load():
             rows=[]; stamp=datetime.now(timezone.utc).isoformat()
             for exchange in ('NAS','NYS','AMS'):
-                data=self.kis.get('/uapi/overseas-stock/v1/ranking/trade-pbmn','HHDFS76320010',
+                data=self.kis.get('/uapi/overseas-stock/v1/ranking/'+path,tr_id,
                     {'EXCD':exchange,'NDAY':'0','VOL_RANG':'0','AUTH':'','KEYB':'','PRC1':'','PRC2':''},30)
                 for raw in data.get('output2') or []:
                     symbol=str(raw.get('symb','')).upper()
@@ -149,15 +152,19 @@ class USProvider:
                     except (KeyError,TypeError,ValueError,ArithmeticError): continue
                     rows.append({'symbol':symbol,'name':raw.get('name') or raw.get('ename') or symbol,'price':price,
                                  'change_pct':change,'volume':volume,'turnover':turnover,'market':'US','currency':'USD',
-                                 'data_time':stamp,'data_status':f'KIS {exchange} 당일 거래대금 순위 · 30초 확인'})
+                                 'data_time':stamp,'data_status':f'KIS {exchange} 당일 {label} 순위 · 30초 확인'})
             # A security can occasionally appear in more than one exchange result.
             unique={}
             for row in rows:
-                if row['symbol'] not in unique or row['turnover']>unique[row['symbol']]['turnover']: unique[row['symbol']]=row
-            if not unique: raise MarketError('KIS 미국 거래대금 순위를 불러오지 못했습니다.')
+                if row['symbol'] not in unique or row[measure]>unique[row['symbol']][measure]: unique[row['symbol']]=row
+            if not unique: raise MarketError(f'KIS 미국 {label} 순위를 불러오지 못했습니다.')
             return list(unique.values()),stamp
-        return self.cache.get('kis-us-rank',30,load)
+        return self.cache.get('kis-us-rank' if measure=='turnover' else 'kis-us-rank-'+measure,30,load)
     def _kis_movers(self,direction):
+        if direction=='shares':
+            rows,stamp=self._kis_rank_rows('volume')
+            return {'rows':sorted(rows,key=lambda r:r['volume'],reverse=True)[:100],'source':'KIS','data_time':stamp,'scope':'미국 거래량 순위',
+                    'notice':'NASDAQ·NYSE·AMEX의 KIS 당일 누적 거래량 자료를 30초마다 다시 확인합니다.'}
         rows,stamp=self._kis_rank_rows()
         if direction=='volume': rows=sorted(rows,key=lambda r:r['turnover'],reverse=True)
         elif direction=='up': rows=sorted(rows,key=lambda r:r['change_pct'],reverse=True)
@@ -223,10 +230,10 @@ class KRProvider:
     def movers(self,direction):
         def load():
             common={'FID_COND_MRKT_DIV_CODE':'J','FID_INPUT_ISCD':'0000','FID_DIV_CLS_CODE':'0','FID_TRGT_CLS_CODE':'0','FID_TRGT_EXLS_CLS_CODE':'0','FID_INPUT_PRICE_1':'','FID_INPUT_PRICE_2':'','FID_VOL_CNT':''}
-            if direction=='volume':
+            if direction in ('volume','shares'):
                 path='/uapi/domestic-stock/v1/quotations/volume-rank'; tr='FHPST01710000'
-                # KIS 20171: 3 requests 거래금액순 rather than 거래량순 (0).
-                params=common|{'FID_COND_SCR_DIV_CODE':'20171','FID_BLNG_CLS_CODE':'3','FID_INPUT_DATE_1':''}
+                # KIS 20171: 3 requests 거래금액순, 0 requests 거래량순.
+                params=common|{'FID_COND_SCR_DIV_CODE':'20171','FID_BLNG_CLS_CODE':'3' if direction=='volume' else '0','FID_INPUT_DATE_1':''}
             else:
                 path='/uapi/domestic-stock/v1/ranking/fluctuation'; tr='FHPST01700000'
                 params=common|{'FID_COND_SCR_DIV_CODE':'20170','FID_RANK_SORT_CLS_CODE':'0' if direction=='up' else '1','FID_INPUT_CNT_1':'0','FID_PRC_CLS_CODE':'0','FID_RSFL_RATE1':'','FID_RSFL_RATE2':''}
@@ -235,14 +242,16 @@ class KRProvider:
             for r in data.get('output',[]):
                 symbol='KR:'+r.get('mksc_shrn_iscd',r.get('stck_shrn_iscd',''))
                 if valid_symbol(symbol): rows.append({'symbol':symbol,'name':r.get('hts_kor_isnm',symbol),'price':r['stck_prpr'],'change_pct':r['prdy_ctrt'],'volume':r['acml_vol'],'turnover':r.get('acml_tr_pbmn'),'market':'KR','currency':'KRW','data_time':stamp,'data_status':'KIS 조회 스냅샷 · 조회 시각'})
-            sort_key='turnover' if direction=='volume' else 'change_pct'
+            sort_key={'volume':'turnover','shares':'volume'}.get(direction,'change_pct')
             def rank_value(row):
                 try:
                     value=Decimal(str(row.get(sort_key) or 0))
                     return value if value.is_finite() else Decimal(0)
                 except (ArithmeticError,ValueError): return Decimal(0)
             rows.sort(key=rank_value,reverse=direction!='down')
-            return {'rows':rows,'scope':'KRX · KIS 거래금액순' if direction=='volume' else 'KRX · 공급자 반환 순위','source':'KIS','data_time':stamp,'notice':'KIS 거래금액순(20171) 공급자가 반환한 종목만 표시합니다. 시각은 API 조회 시각입니다.' if direction=='volume' else '시각은 API 조회 시각입니다. 목록 가격으로 주문을 체결하지 않습니다.'}
+            scope={'volume':'KRX · KIS 거래금액순','shares':'KRX · KIS 거래량순'}.get(direction,'KRX · 공급자 반환 순위')
+            notice={'volume':'KIS 거래금액순(20171) 공급자가 반환한 종목만 표시합니다. 시각은 API 조회 시각입니다.','shares':'KIS 거래량순(20171) 공급자가 반환한 종목만 표시합니다. 시각은 API 조회 시각입니다.'}.get(direction,'시각은 API 조회 시각입니다. 목록 가격으로 주문을 체결하지 않습니다.')
+            return {'rows':rows,'scope':scope,'source':'KIS','data_time':stamp,'notice':notice}
         return self.cache.get(('leaders',direction),120,load)
     def volume_leaders(self): return self.movers('volume')
     def market_status(self):

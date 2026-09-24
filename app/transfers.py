@@ -3,11 +3,11 @@ from datetime import datetime,timezone
 from decimal import Decimal
 from typing import Literal
 from uuid import UUID
-from fastapi import Depends,HTTPException
+from fastapi import Depends,HTTPException,Query
 from pydantic import BaseModel,ConfigDict,Field,field_validator
 from sqlalchemy import select,text,or_
 from .db import Session,User,WalletTransfer
-from .money import wallets,rounded,bps
+from .money import wallets,rounded,bps,unit
 
 class TransferInput(BaseModel):
     model_config=ConfigDict(extra='forbid')
@@ -23,6 +23,15 @@ def estimate(data):
     if rounded(data.amount,data.currency)!=data.amount: raise HTTPException(422,'USD는 소수점 4자리, KRW는 1원 단위로 입력하세요.')
     fee_bps=bps('TRANSFER_FEE_BPS','10');fee=rounded(data.amount*fee_bps/10000,data.currency,up=True)
     return {'recipient':data.recipient,'currency':data.currency,'amount':data.amount,'fee':fee,'fee_bps':fee_bps,'total':data.amount+fee,'received':data.amount}
+
+def share_amount(balance,share,currency):
+    """Largest amount whose total deduction (amount + fee) fits in share% of balance."""
+    budget=rounded(Decimal(balance)*Decimal(share)/100,currency)
+    fee_bps=bps('TRANSFER_FEE_BPS','10')
+    fee=lambda amount:rounded(amount*fee_bps/10000,currency,up=True)
+    amount=rounded(budget/(1+fee_bps/10000),currency)
+    while amount>0 and amount+fee(amount)>budget: amount-=unit(currency)
+    return max(amount,Decimal(0)),budget,fee_bps
 
 def transfer(uid,data,fx):
     with Session.begin() as db:
@@ -59,6 +68,14 @@ def install_transfers(app,ctx):
         with Session() as db:
             rows=db.scalars(select(User).where(User.id!=uid,User.active.is_(True),User.username.ilike(f'%{query}%')).order_by(User.username).limit(8))
             return [{'username':u.username} for u in rows]
+    @app.get('/api/transfers/share')
+    def share(currency:Literal['USD','KRW'],percent:int=Query(ge=1,le=100),uid=Depends(ctx.current_user)):
+        if percent not in (5,10,25,50,100): raise HTTPException(422,'지원하지 않는 비율입니다.')
+        with Session.begin() as db:
+            sender=db.scalar(select(User).where(User.id==uid).with_for_update())
+            balance=wallets(db,sender)[currency].balance
+        amount,budget,fee_bps=share_amount(balance,percent,currency)
+        return {'currency':currency,'percent':percent,'balance':balance,'budget':budget,'amount':amount,'fee_bps':fee_bps}
     @app.post('/api/transfers/preview',dependencies=[Depends(ctx.csrf)])
     def preview(data:TransferInput,uid=Depends(ctx.current_user)):
         cost=estimate(data)
@@ -77,4 +94,4 @@ def install_transfers(app,ctx):
             user=db.get(User,uid);names=dict(db.execute(select(User.id,User.username)).all())
             query=select(WalletTransfer).where(or_(WalletTransfer.sender_id==uid,WalletTransfer.recipient_id==uid))
             if user.records_since:query=query.where(WalletTransfer.created_at>=user.records_since)
-            return [{'id':r.id,'direction':'sent' if r.sender_id==uid else 'received','counterparty':names[r.recipient_id if r.sender_id==uid else r.sender_id],'currency':r.currency,'amount':r.amount,'fee':r.fee if r.sender_id==uid else 0,'created_at':r.created_at} for r in db.scalars(query.order_by(WalletTransfer.id.desc()).limit(100))]
+            return [{'id':r.id,'direction':'sent' if r.sender_id==uid else 'received','counterparty':names.get(r.recipient_id if r.sender_id==uid else r.sender_id) or '탈퇴한 사용자','currency':r.currency,'amount':r.amount,'fee':r.fee if r.sender_id==uid else 0,'created_at':r.created_at} for r in db.scalars(query.order_by(WalletTransfer.id.desc()).limit(100))]

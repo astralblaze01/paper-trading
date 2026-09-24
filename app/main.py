@@ -108,15 +108,15 @@ async def no_cache(request, call_next):
     started=time.monotonic()
     supplied=request.headers.get('x-request-id','')
     request_id=supplied if re.fullmatch(r'[A-Za-z0-9._-]{1,80}',supplied) else secrets.token_hex(12)
-    category = 'auth' if path in ('/api/login','/api/register') else 'trade' if path in ('/api/orders','/api/fx/exchange','/api/limit-orders','/api/transfers','/api/transfers/preview') else 'market' if path.startswith(('/api/search','/api/quote','/api/candles','/api/explore','/api/order-preview','/api/fx/preview','/api/market-status','/api/company','/api/portfolios')) else 'event' if path=='/api/popularity' else None
+    category = 'auth' if path in ('/api/login','/api/register','/api/account/delete') else 'profile' if path.startswith('/api/profile') else 'trade' if path in ('/api/orders','/api/fx/exchange','/api/limit-orders','/api/transfers','/api/transfers/preview') else 'market' if path.startswith(('/api/search','/api/quote','/api/candles','/api/explore','/api/order-preview','/api/fx/preview','/api/market-status','/api/company','/api/portfolios')) else 'event' if path=='/api/popularity' else None
     if category:
         identity=request.headers.get('x-real-ip') or (request.client.host if request.client else 'unknown')
-        limit={'auth':20,'trade':30,'market':120,'event':60}[category]
+        limit={'auth':20,'trade':30,'market':120,'event':60,'profile':30}[category]
         if not limiter.allow((identity,category),limit):
             return JSONResponse(status_code=429,content={'detail':'요청이 너무 많습니다. 잠시 후 다시 시도하세요.'},headers={'Retry-After':'60','X-Request-ID':request_id})
     response = await call_next(request)
     response.headers['X-Request-ID']=request_id
-    if request.url.path.startswith('/api'):
+    if request.url.path.startswith('/api') and 'cache-control' not in response.headers:
         response.headers['Cache-Control'] = 'no-store'
     request_log.info('request completed',extra={'request_id':request_id,'user_id':request.scope.get('session',{}).get('uid'),'method':request.method,'path':path,'status_code':response.status_code,'duration_ms':round((time.monotonic()-started)*1000,2)})
     return response
@@ -146,6 +146,9 @@ class Credentials(BaseModel):
     @classmethod
     def normalize(cls, v): return v.lower()
 
+class Registration(Credentials):
+    password_confirm: str = Field(max_length=128)
+
 class Order(BaseModel):
     model_config = ConfigDict(extra='forbid')
     symbol: str = Field(pattern=SYMBOL_PATTERN)
@@ -173,7 +176,9 @@ def session(request: Request):
         return {'csrf': request.session['csrf'], 'username': user.username if user else None, 'is_admin': bool(user and user.is_admin), 'market_configured': bool(market.key), 'providers': market.status() if hasattr(market, 'status') else {'us': bool(market.key), 'kr': False}}
 
 @app.post('/api/register', dependencies=[Depends(csrf)])
-def register(data: Credentials, request: Request):
+def register(data: Registration, request: Request):
+    if not secrets.compare_digest(data.password.encode(), data.password_confirm.encode()):
+        raise HTTPException(422, '비밀번호가 일치하지 않습니다.')
     try:
         with Session.begin() as db:
             amount = initial_amount(db)
@@ -186,9 +191,8 @@ def register(data: Credentials, request: Request):
         raise HTTPException(409, '이미 사용 중인 사용자 이름입니다.')
     try: initialize_equity(uid, fx)
     except MarketError: pass
-    request.session.clear()
-    request.session.update(uid=uid, csrf=secrets.token_urlsafe(32))
-    return {'ok': True}
+    # Registration does not sign in; the new account logs in from the start page.
+    return {'ok': True, 'username': data.username}
 
 @app.post('/api/login', dependencies=[Depends(csrf)])
 def login(data: Credentials, request: Request):
@@ -225,6 +229,25 @@ def market_overview(uid=Depends(current_user)):
         rows.append(status)
     return {'markets':rows,'refreshed_at':datetime.now(timezone.utc),'refresh_seconds':60}
 
+# Sessions in which a new market order may settle. US extended sessions trade
+# when the provider has a current price; Korea trades in the regular session.
+ORDER_SESSIONS = {'KR': {'정규장'}, 'US': {'정규장', '프리장', '애프터장'}}
+
+def closed_market_message(symbol):
+    """Explain a closed market instead of a generic stale-price error.
+
+    An unknown status does not block: the quote checks still apply."""
+    code = 'KR' if symbol.startswith('KR:') else 'US'
+    provider = (getattr(market, 'providers', {}) or {}).get(code)
+    if provider is None or not hasattr(provider, 'market_status'): return None
+    try: label = (provider.market_status() or {}).get('label')
+    except (MarketError, KeyError, TypeError): return None
+    if label in (None, '장 상태 확인 불가') or label in ORDER_SESSIONS[code]: return None
+    name = '한국' if code == 'KR' else '미국'
+    if label == '휴장':
+        return f'오늘은 {name} 주식시장 휴장일이므로 주문할 수 없습니다. 다음 거래일 장 운영 시간에 다시 주문해주세요.'
+    return f'현재 {name} 주식시장이 휴장 중({label})이므로 주문할 수 없습니다. 장 운영 시간에 다시 주문해주세요.'
+
 @app.post('/api/orders', dependencies=[Depends(csrf)])
 def order(data: Order, uid=Depends(current_user)):
     with Session() as db:
@@ -233,6 +256,8 @@ def order(data: Order, uid=Depends(current_user)):
             if queued.order_type!='market' or (queued.symbol,queued.side,queued.quantity,queued.use_max)!=(data.symbol,data.side,data.quantity,data.use_max):
                 raise HTTPException(409,'동일 주문 ID에 다른 요청을 사용할 수 없습니다.')
             return {'id':queued.id,'pending':queued.status=='pending','status':queued.status,'replayed':True}
+    closed=closed_market_message(data.symbol)
+    if closed: raise HTTPException(409, closed)
     # New market orders either settle immediately against a current provider
     # quote or fail clearly. They are never silently converted into a queue.
     result=execute_order(uid, data, market)
@@ -269,9 +294,12 @@ def public_portfolio(username: str, uid=Depends(current_user)):
         target=db.scalar(select(User).where(User.username==username,User.active.is_(True),User.is_admin.is_(False)))
         if not target: raise HTTPException(404,'공개 포트폴리오를 찾을 수 없습니다.')
         target_id=target.id
+        from .accounts import profile_of
+        profile=profile_of(db,target_id)
     p=wallet_portfolio(target_id,market,fx)
-    # Explicit read-only projection. No transactions, account credentials or order IDs.
-    return {k:p[k] for k in ('username','wallets','positions','equity','base_currency','pnl','return_pct','return_basis','fx','errors','stale')}
+    # Explicit read-only projection. No internal IDs, credentials, admin memo,
+    # transactions or order IDs.
+    return {k:p[k] for k in ('username','wallets','positions','equity','equity_usd','base_currency','pnl','return_pct','return_basis','fx','errors','stale')}|{'profile':profile}
 
 
 @app.get('/api/transactions')
@@ -314,7 +342,7 @@ def ranking(uid=Depends(current_user)):
 
         ids=[uid for uid,_ in eligible]
         values=[wallet_portfolio(i,market,fx) for i in ids]
-        if any(v['return_pct'] is None for v in values):
+        if any(v['return_pct'] is None or v.get('equity_usd') is None for v in values):
             error='시세 또는 기준환율을 확인할 수 없어 랭킹을 보류합니다.'
             if cached:
                 return cached['payload'] | {
@@ -323,7 +351,7 @@ def ranking(uid=Depends(current_user)):
                     'next_refresh_at': next_boundary.isoformat(),
                 }
             payload={'rows': [], 'errors': [error], 'incomplete': True,
-                     'base_currency': 'KRW', 'updated_at': None,
+                     'base_currency': 'USD', 'updated_at': None,
                      'return_basis': RETURN_BASIS,
                      'stale': True,
                      'refresh_interval_seconds': 10}
@@ -331,11 +359,15 @@ def ranking(uid=Depends(current_user)):
             return payload | {'refreshed': True, 'market_open': state['open'],
                               'market_status': state['labels'],
                               'next_refresh_at': next_boundary.isoformat()}
-        values.sort(key=lambda x:(-x['return_pct'],x['username']))
-        payload={'rows':[{'rank':i+1,'username':v['username'],'equity':v['equity'],
-                         'return_pct':v['return_pct'],'stale':v['stale'],'fx':v['fx']}
-                        for i,v in enumerate(values)],
-                 'errors':[], 'incomplete':False, 'base_currency':'KRW',
+        # Rank by total value in USD; the cumulative return is display only.
+        ranked=sorted(zip(ids,values),key=lambda pair:(-pair[1]['equity_usd'],pair[1]['username']))
+        from .accounts import profile_versions
+        with Session() as db: versions=profile_versions(db,ids)
+        payload={'rows':[{'rank':i+1,'username':v['username'],'equity':v['equity'],'equity_usd':v['equity_usd'],
+                         'return_pct':v['return_pct'],'stale':v['stale'],'fx':v['fx'],
+                         'image_version':versions.get(i_id,0)}
+                        for i,(i_id,v) in enumerate(ranked)],
+                 'errors':[], 'incomplete':False, 'base_currency':'USD',
                  'updated_at': now.isoformat(),
                  'return_basis': RETURN_BASIS,
                  'stale': any(v['stale'] for v in values),
@@ -356,6 +388,8 @@ import sys
 install(app, sys.modules[__name__])
 from .transfers import install_transfers
 install_transfers(app, sys.modules[__name__])
+from .accounts import install_accounts
+install_accounts(app, sys.modules[__name__])
 
 
 @app.post('/internal/jobs')

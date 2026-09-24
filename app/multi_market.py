@@ -73,7 +73,7 @@ class KoreaPrices:
         return data
 
     def get(self, path, tr_id, params, ttl=15, tr_cont=''):
-        if not path.startswith(('/uapi/domestic-stock/v1/quotations/','/uapi/overseas-price/v1/quotations/','/uapi/overseas-stock/v1/ranking/')) and path != '/uapi/domestic-stock/v1/ranking/fluctuation':
+        if not path.startswith(('/uapi/domestic-stock/v1/quotations/','/uapi/overseas-price/v1/quotations/','/uapi/overseas-stock/v1/ranking/')) and path not in ('/uapi/domestic-stock/v1/ranking/fluctuation','/uapi/domestic-stock/v1/ksdinfo/dividend'):
             raise MarketError('허용되지 않은 시세 경로입니다.')
         def load():
             with self.lock:

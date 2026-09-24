@@ -58,6 +58,8 @@ def portfolio(uid, market, fx):
     initial=user.initial_krw
     return {'username':user.username,'wallets':balances,'cash':balances['USD'],'positions':rows,
             'equity':equity if complete else None,'base_currency':'KRW','initial_equity':initial,
+            # Rankings compare every account in USD at the current reference rate.
+            'equity_usd':(equity/rate['rate']).quantize(Decimal('.0001')) if complete else None,
             # Ranking, portfolio and public portfolio all use this same
             # definition.  External grants/transfers are removed from the
             # numerator through net_contributions_krw.
