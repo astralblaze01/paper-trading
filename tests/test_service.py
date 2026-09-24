@@ -331,7 +331,7 @@ def test_stale_fx_and_outage_rejected():
     m = ReferenceFX()
     m.client.close()
     old_date = (datetime.now(timezone.utc) - timedelta(days=8)).date().isoformat()
-    m.client = httpx.Client(base_url='https://test', transport=httpx.MockTransport(lambda r: httpx.Response(200, json={'base': 'KRW', 'quote': 'USD', 'rate': .0007, 'date': old_date})))
+    m.client = httpx.Client(base_url='https://test', transport=httpx.MockTransport(lambda r: httpx.Response(200, json={'base': 'USD', 'quote': 'KRW', 'rate': 1400, 'date': old_date})))
     try:
         with pytest.raises(MarketError): m.krw_to_usd()
     finally: m.client.close()
@@ -344,11 +344,11 @@ def test_fx_daily_rate_cache():
     calls = []
     def handler(request):
         calls.append(request)
-        return httpx.Response(200, json={'base': 'KRW', 'quote': 'USD', 'rate': .0007, 'date': datetime.now(timezone.utc).date().isoformat()})
+        return httpx.Response(200, json={'base': 'USD', 'quote': 'KRW', 'rate': 1400, 'date': datetime.now(timezone.utc).date().isoformat()})
     m.client = httpx.Client(base_url='https://test', transport=httpx.MockTransport(handler))
     try:
         rate, day = m.krw_to_usd()
-        assert rate == Decimal('.0007')
+        assert rate == Decimal('0.000714285714')
         m.krw_to_usd()
         assert len(calls) == 1
     finally: m.client.close()

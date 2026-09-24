@@ -112,20 +112,45 @@ class ReferenceFX:
             now = time.monotonic()
             if self.cached and now < self.expires: return self.cached
             if now < self.cooldown: raise MarketError('환율 조회를 잠시 후 다시 시도하세요.')
-            try:
-                r = self.client.get('/v2/providers/ecb/rate/KRW/USD')
-                r.raise_for_status()
-                data = r.json()
-                rate = Decimal(str(data['rate'])).quantize(Decimal('.000000000001'))
+            cache_key = 'market:fx:USD:KRW:v2'
+            def load():
+                try:
+                    # Request USD/KRW directly. The reverse endpoint is rounded
+                    # to too few decimal places and produces a distorted rate
+                    # when inverted for the user-facing USD/KRW quote.
+                    r = self.client.get('/v2/providers/ecb/rate/USD/KRW')
+                    r.raise_for_status()
+                    return r.json()
+                except (httpx.HTTPError, ValueError) as exc:
+                    raise MarketError('유효한 기준환율이 없어 한국 종목을 평가하거나 거래할 수 없습니다.') from exc
+            def parse(data):
+                usd_to_krw = Decimal(str(data['rate']))
                 day = date.fromisoformat(data['date'])
                 age = (datetime.now(timezone.utc).date() - day).days
-                if data['base'] != 'KRW' or data['quote'] != 'USD' or not rate.is_finite() or rate <= 0 or not 0 <= age <= 7:
+                if data['base'] != 'USD' or data['quote'] != 'KRW' or not usd_to_krw.is_finite() or usd_to_krw <= 0 or not 0 <= age <= 7:
                     raise ValueError('invalid FX rate')
-            except (httpx.HTTPError, KeyError, TypeError, ValueError, InvalidOperation) as exc:
+                return (Decimal(1) / usd_to_krw).quantize(Decimal('.000000000001')), day
+            try:
+                data=redis_cache.get_json(cache_key)
+                if data is not None:
+                    try:
+                        rate,day=parse(data)
+                    except (KeyError,TypeError,ValueError,InvalidOperation):
+                        redis_cache.delete(cache_key)
+                        data=None
+                if data is None:
+                    data=redis_cache.get_or_load(cache_key,1800,load)
+                    try:
+                        rate,day=parse(data)
+                    except (KeyError,TypeError,ValueError,InvalidOperation):
+                        redis_cache.delete(cache_key)
+                        raise
+            except (KeyError, TypeError, ValueError, InvalidOperation, MarketError) as exc:
                 self.cooldown = now + 60
+                if isinstance(exc,MarketError): raise
                 raise MarketError('유효한 기준환율이 없어 한국 종목을 평가하거나 거래할 수 없습니다.') from exc
             self.cached = (rate, day.isoformat())
-            self.expires = now + 3600
+            self.expires = now + 1800
             return self.cached
 
 class MultiMarket:
