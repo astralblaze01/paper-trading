@@ -98,6 +98,7 @@ async function boot() {
   const s = await api('session'); csrf = s.csrf;
   window.sessionUsername=s.username; window.isAdmin=!!s.is_admin; $('auth').hidden = !!s.username; $('dashboard').hidden = !s.username; $('logout').hidden = !s.username; $('adminNav').hidden = !s.is_admin;
   if(!s.username)showAuthView();
+  refreshNotice();
   document.querySelectorAll('.app-nav a').forEach(a=>{if(s.is_admin)a.hidden=a.id!=='adminNav';else if(a.id!=='adminNav')a.hidden=false;});
   const settings=document.querySelector('.view-settings');if(settings)settings.hidden=!!s.is_admin;
   const unavailable = [];
@@ -114,6 +115,11 @@ async function refreshMarketSessions(){
   try{const r=await api('market-overview');window.marketOpen=Object.fromEntries(r.markets.map(x=>[x.market,['정규장','장전','장후','프리장','애프터장'].includes(x.label)]));$('marketSessions').textContent=r.markets.map(x=>{const unsupported=x.market==='US'&&['프리장','애프터장'].includes(x.label)&&x.extended_prices===false?' (체결 시세 미지원)':'';return `${x.market==='KR'?'한국':'미국'} ${x.label}${unsupported}`;}).join(' · ');}catch(e){$('marketSessions').textContent='시장 상태 확인 불가';}
 }
 setInterval(()=>{if(!document.hidden)refreshMarketSessions();},60000);
+// Server maintenance notice set by an administrator: a banner only, nothing is blocked.
+function showMaintenanceNotice(on){$('maintenanceNotice').hidden=!on||!!window.isAdmin;}
+async function refreshNotice(){try{showMaintenanceNotice((await api('notice')).maintenance);}catch{}}
+setInterval(()=>{if(!document.hidden)refreshNotice();},30000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshNotice();});
 // The price collector fetches a symbol only after it is first requested, so a
 // holding can briefly have no price. Re-read the valuation until all are priced.
 let pricingRetryTimer=null;
@@ -172,7 +178,7 @@ function showAuthView(){const signup=location.hash==='#signup';$('authForm').hid
 window.addEventListener('hashchange',()=>{if(!window.sessionUsername)showAuthView();});
 // Note: the global history() below (transaction list) shadows window.history, so only the hash is used.
 $('showLogin').addEventListener('click',e=>{e.preventDefault();location.hash='';showAuthView();});
-handle('authForm', 'submit', async () => { $('loginSubmit').disabled=true; try { await api('login', {username: $('username').value, password: $('password').value}); } finally { $('loginSubmit').disabled=false; } $('password').value = ''; message(''); if(location.hash==='#signup')location.hash=''; await boot(); });
+handle('authForm', 'submit', async () => { $('loginSubmit').disabled=true; try { await api('login', {username: $('username').value, password: $('password').value}); } finally { $('loginSubmit').disabled=false; } $('password').value = ''; message(''); if(location.hash==='#signup')location.hash=''; await boot(); window.scrollTo(0,0); });
 function registerProblem(){
   const username=$('registerUsername').value.trim(),password=$('registerPassword').value,confirm=$('registerConfirm').value;
   if(!username)return '아이디를 입력하세요.';

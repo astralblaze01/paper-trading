@@ -443,3 +443,10 @@ table { font-size:15px; }
 .crop-zoom label { margin:0; flex-shrink:0; }
 .crop-zoom input[type="range"] { height:auto; padding:0; border:0; accent-color:var(--accent); }
 .crop-zoom .crop-step { min-width:40px; min-height:36px; padding:0; font-size:20px; line-height:1; }
+/* Advance notice of server maintenance (informational only). */
+.maintenance-notice { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 12px; padding:13px 18px; margin:0 0 24px; background:#eef4fd; border:1px solid #c9dbf5; border-left:4px solid var(--accent); border-radius:4px; color:#1f3b5c; }
+.maintenance-notice strong { font-weight:700; white-space:nowrap; }
+.maintenance-notice p { margin:0; font-size:15px; }
+.admin-maintenance { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px 24px; max-width:820px; padding:18px 24px; margin:0 0 24px; background:#fff; border:1px solid var(--border); border-radius:10px; }
+.admin-maintenance h3 { margin:0 0 4px; font-size:17px; }
+.admin-maintenance .field-help { margin:0; }

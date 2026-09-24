@@ -384,3 +384,22 @@ def test_fx_share_amounts_use_currency_units(client):
     body = {'source': 'KRW', 'amount': str(client.get('/api/fx/share?source=KRW&percent=100').json()['amount']), 'request_id': str(uuid4())}
     assert client.post('/api/fx/exchange', headers=headers, json=body).status_code == 200
     assert balances(uid_of('trader'))['KRW'] == 0
+
+
+def test_maintenance_notice_is_admin_controlled_and_blocks_nothing(client):
+    headers, uid = admin_and_user(client)
+    assert client.get('/api/notice').json() == {'maintenance': False}
+    other, other_headers = second_client('plain')
+    assert other.post('/api/admin/maintenance', headers=other_headers, json={'enabled': True}).status_code == 403
+    assert client.post('/api/admin/maintenance', headers=headers, json={'enabled': True}).json() == {'maintenance': True}
+    anonymous = TestClient(main.app, base_url='https://testserver')
+    assert anonymous.get('/api/notice').json() == {'maintenance': True}
+    anonymous.close()
+    assert client.get('/api/admin').json()['maintenance'] is True
+    # Only a notice: users keep trading while it is shown.
+    assert other.get('/api/portfolio').status_code == 200
+    assert other.post('/api/orders', headers=other_headers, json={'symbol': 'AAPL', 'side': 'buy', 'quantity': 1, 'request_id': str(uuid4())}).status_code == 200
+    assert client.post('/api/admin/maintenance', headers=headers, json={'enabled': False}).json() == {'maintenance': False}
+    assert other.get('/api/notice').json() == {'maintenance': False}
+    assert [r['action'] for r in client.get('/api/admin/audit').json()][:2] == ['maintenance_notice', 'maintenance_notice']
+    other.close()
