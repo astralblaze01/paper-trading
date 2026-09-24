@@ -21,7 +21,8 @@ function viewMoney(value,currency,rate=viewFx){return nativeMoney(viewValue(valu
 function signed(value,text){const n=document.createElement('span');n.className=value==null?'':Number(value)>0?'gain':Number(value)<0?'loss':'flat';n.textContent=text;return n;}
 function signedPct(value){return signed(value,value==null?'—':(Number(value)>0?'+':'')+pct(value));}
 function userLink(username){const a=document.createElement('a');a.href='#public/'+encodeURIComponent(username);a.textContent=username;a.className='user-link';return a;}
-function renderPositions(target,p){table(target,['종목','수량','평균가','현재가','평가액','미실현 손익','수익률'],p.positions.map(x=>[x.name+' · '+x.symbol,x.quantity,viewMoney(x.average_cost,x.currency),viewMoney(x.quote?.native_price??x.quote?.price,x.currency),viewMoney(x.value,x.currency),signed(x.pnl,viewMoney(x.pnl,x.currency)),signedPct(x.return_pct)]));}
+function stockLink(x){const a=document.createElement('a');a.href='#detail/'+encodeURIComponent(x.symbol);a.textContent=x.name+' · '+x.symbol;a.className='text-button portfolio-stock-link';return a;}
+function renderPositions(target,p){table(target,['종목','수량','평균가','현재가','평가액','미실현 손익','수익률'],p.positions.map(x=>[stockLink(x),x.quantity,viewMoney(x.average_cost,x.currency),viewMoney(x.quote?.native_price??x.quote?.price,x.currency),viewMoney(x.value,x.currency),signed(x.pnl,viewMoney(x.pnl,x.currency)),signedPct(x.return_pct)]));}
 function renderPortfolio(){const p=portfolioCache;if(!p)return;
   $('metrics').replaceChildren();
   const fields=[['총 평가금액',viewMoney(p.equity,'KRW')],['현금',viewMoney(p.wallets.USD,'USD')+' / '+viewMoney(p.wallets.KRW,'KRW')],['총 손익',viewMoney(p.pnl,'KRW'),p.pnl],['총 수익률',pct(p.return_pct),p.return_pct]];

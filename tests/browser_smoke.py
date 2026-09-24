@@ -104,7 +104,10 @@ with sync_playwright() as p:
         page.screenshot(path=f'/artifacts/watchlist-{width}.png',full_page=True)
         page.locator('a[href="#portfolio"]').click()
         expect(page.locator('#positions')).to_contain_text('AAPL')
+        expect(page.locator('#positions .portfolio-stock-link')).to_have_attribute('href','#detail/AAPL')
         page.screenshot(path=f'/artifacts/portfolio-{width}.png',full_page=True)
+        page.locator('#positions .portfolio-stock-link').click()
+        expect(page.locator('#detailTitle')).to_contain_text('Apple')
         page.locator('.app-nav a[href="#ranking"]').click()
         expect(page.locator('#rankingStatus')).to_contain_text('10초 단위')
         with page.expect_response(lambda r:r.url.endswith('/api/ranking'),timeout=15000):
