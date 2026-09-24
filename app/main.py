@@ -224,13 +224,9 @@ def order(data: Order, uid=Depends(current_user)):
             if queued.order_type!='market' or (queued.symbol,queued.side,queued.quantity,queued.use_max)!=(data.symbol,data.side,data.quantity,data.use_max):
                 raise HTTPException(409,'동일 주문 ID에 다른 요청을 사용할 수 없습니다.')
             return {'id':queued.id,'pending':queued.status=='pending','status':queued.status,'replayed':True}
-    try:
-        result=execute_order(uid, data, market)
-    except HTTPException as exc:
-        if exc.status_code!=409 or exc.detail not in ('오래된 시세로는 주문할 수 없습니다.','시세가 만료되었습니다.'):
-            raise
-        from .limits import pending_market
-        return pending_market(uid,data)
+    # New market orders either settle immediately against a current provider
+    # quote or fail clearly. They are never silently converted into a queue.
+    result=execute_order(uid, data, market)
     from .routes import event
     event(uid,data.symbol,'order')
     return result

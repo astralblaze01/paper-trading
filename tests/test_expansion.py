@@ -239,9 +239,8 @@ def test_provider_timeout_and_candle_cache():
     finally:f.client.close()
 
 
-def test_stale_us_market_order_queues_and_fills_on_fresh_quote(client):
+def test_stale_us_market_order_is_rejected_instead_of_queued(client):
     from app.db import LimitOrder
-    from app.limits import process
     token=register(client)
     old={'symbol':'AAPL','price':D('100'),'timestamp':int(time.time())-86400,'stale':True}
     main.market.quote=lambda s:old
@@ -250,18 +249,10 @@ def test_stale_us_market_order_queues_and_fills_on_fresh_quote(client):
     preview=client.get('/api/order-preview?symbol=AAPL&side=buy&quantity=2')
     assert preview.status_code==200 and preview.json()['indicative_only']
     first=client.post('/api/orders',headers=headers,json=request)
-    assert first.status_code==200 and first.json()['pending']
-    assert client.post('/api/orders',headers=headers,json=request).json()['id']==first.json()['id']
+    assert first.status_code==409
     with Session() as db:
         assert db.scalar(select(func.count()).select_from(Transaction))==0
-        assert db.get(LimitOrder,first.json()['id']).status=='pending'
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        assert sum(pool.map(lambda _:process(FakeMarket()),range(2)))==1
-    with Session() as db:
-        assert db.scalar(select(func.count()).select_from(Transaction))==1
-        assert db.get(LimitOrder,first.json()['id']).status=='filled'
-        uid=db.scalar(select(User.id).where(User.username=='alice'))
-        assert db.get(Wallet,(uid,'USD')).balance==D(99800)
+        assert db.scalar(select(func.count()).select_from(LimitOrder))==0
 
 
 def test_us_delayed_quote_window():

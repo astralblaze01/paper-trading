@@ -215,7 +215,7 @@ handle('initialForm','submit',async()=>{await api('admin/initial',{amount:$('ini
 syncCurrency();routePage();
 
 window.loadLimits=async function(){
-  const rows=await api('limit-orders');$('limitRows').replaceChildren();$('legacyLimitRows').replaceChildren();$('legacyLimits').hidden=!rows.some(r=>r.order_type==='limit');
+  const rows=await api('limit-orders');$('limitRows').replaceChildren();$('legacyLimitRows').replaceChildren();$('legacyMarkets').hidden=!rows.some(r=>r.order_type==='market');$('legacyLimits').hidden=!rows.some(r=>r.order_type==='limit');
   const statuses={pending:'대기 중',filled:'체결',cancelled:'취소',rejected:'거절'};
   for(const r of rows){
     const row=node('div',null,'watch-row');row.append(node('span',`${r.symbol} · ${r.side==='buy'?'매수':'매도'} ${r.use_max?'최대':r.quantity+'주'} · ${statuses[r.status]||r.status}${r.reason?' · '+r.reason:''}`));

@@ -49,6 +49,15 @@ def preview_order(uid, symbol, side, quantity, market, share=None):
 
 
 def execute_order(user_id, order, market, db=None):
+    if db is None:
+        with Session() as check:
+            previous=check.scalar(select(Transaction).where(Transaction.user_id==user_id,Transaction.request_id==str(order.request_id)))
+            if previous:
+                if (previous.symbol,previous.side)!=(order.symbol,order.side) or (not getattr(order,'use_max',False) and previous.quantity!=order.quantity):
+                    raise HTTPException(409,'동일 주문 ID에 다른 주문을 사용할 수 없습니다.')
+                return {'id':previous.id,'replayed':True,'quantity':previous.quantity}
+    # Fetch/validate the external quote before acquiring the account row lock.
+    q,price=checked_quote(order.symbol,market)
     with (Session.begin() if db is None else nullcontext(db)) as db:
         user=db.scalar(select(User).where(User.id==user_id).with_for_update())
         if not user or not user.active: raise HTTPException(403,'사용할 수 없는 계좌입니다.')
@@ -57,7 +66,6 @@ def execute_order(user_id, order, market, db=None):
             if (previous.symbol,previous.side)!=(order.symbol,order.side) or (not getattr(order,'use_max',False) and previous.quantity!=order.quantity):
                 raise HTTPException(409,'동일 주문 ID에 다른 주문을 사용할 수 없습니다.')
             return {'id':previous.id,'replayed':True,'quantity':previous.quantity}
-        q,price=checked_quote(order.symbol,market)
         ws=wallets(db,user)
         currency='KRW' if order.symbol.startswith('KR:') else 'USD'
         position=db.get(Position,(user_id,order.symbol))

@@ -131,7 +131,7 @@ handle('orderForm', 'submit', async () => {
     const h = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join(''); pendingOrder = {signature, id: `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`};
   }
   $('submitOrder').disabled = true;
-  try { const result = await api('orders', {...data, request_id: pendingOrder.id}); pendingOrder = null; page = 1; maxMode=false; await refresh(); if(window.loadStock) await loadStock(false); message(result.pending ? '시장가 주문을 대기 목록에 등록했습니다. 새 시세가 오면 잔액을 다시 확인해 체결합니다.' : result.status==='cancelled' ? '이 주문은 취소되었습니다.' : result.replayed ? '이미 처리된 주문을 확인했습니다.' : '모의 주문이 체결되었습니다.'); } finally { $('submitOrder').disabled = false; }
+  try { const result = await api('orders', {...data, request_id: pendingOrder.id}); pendingOrder = null; page = 1; maxMode=false; await refresh(); if(window.loadStock) await loadStock(false); message(result.replayed ? '이미 처리된 주문을 확인했습니다.' : '최신 공급자 가격으로 모의 주문이 즉시 체결되었습니다.'); } finally { $('submitOrder').disabled = false; }
 });
 handle('previous', 'click', async () => { page = Math.max(1, page - 1); await history(); });
 handle('next', 'click', async () => { page++; await history(); });
