@@ -47,5 +47,67 @@ with Session.begin() as db:
     admin=db.scalar(select(User).where(User.username=='browser_admin'))
     if admin is None:
         db.add(User(username='browser_admin',password_hash=main.hasher.hash('browser-fixture-password'),is_admin=True))
+# Test-only deterministic publisher; no upstream provider is ever called here.
+if os.getenv('QUOTE_SSE_ENABLED') == 'true':
+    import asyncio
+    from contextlib import asynccontextmanager
+    from fastapi import Depends, HTTPException
+    from app.redis_cache import redis_cache
+    from app.instruments import valid_symbol
+    original_lifespan = main.app.router.lifespan_context
+    fixture_market = main.market
+    overrides = {}
+    worker_paused = False
+    original_quote = fixture_market.quote
+
+    def fixture_quote(symbol):
+        cached = redis_cache.get_json(f'market:price:{symbol}')
+        if cached:
+            from app.quote_data import normalize_quote
+            return normalize_quote(symbol, cached)
+        return original_quote(symbol)
+    fixture_market.quote = fixture_quote
+
+    def publish(symbol, price=None):
+        import time
+        q = original_quote(symbol)
+        if price is not None:
+            overrides[symbol] = Decimal(str(price))
+        if symbol in overrides:
+            q['native_price'] = overrides[symbol]
+            q['price'] = overrides[symbol] * q['fx_rate']
+        q['_cached_at'] = time.time()
+        assert redis_cache.store_quote(symbol, q, 45)
+
+    @main.app.post('/internal/test-quote/{symbol}')
+    def inject(symbol: str, price: str, uid=Depends(main.current_user)):
+        if not valid_symbol(symbol):
+            raise HTTPException(422)
+        publish(symbol, price)
+        return {'ok': True}
+
+    @main.app.post('/internal/test-worker')
+    def pause_worker(paused: bool, uid=Depends(main.current_user)):
+        global worker_paused
+        worker_paused = paused
+        return {'ok': True}
+
+    async def fixture_worker():
+        while True:
+            for symbol in ([] if worker_paused else redis_cache.requested_symbols()):
+                publish(symbol)
+            await asyncio.sleep(.2)
+
+    @asynccontextmanager
+    async def fixture_lifespan(app):
+        async with original_lifespan(app):
+            task = asyncio.create_task(fixture_worker())
+            try:
+                yield
+            finally:
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+    main.app.router.lifespan_context = fixture_lifespan
+
 import uvicorn
 uvicorn.run(main.app,host='0.0.0.0',port=8000)

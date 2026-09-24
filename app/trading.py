@@ -9,7 +9,10 @@ from .money import wallets, costs, maximum
 
 
 def checked_quote(symbol, market, allow_stale=False):
-    q=market.quote(symbol)
+    return validate_quote(symbol, market.quote(symbol), allow_stale)
+
+
+def validate_quote(symbol, q, allow_stale=False):
     if q.get('stale') and not allow_stale:
         raise HTTPException(409,'오래된 시세로는 주문할 수 없습니다.')
     stamp=datetime.fromtimestamp(q['timestamp'],timezone.utc)
@@ -66,6 +69,8 @@ def execute_order(user_id, order, market, db=None):
             if (previous.symbol,previous.side)!=(order.symbol,order.side) or (not getattr(order,'use_max',False) and previous.quantity!=order.quantity):
                 raise HTTPException(409,'동일 주문 ID에 다른 주문을 사용할 수 없습니다.')
             return {'id':previous.id,'replayed':True,'quantity':previous.quantity}
+        # Recheck age after the account lock wait, without external I/O.
+        validate_quote(order.symbol, q)
         ws=wallets(db,user)
         currency='KRW' if order.symbol.startswith('KR:') else 'USD'
         position=db.get(Position,(user_id,order.symbol))

@@ -32,6 +32,7 @@ from .portfolio import portfolio as wallet_portfolio, initialize_equity, RETURN_
 from .weekly import WeeklyWorker, report_list
 from .branding import BRAND_NAME, STORAGE_NAMESPACE
 from .redis_cache import redis_cache
+from .market_stream import QuoteHub, enabled as quote_sse_enabled
 from .logging_config import configure_logging
 
 configure_logging()
@@ -91,9 +92,12 @@ async def lifespan(app):
     migrate(engine)
     worker = None  # Scheduled work is driven by the separate worker container.
     if worker: worker.start()
+    app.state.quote_hub = QuoteHub()
+    if quote_sse_enabled(): await app.state.quote_hub.start()
     try:
         yield
     finally:
+        await app.state.quote_hub.stop()
         if worker: worker.stop()
         market.client.close()
 
@@ -175,7 +179,7 @@ def session(request: Request):
     if 'csrf' not in request.session: request.session['csrf'] = secrets.token_urlsafe(32)
     with Session() as db:
         user = db.get(User, request.session['uid']) if request.session.get('uid') else None
-        return {'csrf': request.session['csrf'], 'username': user.username if user else None, 'is_admin': bool(user and user.is_admin), 'market_configured': bool(market.key), 'providers': market.status() if hasattr(market, 'status') else {'us': bool(market.key), 'kr': False}}
+        return {'quote_sse_enabled': quote_sse_enabled(), 'active': bool(user and user.active), 'quote_max_age': {'US': int(os.getenv('US_MAX_QUOTE_AGE', '1800')), 'KR': int(os.getenv('MAX_QUOTE_AGE', '900'))}, 'csrf': request.session['csrf'], 'username': user.username if user else None, 'is_admin': bool(user and user.is_admin), 'market_configured': bool(market.key), 'providers': market.status() if hasattr(market, 'status') else {'us': bool(market.key), 'kr': False}}
 
 @app.post('/api/register', dependencies=[Depends(csrf)])
 def register(data: Registration, request: Request):
@@ -221,6 +225,10 @@ def search(q: str = Query('', max_length=60), category: str = Query('all'), uid=
 def quote(symbol: str, uid=Depends(current_user)):
     if not valid_symbol(symbol): raise HTTPException(422, '잘못된 종목 코드입니다.')
     return market.quote(symbol)
+
+@app.get('/api/market-stream/{symbol}')
+async def market_stream(symbol: str, request: Request, uid=Depends(current_user)):
+    return await app.state.quote_hub.response(request, symbol, uid, current_user)
 
 @app.get('/api/market-overview')
 def market_overview(uid=Depends(current_user)):

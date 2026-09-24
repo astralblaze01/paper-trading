@@ -199,3 +199,78 @@ tests/               pytest 테스트, 브라우저 스모크 테스트
 - 환율은 실시간이 아닌 ECB 일별 기준환율입니다.
 - 배당과 주식 분할은 계좌에 자동 반영되지 않습니다.
 - 한국 장 상태는 KIS 휴장일 정보와 표준 시간표로 판단하며, 특별 개장 시간은 반영하지 않습니다.
+
+## 종목 상세 현재가 SSE (선택 활성화)
+
+`QUOTE_SSE_ENABLED=true`인 worker 모드에서 현재가를
+`Finnhub REST / KIS → market-worker → Redis 저장·Pub/Sub → FastAPI → EventSource`로 전달합니다.
+기본값은 `false`이며 Redis 없는 direct 개발 모드도 기존 30초 REST 표시를 사용합니다.
+SSE 모드에서는 현재가 REST 폴링을 하지 않습니다. 장 상태는 진입·복귀와 60초 간격,
+과거 차트는 진입·기간 변경·명시적 재시도에만 조회합니다. 차트에 임시 현재가 봉을 추가하지 않습니다.
+
+| 설정 | 기본값 | 의미 |
+| --- | --- | --- |
+| `QUOTE_SSE_ENABLED` | `false` | web의 `/api/session`을 통해 프론트에도 전달 |
+| `QUOTE_SSE_HEARTBEAT` | `15` | named heartbeat 간격(초), 허용 범위 5–30 |
+| `QUOTE_SSE_USER_LIMIT` | `5` | 모든 web 프로세스 합산 사용자 동시 연결 상한 |
+| `QUOTE_SSE_IP_LIMIT` | `30` | 모든 web 프로세스 합산 IP 동시 연결 상한 |
+
+연결됨은 공급자의 최신 체결 데이터라는 뜻이 아닙니다. `QUOTE_TTL=15`는 수집 목표 간격이며
+요청 종목 수·응답 지연·공유 호출 예산(`MARKET_CALLS_PER_MINUTE=50`)에 따라 늦어집니다.
+15초마다 실제 quote 호출이 발생하면 13종목만으로 약 52회/분이므로 다른 기능의 예산도 고려해야 합니다.
+수집 주기와 주문 허용 나이(국내 900초, 미국 1800초)는 변경하지 않았습니다.
+
+- `GET /api/market-stream/{symbol}`: 기존 세션 인증, named `snapshot`, `quote`, `status`, `heartbeat`.
+- 가격·환율은 decimal string. 공급자 `timestamp`, 서버 `cached_at`, heartbeat `time`은 별도 의미입니다.
+- 가격 키는 기존 `market:price:{symbol}`이며 주문도 요청 시 이 키를 조회합니다.
+- `market:quote-version:{symbol}`은 만료하지 않는 epoch/sequence/공급자 시각 메타데이터입니다.
+  가격 TTL 만료·worker 재시작에도 순서가 유지됩니다. Redis 전체 초기화 시 새 epoch의 **snapshot**으로 초기화합니다.
+- 구독을 준비한 뒤 snapshot을 읽으며, 연결당 queue는 최신 상태 1개만 보관합니다.
+  중복·이전 버전은 제외하고, subscriber 재연결 때 활성 종목을 다시 읽습니다.
+  [Redis Pub/Sub은 누락 이벤트를 재전송하지 않으므로](https://redis.io/docs/latest/develop/pubsub/)
+  이벤트 이력 또는 exactly-once 전달을 보장하지 않습니다.
+- 활성 종목은 프로세스당 60초마다 관심 등록을 유지합니다. 마지막 로컬 연결 해제는 전역 등록을 삭제하지 않습니다.
+- 사용자/IP Redis lease로 합산 제한을 적용하며 Redis 장애 때 새 연결·lease 갱신은 실패 처리합니다.
+  연결 시도 상한은 사용자 30회/분, IP 120회/분입니다. 세션 서명 만료·계정 활성 여부를 heartbeat마다 확인하며
+  한 연결은 최대 30분 후 snapshot 재연결합니다. DB transaction을 연결 내내 유지하지 않습니다.
+- 브라우저는 hidden/이탈/로그아웃 시 연결을 닫으며 오류 시 한 개의 재시도 timer만 사용합니다.
+  자동 REST fallback은 없습니다. 마지막 가격의 공급자 시각으로 오래된 시세를 표시합니다.
+
+### 격리 검증과 적용 순서
+
+운영 컨테이너/볼륨과 분리된 `compose.sse-test.yaml`은 API key 없이 fake provider와 전용 Redis/DB를 사용합니다.
+
+```bash
+docker compose -p paper-sse-test -f compose.sse-test.yaml run --rm --build tests
+docker compose -p paper-sse-test -f compose.sse-test.yaml run --rm --build browser
+# 별도 환경에서 flag OFF 및 REST 복귀 검증
+SSE_TEST_ENABLED=false docker compose -p paper-sse-rollback -f compose.sse-test.yaml run --rm --build browser
+# 임시 자체서명 인증서: 테스트 전용, 운영 인증서와 무관
+mkdir -p /tmp/paper-sse-certs
+openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj '/CN=tlsproxy' \
+  -keyout /tmp/paper-sse-certs/privkey.pem -out /tmp/paper-sse-certs/fullchain.pem
+docker compose -p paper-sse-test -f compose.sse-test.yaml run --rm proxytest
+python3 scripts/check_publication.py
+docker compose -p paper-sse-test -f compose.sse-test.yaml down
+docker compose -p paper-sse-rollback -f compose.sse-test.yaml down
+```
+
+먼저 테스트 환경에서 flag를 끈 상태로 worker/web을 갱신한 뒤 SSE를 켜고 요청량·연결 수·quote age를 비교합니다.
+검증 후 별도 운영 적용 절차에서 web과 worker 이미지를 반영하고 HTTP/HTTPS nginx 설정을 재로드합니다.
+롤백은 `QUOTE_SSE_ENABLED=false`로 web을 재생성하고 페이지를 새로고침합니다.
+기존 연결은 web 종료로 닫히고, 새 bootstrap은 30초 REST 경로만 시작합니다. DB/Redis 삭제는 필요 없습니다.
+이 구현 작업은 운영 배포나 병합을 실행하지 않습니다.
+
+관측: web의 `market-stream` 로그와 프로세스별 hub counters(active, reconnects, updates, coalesced,
+invalid, subscriber_errors), worker의 저장 실패 로그 및 마지막 성공 로그를 사용합니다.
+공급자 timestamp 나이와 `cached_at` 이후 전달 지연을 구분해 측정해야 합니다.
+web 재시작 스모크는 다음 명령을 한 터미널에서 실행하고, `artifacts/sse-restart-ready` 파일이
+이번 실행 시각으로 갱신되면 다른 터미널에서 테스트 web만 재시작합니다.
+
+```bash
+docker compose -p paper-sse-test -f compose.sse-test.yaml run --rm --build browser python browser_restart_smoke.py
+# 별도 터미널, 위 테스트가 준비된 후 실행
+docker compose -p paper-sse-test -f compose.sse-test.yaml restart browserweb
+```
+
+실행 결과와 제약은 [SSE 구현 검증 보고서](docs/QUOTE_SSE_RESULT.md)에 기록합니다.

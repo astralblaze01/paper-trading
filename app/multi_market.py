@@ -10,6 +10,7 @@ import httpx
 from .market import Finnhub, MarketError
 from .instruments import discover, instrument, valid_symbol
 from .redis_cache import redis_cache
+from .quote_data import normalize_quote
 
 SEOUL = ZoneInfo('Asia/Seoul')
 
@@ -227,7 +228,7 @@ class MultiMarket:
         return rows[:30]
 
     def quote(self, symbol):
-        if redis_cache.configured and os.getenv('MARKET_CACHE_MODE','direct').lower() == 'worker' and os.getenv('MARKET_WORKER_MODE','false').lower() != 'true':
+        if os.getenv('MARKET_CACHE_MODE','direct').lower() == 'worker' and os.getenv('MARKET_WORKER_MODE','false').lower() != 'true':
             cached = redis_cache.get_json(f'market:price:{symbol}')
             redis_cache.request_quote(symbol, force=cached is None)
             deadline = time.monotonic() + (3 if cached is None else 0)
@@ -236,10 +237,10 @@ class MultiMarket:
                 cached = redis_cache.get_json(f'market:price:{symbol}')
             if cached is None:
                 raise MarketError('시세 수집기가 가격을 준비 중입니다. 잠시 후 다시 시도하세요.')
-            for field in ('price','native_price','fx_rate'):
-                if field in cached and cached[field] is not None:
-                    cached[field] = Decimal(str(cached[field]))
-            return cached
+            try:
+                return normalize_quote(symbol, cached)
+            except (ValueError, TypeError, KeyError) as exc:
+                raise MarketError('유효한 서버 시세가 없습니다.') from exc
         return self.quote_direct(symbol)
 
     def quote_direct(self, symbol):

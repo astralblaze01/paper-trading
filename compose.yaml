@@ -60,6 +60,10 @@ services:
       MARKET_CALLS_PER_MINUTE: ${MARKET_CALLS_PER_MINUTE:-50}
       REDIS_URL: redis://redis:6379/0
       MARKET_CACHE_MODE: worker
+      QUOTE_SSE_ENABLED: ${QUOTE_SSE_ENABLED:-false}
+      QUOTE_SSE_HEARTBEAT: ${QUOTE_SSE_HEARTBEAT:-15}
+      QUOTE_SSE_USER_LIMIT: ${QUOTE_SSE_USER_LIMIT:-5}
+      QUOTE_SSE_IP_LIMIT: ${QUOTE_SSE_IP_LIMIT:-30}
     depends_on:
       db: {condition: service_healthy}
       redis: {condition: service_healthy}

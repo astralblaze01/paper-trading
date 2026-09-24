@@ -1,0 +1,87 @@
+# Isolated, credential-free fixtures. Never shares production volumes or Redis.
+services:
+  db:
+    image: postgres:17-bookworm
+    environment:
+      POSTGRES_USER: paper
+      POSTGRES_PASSWORD: sse-test-only
+      POSTGRES_DB: paper
+    tmpfs: [/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD, pg_isready, -U, paper]
+      interval: 2s
+      retries: 30
+  redis:
+    image: redis:7-alpine
+    command: [redis-server, --save, '', --appendonly, 'no']
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 2s
+      retries: 30
+  browserredis:
+    image: redis:7-alpine
+    command: [redis-server, --save, '', --appendonly, 'no']
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 2s
+      retries: 30
+  tests:
+    build: .
+    image: paper-trading-sse-test
+    command: [python, tests/run.py]
+    environment:
+      DB_PASSWORD: sse-test-only
+      SESSION_SECRET: isolated-sse-test-secret-at-least-32-characters
+      SSE_TEST_REDIS_URL: redis://redis:6379/0
+    depends_on:
+      db: {condition: service_healthy}
+      redis: {condition: service_healthy}
+  browserweb:
+    image: paper-trading-sse-test
+    networks:
+      default:
+        aliases: [web]
+    command: [python, tests/browser_server.py]
+    environment:
+      DB_PASSWORD: sse-test-only
+      SESSION_SECRET: isolated-browser-test-secret-at-least-32-characters
+      REDIS_URL: redis://browserredis:6379/0
+      QUOTE_SSE_ENABLED: ${SSE_TEST_ENABLED:-true}
+      MARKET_CACHE_MODE: worker
+    depends_on:
+      db: {condition: service_healthy}
+      browserredis: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, python, -c, 'import urllib.request; urllib.request.urlopen("http://localhost:8000/health")']
+      interval: 2s
+      retries: 30
+  browser:
+    build:
+      context: .
+      dockerfile: tests/Dockerfile.browser
+    volumes:
+      - ./artifacts:/artifacts
+    depends_on:
+      browserweb: {condition: service_healthy}
+  proxy:
+    image: nginx:1.28-alpine
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      browserweb: {condition: service_healthy}
+  tlsproxy:
+    image: nginx:1.28-alpine
+    environment:
+      DOMAIN: tlsproxy
+    volumes:
+      - ./nginx/tls/site.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./nginx/tls/hsts.conf:/etc/nginx/hsts.conf:ro
+      - ${SSE_CERT_DIR:-/tmp/paper-sse-certs}:/etc/letsencrypt/live/tlsproxy:ro
+    depends_on:
+      browserweb: {condition: service_healthy}
+  proxytest:
+    image: paper-trading-sse-test
+    command: [python, tests/proxy_stream_smoke.py]
+    depends_on:
+      - proxy
+      - tlsproxy

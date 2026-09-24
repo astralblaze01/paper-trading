@@ -84,6 +84,7 @@ async function api(path, body) {
   let data;
   try { data = await response.json(); } catch { throw Error(`요청 실패 (${response.status}). 잠시 후 다시 시도하세요.`); }
   if (!response.ok) {
+    if(response.status===401)window.disconnectQuoteStream?.();
     if (typeof data.detail === 'string') throw Error(data.detail);
     if (Array.isArray(data.detail)) {
       const labels={recipient:'받는 사용자',amount:'금액',currency:'통화',username:'사용자 이름',password:'비밀번호',quantity:'수량',symbol:'종목'};
@@ -103,7 +104,9 @@ function table(target, headers, rows) {
   if (!rows.length) { const p = document.createElement('p'); p.className = 'empty-state'; p.textContent = {positions:'아직 보유한 종목이 없습니다. 첫 주문을 시작해보세요.',publicPositions:'보유한 종목이 없습니다.',history:'아직 거래내역이 없습니다.',fxHistory:'아직 환전내역이 없습니다.',adminAudit:'관리자 작업 기록이 없습니다.'}[target.id] || '표시할 순위가 없습니다.'; target.append(p); }
 }
 async function boot() {
+  window.disconnectQuoteStream?.();
   const s = await api('session'); csrf = s.csrf;
+  window.quoteSseEnabled=!!s.quote_sse_enabled;window.quoteMaxAge=s.quote_max_age;
   window.sessionUsername=s.username; window.isAdmin=!!s.is_admin; $('auth').hidden = !!s.username; $('dashboard').hidden = !s.username; $('logout').hidden = !s.username; $('adminNav').hidden = !s.is_admin;
   if(!s.username)showAuthView();
   refreshNotice();
@@ -225,7 +228,7 @@ $('registerForm').addEventListener('submit',async e=>{
     toast('회원가입이 완료되었습니다. 만든 계정으로 로그인하세요.','success');
   }catch(err){$('registerError').textContent=err.message;}finally{$('registerSubmit').disabled=false;}
 });
-handle('logout', 'click', async () => { await api('logout', {}); pendingOrder = null; message(''); await boot(); });
+handle('logout', 'click', async () => { window.disconnectQuoteStream?.();await api('logout', {}); pendingOrder = null; message(''); await boot(); });
 handle('refresh', 'click', refresh);
 handle('searchForm', 'submit', search);
 handle('category', 'change', async () => { $('query').value = ''; $('marketHelp').textContent = $('category').value === 'kr' ? '등록된 이름으로 검색하거나, 한국 종목의 6자리 코드를 입력하세요.' : '채권·금 분류는 등록된 ETF 목록입니다. 개별 채권과 금 현물은 지원하지 않습니다.'; await search(); });

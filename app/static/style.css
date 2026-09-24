@@ -460,3 +460,5 @@ table { font-size:15px; }
  .site-notice, .site-notice.is-new { display:flex; flex-wrap:wrap; align-items:center; gap:6px 8px; }
  .site-notice .notice-title, .site-notice .notice-body { flex-basis:100%; }
 }
+
+.quote-connection { min-height: 1.4em; color: var(--muted, #697580); }

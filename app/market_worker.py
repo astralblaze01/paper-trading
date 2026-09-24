@@ -20,6 +20,7 @@ def main():
     interval = max(5, int(os.getenv('QUOTE_TTL', '15')))
     refreshed = {}
     retry_after = {}
+    attempted = {}
     master_refreshed=0
     try:
         while True:
@@ -38,19 +39,22 @@ def main():
             urgent = redis_cache.next_refresh(timeout=1)
             symbols = ([urgent] if urgent else []) + redis_cache.requested_symbols()
             now = time.monotonic()
-            for symbol in dict.fromkeys(symbols):
+            for symbol in sorted(dict.fromkeys(symbols), key=lambda s: (refreshed.get(s, 0), attempted.get(s, 0))):
                 if not symbol or not valid_symbol(symbol):
                     continue
                 if now < retry_after.get(symbol, 0):
                     continue
-                if symbol != urgent and now - refreshed.get(symbol, 0) < interval:
+                if time.monotonic() - refreshed.get(symbol, 0) < interval:
                     continue
+                attempted[symbol] = time.monotonic()
                 try:
                     quote = market.quote_direct(symbol)
                     quote['_cached_at'] = time.time()
-                    redis_cache.set_json(f'market:price:{symbol}', quote, max(30, interval * 3))
+                    if not redis_cache.store_quote(symbol, quote, max(30, interval * 3)):
+                        raise ValueError('quote store rejected')
                     refreshed[symbol] = time.monotonic()
                     retry_after.pop(symbol, None)
+                    log.info('quote stored and published; quote_age_seconds=%s', round(time.time()-quote['timestamp'], 2), extra={'path': symbol})
                 except Exception as exc:
                     # Do not leak provider credentials or response bodies.
                     retry_after[symbol] = time.monotonic() + max(30, interval * 2)

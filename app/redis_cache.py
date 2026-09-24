@@ -3,6 +3,8 @@ import json
 import os
 import time
 from decimal import Decimal
+from uuid import uuid4
+from .quote_data import normalize_quote
 
 try:
     from redis import Redis
@@ -54,6 +56,49 @@ class RedisCache:
             return True
         except (RedisError, TypeError):
             return False
+
+    def store_quote(self, symbol, value, ttl):
+        """WATCH + MULTI commits authoritative snapshot, durable version and notification.
+
+        Metadata survives price expiry and worker restarts. A Redis reset creates
+        a new epoch; stream snapshots explicitly reset the client's version gate.
+        """
+        if not self.client:
+            return False
+        try:
+            quote = normalize_quote(symbol, value)
+            ttl = max(1, int(ttl))
+            key, meta_key = f'market:price:{symbol}', f'market:quote-version:{symbol}'
+            from redis.exceptions import WatchError
+            for _ in range(8):
+                try:
+                    with self.client.pipeline() as pipe:
+                        pipe.watch(key, meta_key)
+                        # GET also rejects unexpected Redis key types before MULTI.
+                        old, meta = pipe.get(key), pipe.get(meta_key)
+                        old = json.loads(old) if old else {}
+                        meta = json.loads(meta) if meta else {}
+                        previous_stamp = max(float(meta.get('timestamp', 0)), float(old.get('timestamp', 0)))
+                        if float(quote['timestamp']) < previous_stamp:
+                            return False
+                        epoch = meta.get('epoch') or uuid4().hex
+                        sequence = int(meta.get('sequence', 0)) + 1
+                        version = f'{epoch}:{sequence}'
+                        quote['_version'] = version
+                        payload = json.dumps(quote, default=_json_default, allow_nan=False, separators=(',', ':'))
+                        metadata = json.dumps({'epoch': epoch, 'sequence': sequence, 'timestamp': quote['timestamp']})
+                        event = json.dumps({'schema_version': 1, 'symbol': symbol, 'version': version})
+                        pipe.multi()
+                        pipe.setex(key, ttl, payload)
+                        pipe.set(meta_key, metadata)
+                        pipe.publish('market:quote:updates', event)
+                        pipe.execute()
+                        return True
+                except WatchError:
+                    continue
+        except (RedisError, ValueError, TypeError, KeyError):
+            pass
+        return False
 
     def delete(self, key):
         if not self.client:

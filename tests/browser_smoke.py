@@ -94,11 +94,11 @@ with sync_playwright() as p:
         page.locator('#displayCurrency').select_option('USD')
         expect(page.locator('#displayCurrency')).to_have_value('USD')
         expect(page.locator('#detailPrice')).to_contain_text('$100')
-        expect(page.locator('#periodPerformance')).to_contain_text('$100.00')
+        expect(page.locator('#periodPerformance')).to_contain_text('$106.90')
         expect(page.locator('#orderEstimate')).to_contain_text('$')
         page.locator('#displayCurrency').select_option('KRW')
         expect(page.locator('#detailPrice')).to_contain_text('100,000원')
-        expect(page.locator('#periodPerformance')).to_contain_text('100,000원')
+        expect(page.locator('#periodPerformance')).to_contain_text('106,900원')
         expect(page.locator('#orderEstimate')).to_contain_text('원')
         for period in ['1D','1W','3M','1Y','5Y','ALL']:
             page.locator(f'[data-range="{period}"]').click()
@@ -374,6 +374,72 @@ with sync_playwright() as p:
     legend=page.locator('#allocation .allocation-legend').inner_text()
     assert '기타' not in legend and all(n in legend for n in ['Apple','현금']), legend
     page.screenshot(path='/artifacts/allocation-many-1280.png',full_page=True)
+    page.close()
+    # SSE runs only when the fixture enables it; legacy browser suite remains usable.
+    page=browser.new_page(viewport={'width':1280,'height':1000})
+    page.goto('http://browserweb:8000/')
+    if page.request.get('http://browserweb:8000/api/session').json().get('quote_sse_enabled'):
+        name='sse_'+str(int(time.time()))
+        page.evaluate("""async name=>{const s=await api('session');csrf=s.csrf;await api('register',{username:name,password:'abcd1234',password_confirm:'abcd1234'});await api('login',{username:name,password:'abcd1234'});await boot();}""",name)
+        requests=[]
+        page.on('request',lambda r:requests.append((time.monotonic(),r.url)))
+        page.evaluate("openStock('AAPL')")
+        expect(page.locator('#quoteConnection')).to_contain_text('연결됨')
+        page.locator('#displayCurrency').select_option('USD')
+        expect(page.locator('#detailPrice')).to_contain_text('$100.00')
+        page.wait_for_timeout(500)
+        baseline={part:sum(part in url for _,url in requests) for part in ['/api/company/','/api/candles/','/api/quote/']}
+        latencies=[]
+        for price in range(101,121):
+            started=time.monotonic()
+            assert page.request.post(f'http://browserweb:8000/internal/test-quote/AAPL?price={price}').ok
+            expect(page.locator('#detailPrice strong')).to_have_text(f'${price}.00')
+            latencies.append((time.monotonic()-started)*1000)
+        page.wait_for_timeout(65000)
+        for part,count in baseline.items():
+            assert sum(part in url for _,url in requests)==count,(part,requests)
+        statuses=[stamp for stamp,url in requests if '/api/market-status/AAPL' in url]
+        assert len(statuses)>=2 and 55<statuses[1]-statuses[0]<65,statuses
+        assert sum('/api/quote/AAPL' in url for _,url in requests)==0
+        p95=sorted(latencies)[int(len(latencies)*.95)-1]
+        print(f'SSE local Redis store request → Chromium DOM: n={len(latencies)}, p95={p95:.1f}ms',flush=True)
+        assert p95<1000
+        with open('/artifacts/sse-latency.json','w') as report:
+            import json
+            json.dump({'samples_ms':latencies,'p95_ms':p95,'scope':'isolated Docker Redis → FastAPI → Chromium DOM; includes injection HTTP round trip'},report)
+        page.evaluate("openStock('MSFT');openStock('NVDA')")
+        expect(page.locator('#detailTitle')).to_contain_text('NVIDIA')
+        expect(page.locator('#detailPrice strong')).to_have_text('$100.00')
+        page.request.post('http://browserweb:8000/internal/test-quote/AAPL?price=777')
+        page.wait_for_timeout(300)
+        expect(page.locator('#detailPrice strong')).to_have_text('$100.00')
+        page.context.set_offline(True)
+        page.wait_for_timeout(1000)
+        page.context.set_offline(False)
+        expect(page.locator('#quoteConnection')).to_contain_text('연결됨',timeout=45000)
+        page.evaluate("Object.defineProperty(document,'hidden',{configurable:true,value:true});document.dispatchEvent(new Event('visibilitychange'))")
+        assert page.evaluate('quoteSource===null&&quoteRetry===null')
+        page.evaluate("Object.defineProperty(document,'hidden',{configurable:true,value:false});document.dispatchEvent(new Event('visibilitychange'))")
+        expect(page.locator('#quoteConnection')).to_contain_text('연결됨')
+        page.evaluate("openStock('KR:005930')")
+        expect(page.locator('#detailTitle')).to_contain_text('삼성전자')
+        expect(page.locator('#quoteConnection')).to_contain_text('연결됨')
+        page.locator('#logout').click()
+        expect(page.locator('#auth')).to_be_visible()
+        assert page.evaluate('quoteSource===null&&quoteRetry===null&&marketTimer===null')
+    else:
+        name='rollback_'+str(int(time.time()))
+        page.evaluate("""async name=>{const s=await api('session');csrf=s.csrf;await api('register',{username:name,password:'abcd1234',password_confirm:'abcd1234'});await api('login',{username:name,password:'abcd1234'});await boot();}""",name)
+        requests=[]
+        page.on('request',lambda r:requests.append(r.url))
+        page.evaluate("openStock('AAPL')")
+        expect(page.locator('#detailPrice')).to_contain_text('100')
+        expect(page.locator('#quoteConnection')).to_contain_text('30초')
+        assert page.evaluate('quoteSource===null&&restTimer!==null')
+        page.wait_for_timeout(31000)
+        assert sum('/api/quote/AAPL' in url for url in requests)==2,requests
+        assert not any('/api/market-stream/' in url for url in requests)
+        print('SSE flag OFF: one 30s REST timer, no EventSource passed',flush=True)
     page.close()
     browser.close()
 print('Desktop + mobile browser flows passed: signup/login, FX, charts, buy/sell, watchlist, portfolio, profile, ranking, admin, notices, withdrawal')
