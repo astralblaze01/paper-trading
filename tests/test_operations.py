@@ -129,6 +129,11 @@ def test_transfers_fee_flow_idempotency_and_ownership(client):
     assert client.get('/api/transfers').json()==[]
     assert client.post('/api/transfers',headers={'x-csrf-token':token},json={'sender_id':sender,**body.model_dump(mode='json')}).status_code==422
 
+def test_transfer_recipient_suggestions(client):
+    headers,recipient=users(client)
+    rows=client.get('/api/users/suggest?q=vest').json()
+    assert rows==[{'username':'investor'}]
+
 
 def test_transfer_concurrency_prevents_overdraft_and_negative_units(client):
     from app.transfers import TransferOrder,transfer

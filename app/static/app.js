@@ -55,7 +55,8 @@ async function api(path, body) {
   if (!response.ok) {
     if (typeof data.detail === 'string') throw Error(data.detail);
     if (Array.isArray(data.detail)) {
-      const fields = [...new Set(data.detail.map(x => x.loc?.at(-1)).filter(Boolean))];
+      const labels={recipient:'받는 사용자',amount:'금액',currency:'통화',username:'사용자 이름',password:'비밀번호',quantity:'수량',symbol:'종목'};
+      const fields = [...new Set(data.detail.map(x => labels[x.loc?.at(-1)]||x.loc?.at(-1)).filter(Boolean))];
       throw Error(fields.length ? `${fields.join(', ')} 값을 확인하세요.` : '요청 값을 확인하세요.');
     }
     throw Error(`요청을 처리하지 못했습니다 (${response.status}).`);

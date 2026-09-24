@@ -52,6 +52,13 @@ def transfer(uid,data,fx):
         return {'id':row.id,'replayed':False,'received':row.amount,'fee':row.fee}
 
 def install_transfers(app,ctx):
+    @app.get('/api/users/suggest')
+    def suggest(q:str='',uid=Depends(ctx.current_user)):
+        query=q.strip().lower()
+        if len(query)<1:return []
+        with Session() as db:
+            rows=db.scalars(select(User).where(User.id!=uid,User.active.is_(True),User.username.ilike(f'%{query}%')).order_by(User.username).limit(8))
+            return [{'username':u.username} for u in rows]
     @app.post('/api/transfers/preview',dependencies=[Depends(ctx.csrf)])
     def preview(data:TransferInput,uid=Depends(ctx.current_user)):
         cost=estimate(data)
