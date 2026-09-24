@@ -8,7 +8,7 @@ from fastapi import Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select, func, delete, text
 from sqlalchemy.dialects.postgresql import insert
-from .db import Session, User, Wallet, Position, Transaction, FxTransaction, Watchlist, PopularityEvent, Settings, SeasonArchive, WeeklyState, LimitOrder, AdminAudit, WalletTransfer, UserAdminNote
+from .db import Session, User, Wallet, Position, Transaction, FxTransaction, Watchlist, PopularityEvent, Settings, SeasonArchive, WeeklyState, LimitOrder, AdminAudit, UserAdminNote
 from .instruments import SYMBOL_PATTERN, valid_symbol, instrument, CATALOG
 from .market import MarketError
 from .fx import preview, exchange
@@ -116,12 +116,6 @@ def install(app,ctx):
         if share is not None and share not in (5,10,25,50,100): raise HTTPException(422,'지원하지 않는 수량 비율입니다.')
         return preview_order(uid,symbol,side,quantity,ctx.market,share=share)|{'market_closed':ctx.closed_market_message(symbol)}
 
-    @app.get('/api/wallets')
-    def wallet_balances(uid=Depends(user)):
-        with Session.begin() as db:
-            u=db.scalar(select(User).where(User.id==uid).with_for_update())
-            return {c:w.balance for c,w in wallets(db,u).items()}
-
     @app.get('/api/fx')
     def fx_rate(uid=Depends(user)): return ctx.fx.current_rate('USD','KRW')
     @app.post('/api/fx/preview',dependencies=[Depends(csrf)])
@@ -219,15 +213,15 @@ def install(app,ctx):
 
     @app.get('/api/admin')
     def admin_info(uid=Depends(admin)):
-        names=['TRANSFER_FEE_BPS','FX_FEE_BPS','FX_SPREAD_BPS','US_BUY_FEE_BPS','US_SELL_FEE_BPS','KR_BUY_FEE_BPS','KR_SELL_FEE_BPS','KR_SELL_TAX_BPS']
+        names=['FX_FEE_BPS','FX_SPREAD_BPS','US_BUY_FEE_BPS','US_SELL_FEE_BPS','KR_BUY_FEE_BPS','KR_SELL_FEE_BPS','KR_SELL_TAX_BPS']
         with Session() as db:
             notes=dict(db.execute(select(UserAdminNote.user_id,UserAdminNote.note)).all())
             users=[{'id':u.id,'username':u.username,'active':u.active,'admin':u.is_admin,'initial_usd':u.initial_usd,'initial_krw':u.initial_krw,'note':notes.get(u.id,''),'wallets':{w.currency:w.balance for w in db.scalars(select(Wallet).where(Wallet.user_id==u.id))}} for u in db.scalars(select(User).order_by(User.id))]
             amount=initial_amount(db)
-            counts={'users':db.scalar(select(func.count()).select_from(User)),'transactions':db.scalar(select(func.count()).select_from(Transaction)),'positions':db.scalar(select(func.count()).select_from(Position)),'pending_orders':db.scalar(select(func.count()).select_from(LimitOrder).where(LimitOrder.status=='pending')),'transfers':db.scalar(select(func.count()).select_from(WalletTransfer))}
+            counts={'users':db.scalar(select(func.count()).select_from(User)),'transactions':db.scalar(select(func.count()).select_from(Transaction)),'positions':db.scalar(select(func.count()).select_from(Position)),'pending_orders':db.scalar(select(func.count()).select_from(LimitOrder).where(LimitOrder.status=='pending'))}
         from .notices import active_notice, public, TEMPLATES
         with Session() as db: notice=public(active_notice(db))
-        return {'users':users,'initial_usd':amount,'notice':notice,'notice_templates':TEMPLATES,'maintenance':bool(notice and notice['kind']=='maintenance'),'fees':{n:bps(n,'10' if n in ('FX_FEE_BPS','TRANSFER_FEE_BPS') else '5' if n=='FX_SPREAD_BPS' else '0') for n in names},'health':ctx.health(),'providers':ctx.market.status(),'counts':counts}
+        return {'users':users,'initial_usd':amount,'notice':notice,'notice_templates':TEMPLATES,'maintenance':bool(notice and notice['kind']=='maintenance'),'fees':{n:bps(n,'10' if n=='FX_FEE_BPS' else '5' if n=='FX_SPREAD_BPS' else '0') for n in names},'health':ctx.health(),'providers':ctx.market.status(),'counts':counts}
     from .notices import install_notices
     install_notices(app,admin,csrf)
     @app.post('/api/admin/initial',dependencies=[Depends(csrf)])

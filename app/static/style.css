@@ -358,16 +358,6 @@ table { font-size:15px; }
 .allocation-legend .legend-share { grid-area:share; font-weight:700; font-variant-numeric:tabular-nums; }
 .allocation-legend .legend-value { grid-area:value; color:#526273; font-size:14px; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
 
-/* Transfers. */
-.transfer-available { margin:18px 0 6px; padding:16px 18px; background:#f6f9fb; border:1px solid #d9e3eb; border-left:3px solid var(--accent); border-radius:4px; max-width:620px; }
-.transfer-available h3 { margin:0 0 8px; font-size:15px; color:var(--muted); font-weight:600; }
-.wallet-lines { display:flex; flex-wrap:wrap; gap:8px 40px; }
-.wallet-lines div { display:flex; align-items:baseline; gap:10px; }
-.wallet-lines span { color:var(--muted); font-weight:600; }
-.wallet-lines strong { font-size:22px; font-variant-numeric:tabular-nums; }
-[data-page="transfer"] form { max-width:620px; }
-[data-page="transfer"] .toolbar { margin:18px 0 8px; }
-
 /* Administrator user management. */
 .admin-manage { max-width:820px; }
 .admin-results { display:grid; gap:6px; max-height:280px; overflow-y:auto; margin:10px 0 18px; }
@@ -417,7 +407,6 @@ table { font-size:15px; }
  .allocation-chart { max-width:220px; margin:0 auto; width:100%; }
  .admin-result { grid-template-columns:1fr; }
  .admin-grant-fields { grid-template-columns:90px minmax(0,1fr); }
- .wallet-lines strong { font-size:20px; }
  #ranking .avatar-small { width:26px; height:26px; }
  .rank-user { gap:6px; }
  .metrics .cash-lines, .metric .metric-value .cash-lines { font-size:15px; }

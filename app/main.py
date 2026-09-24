@@ -110,7 +110,7 @@ async def no_cache(request, call_next):
     request_id=supplied if re.fullmatch(r'[A-Za-z0-9._-]{1,80}',supplied) else secrets.token_hex(12)
     # Only executions spend the 'trade' budget; previews and reads (the
     # portfolio refresh lists limit orders) must not starve real orders.
-    category = 'auth' if path in ('/api/login','/api/register','/api/account/delete') else 'profile' if path.startswith('/api/profile') else 'trade' if request.method=='POST' and path in ('/api/orders','/api/fx/exchange','/api/limit-orders','/api/transfers') else 'market' if path.startswith(('/api/search','/api/quote','/api/candles','/api/explore','/api/order-preview','/api/fx/preview','/api/fx/share','/api/transfers/preview','/api/transfers/share','/api/market-status','/api/company','/api/portfolios')) else 'event' if path=='/api/popularity' else None
+    category = 'auth' if path in ('/api/login','/api/register','/api/account/delete') else 'profile' if path.startswith('/api/profile') else 'trade' if request.method=='POST' and path in ('/api/orders','/api/fx/exchange','/api/limit-orders') else 'market' if path.startswith(('/api/search','/api/quote','/api/candles','/api/explore','/api/order-preview','/api/fx/preview','/api/fx/share','/api/market-status','/api/company','/api/portfolios')) else 'event' if path=='/api/popularity' else None
     if category:
         identity=request.headers.get('x-real-ip') or (request.client.host if request.client else 'unknown')
         limit={'auth':20,'trade':30,'market':120,'event':60,'profile':30}[category]
@@ -389,8 +389,6 @@ def weekly(page: int = Query(1, ge=1), uid=Depends(current_user)):
 from .routes import install
 import sys
 install(app, sys.modules[__name__])
-from .transfers import install_transfers
-install_transfers(app, sys.modules[__name__])
 from .accounts import install_accounts
 install_accounts(app, sys.modules[__name__])
 

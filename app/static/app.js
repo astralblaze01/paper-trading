@@ -100,7 +100,7 @@ function table(target, headers, rows) {
   thead.append(head); t.append(thead, tbody);
   rows.forEach(row => { const tr = document.createElement('tr'); row.forEach(value => { const td = document.createElement('td'); if(value instanceof Node)td.append(value);else td.textContent = value; tr.append(td); }); tbody.append(tr); });
   target.replaceChildren(t);
-  if (!rows.length) { const p = document.createElement('p'); p.className = 'empty-state'; p.textContent = {positions:'아직 보유한 종목이 없습니다. 첫 주문을 시작해보세요.',publicPositions:'보유한 종목이 없습니다.',history:'아직 거래내역이 없습니다.',transferHistory:'아직 이체내역이 없습니다.',fxHistory:'아직 환전내역이 없습니다.',adminAudit:'관리자 작업 기록이 없습니다.'}[target.id] || '표시할 순위가 없습니다.'; target.append(p); }
+  if (!rows.length) { const p = document.createElement('p'); p.className = 'empty-state'; p.textContent = {positions:'아직 보유한 종목이 없습니다. 첫 주문을 시작해보세요.',publicPositions:'보유한 종목이 없습니다.',history:'아직 거래내역이 없습니다.',fxHistory:'아직 환전내역이 없습니다.',adminAudit:'관리자 작업 기록이 없습니다.'}[target.id] || '표시할 순위가 없습니다.'; target.append(p); }
 }
 async function boot() {
   const s = await api('session'); csrf = s.csrf;

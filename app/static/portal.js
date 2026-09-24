@@ -23,7 +23,7 @@ window.routePage = async function() {
   // #user/<id> is the public profile; #public/<id> is kept for old links.
   if(pageName==='user')pageName='public';
   if(pageName==='public'&&symbol&&decodeURIComponent(symbol).toLowerCase()===window.sessionUsername){location.replace('#portfolio');return;}
-  let selected=['explore','portfolio','history','fx','watchlist','ranking','admin','detail','public','transfer'].includes(pageName)?pageName:'explore';
+  let selected=['explore','portfolio','history','fx','watchlist','ranking','admin','detail','public'].includes(pageName)?pageName:'explore';
   if(window.isAdmin)selected='admin';
   document.querySelectorAll('[data-page]').forEach(el=>el.hidden=el.dataset.page!==selected);
   document.querySelectorAll('.app-nav a').forEach(a=>a.setAttribute('aria-current',a.hash==='#'+selected?'page':'false'));
@@ -34,7 +34,6 @@ window.routePage = async function() {
     if(selected==='public' && symbol){publicCache=null;$('publicTitle').textContent='투자 현황 조회 중…';for(const id of ['publicPositions','publicMetrics','publicProfile','publicAllocation'])$(id).replaceChildren();const name=decodeURIComponent(symbol);const [p]=await Promise.all([api('portfolios/'+encodeURIComponent(name)),rankingCache?null:refreshRankingOnly().catch(()=>null)]);publicCache=p;renderPublic();
       if(p.positions.some(x=>x.value==null))retryMissingPrices(async()=>{if(location.hash.split('/')[1]!==symbol)return null;const next=await api('portfolios/'+encodeURIComponent(name));publicCache=next;renderPublic();return next;});}
     if(selected==='detail' && symbol) { currentSymbol=decodeURIComponent(symbol);detailCompany=null;detailQuote=null;orderPreview=null;$('symbol').value=currentSymbol;maxMode=false;loadCompany(currentSymbol);await loadStock(true);await api('popularity',{symbol:currentSymbol,kind:'view'}); }
-    if(selected==='transfer'){await Promise.all([loadTransferWallets(),transferHistory()]);}
     if(selected==='fx'){await Promise.all([fxHistory(),loadFxRate()]);}
     if(selected==='watchlist')await watchlist();
     if(selected==='ranking')await refreshRankingOnly();
@@ -231,7 +230,7 @@ setInterval(()=>{if(!document.hidden&&location.hash==='#fx'&&window.sessionUsern
 window.updateFxBalance=function(){const source=$('fxSource').value,balance=window.walletBalances?.[source];$('fxAvailable').textContent=source==='USD'?`보유 달러 ${nativeMoney(balance,'USD')}`:`보유 원화 ${nativeMoney(balance,'KRW')}`;$('fxAmountUnit').textContent=source;$('fxAmount').step=source==='USD'?'0.0001':'1';$('fxAmount').min=source==='USD'?'0.0001':'1';};
 $('fxSource').addEventListener('change',()=>{exchangePending=null;$('fxAmount').value='';$('fxEstimate').textContent='';updateFxBalance();});
 $('fxAmount').addEventListener('input',()=>{$('fxEstimate').textContent='';});
-// Same quick amounts as transfers; the server rounds to the currency unit.
+// Quick amounts as a share of the balance; the server rounds to the currency unit.
 document.querySelectorAll('[data-fx-share]').forEach(b=>b.addEventListener('click',async()=>{try{const r=await api('fx/share?'+new URLSearchParams({source:$('fxSource').value,percent:b.dataset.fxShare}));exchangePending=null;$('fxAmount').value=String(r.amount);if(Number(r.amount)<=0){$('fxEstimate').textContent=`${r.source} 보유 금액이 없어 환전할 수 있는 금액이 없습니다.`;return;}await fxEstimate();}catch(e){$('fxEstimate').textContent=e.message;}}));
 updateFxBalance();
 handle('fxForm','submit',async()=>{const data={source:$('fxSource').value,amount:$('fxAmount').value},sig=JSON.stringify(data);if(!exchangePending || exchangePending.sig!==sig)exchangePending={sig,id:uuid()};await api('fx/exchange',{...data,request_id:exchangePending.id});exchangePending=null;toast('모의 환전이 완료되었습니다.','success');await refresh();await fxHistory();});
@@ -240,7 +239,7 @@ let adminUsers=[],adminSelectedId=null,adminPending=null,adminSearchTimer=null,a
 const adminLabel=u=>u.note?`${u.username} - ${u.note}`:u.username;
 function adminSelected(){return adminUsers.find(u=>u.id===adminSelectedId)||null;}
 async function admin(){const r=await api('admin');adminUsers=r.users;$('adminHealth').textContent=`DB ${r.health.database} · Redis ${r.health.redis} · 국내 시세 ${r.providers.kr?'설정됨':'미설정'} · 미국 시세 ${r.providers.us?'설정됨':'미설정'}`;$('adminFees').textContent=Object.entries(r.fees).map(([k,v])=>k+': '+v+' bps').join(' · ');$('initialAmount').value=r.initial_usd;noticeTemplates=r.notice_templates||noticeTemplates;renderNoticeAdmin(r.notice);
- $('adminOverview').replaceChildren();for(const [label,value] of [['사용자',r.counts.users],['체결',r.counts.transactions],['보유 종목',r.counts.positions],['대기 주문',r.counts.pending_orders],['이체',r.counts.transfers]]){const box=node('div',null,'metric');box.append(node('small',label),node('strong',value));$('adminOverview').append(box);}
+ $('adminOverview').replaceChildren();for(const [label,value] of [['사용자',r.counts.users],['체결',r.counts.transactions],['보유 종목',r.counts.positions],['대기 주문',r.counts.pending_orders]]){const box=node('div',null,'metric');box.append(node('small',label),node('strong',value));$('adminOverview').append(box);}
  $('adminUsers').replaceChildren();for(const u of r.users){const row=node('div',null,'watch-row'),status=node('button',u.active?'계정 정지':'계정 활성화','secondary');row.append(node('strong',`${adminLabel(u)} · ${u.admin?'관리자':'일반'} · ${u.active?'활성':'정지'}`),node('span',nativeMoney(u.wallets.USD,'USD')+' / '+nativeMoney(u.wallets.KRW,'KRW')),status);status.addEventListener('click',async()=>{try{await api(`admin/users/${u.id}/active`,{active:!u.active});await admin();}catch(e){toast(e.message,'error');}});$('adminUsers').append(row);}
  if(adminSelectedId!==null&&!adminSelected())adminSelectedId=null;
  await searchAdminUsers();renderAdminSelected();const rows=await api('admin/audit');table($('adminAudit'),['시각','운영자','대상','작업','사유'],rows.map(r=>[new Date(r.created_at).toLocaleString(),r.actor||'삭제된 계정',r.target||'삭제된 계정',r.action,r.reason]));}
@@ -314,46 +313,3 @@ window.loadLimits=async function(){
   }
 };
 
-let transferPending=null,transferEstimateSignature=null,transferTimer=null,transferVersion=0;
-function transferData(){return {recipient:$('transferRecipient').value.trim().toLowerCase(),currency:$('transferCurrency').value,amount:$('transferAmount').value.trim()};}
-function renderTransferWallets(){const w=window.walletBalances||{};$('transferUSD').textContent=nativeMoney(w.USD,'USD');$('transferKRW').textContent=nativeMoney(w.KRW,'KRW');}
-window.updateTransferBalance=renderTransferWallets;
-async function loadTransferWallets(){window.walletBalances=await api('wallets');renderTransferWallets();if(window.updateFxBalance)updateFxBalance();}
-function transferProblem(d){
- if(!d.recipient)return '받는 사용자 아이디를 입력하세요.';
- if(!/^[가-힣a-z0-9_]{3,32}$/.test(d.recipient))return '받는 사용자 아이디를 확인하세요.';
- if(d.recipient===window.sessionUsername)return '본인에게 이체할 수 없습니다.';
- const n=Number(d.amount);if(!d.amount||!Number.isFinite(n)||n<=0)return '보낼 금액을 입력하세요.';
- if(d.currency==='KRW'&&!Number.isInteger(n))return 'KRW는 1원 단위로 입력하세요.';
- if(d.currency==='USD'&&!/^\d+(\.\d{1,4})?$/.test(d.amount))return 'USD는 소수점 4자리까지 입력할 수 있습니다.';
- return '';
-}
-// Quote the fee and resulting balance automatically; the send button follows the latest quote.
-async function estimateTransfer(){
- const version=++transferVersion,d=transferData(),sig=JSON.stringify(d),target=$('transferEstimate');
- transferEstimateSignature=null;$('transferSubmit').disabled=true;
- const problem=transferProblem(d);if(problem){target.replaceChildren(node('p',problem,'field-help'));return;}
- target.replaceChildren(node('p','수수료 확인 중…','field-help'));
- try{const r=await api('transfers/preview',d);if(version!==transferVersion)return;target.replaceChildren();
-  for(const [label,value] of [['받는 사용자',r.recipient],['받는 금액',nativeMoney(r.received,r.currency)],['이체 수수료',nativeMoney(r.fee,r.currency)+' ('+(Number(r.fee_bps)/100)+'%)'],['총 차감 금액',nativeMoney(r.total,r.currency)],['이체 후 잔액',nativeMoney(r.balance_after,r.currency)]]){const row=node('div',null,'cost-row');row.append(node('span',label),node('strong',value));target.append(row);}
-  if(Number(r.balance_after)<0){target.append(node('p','수수료를 포함한 이체 잔액이 부족합니다.','order-error'));return;}
-  transferEstimateSignature=sig;$('transferSubmit').disabled=false;
- }catch(e){if(version===transferVersion)target.replaceChildren(node('p',e.message,'order-error'));}
-}
-function scheduleTransferEstimate(){clearTimeout(transferTimer);transferEstimateSignature=null;$('transferSubmit').disabled=true;transferTimer=setTimeout(estimateTransfer,300);}
-for(const id of ['transferRecipient','transferCurrency','transferAmount'])$(id).addEventListener('input',()=>{$('transferAmount').step=$('transferCurrency').value==='KRW'?'1':'0.0001';scheduleTransferEstimate();});
-document.querySelectorAll('[data-transfer-share]').forEach(b=>b.addEventListener('click',async()=>{try{const r=await api('transfers/share?'+new URLSearchParams({currency:$('transferCurrency').value,percent:b.dataset.transferShare}));$('transferAmount').value=String(r.amount);if(Number(r.amount)<=0){$('transferEstimate').replaceChildren(node('p',`${r.currency} 예수금이 없어 보낼 수 있는 금액이 없습니다.`,'order-error'));$('transferSubmit').disabled=true;return;}scheduleTransferEstimate();}catch(e){toast(e.message,'error');}}));
-let transferSuggestTimer=null;
-$('transferRecipient').addEventListener('input',()=>{clearTimeout(transferSuggestTimer);const q=$('transferRecipient').value.trim();$('transferSuggestions').replaceChildren();if(!q)return;transferSuggestTimer=setTimeout(async()=>{try{const rows=await api('users/suggest?'+new URLSearchParams({q}));if($('transferRecipient').value.trim()!==q)return;for(const row of rows){const option=node('option');option.value=row.username;$('transferSuggestions').append(option);}}catch{}},180);});
-$('transferForm').addEventListener('submit',async e=>{
- e.preventDefault();const body=transferData(),sig=JSON.stringify(body);
- if(sig!==transferEstimateSignature){await estimateTransfer();if(JSON.stringify(transferData())!==transferEstimateSignature)return;}
- if(!transferPending||transferPending.sig!==sig)transferPending={sig,id:uuid()};
- $('transferSubmit').disabled=true;
- try{const r=await api('transfers',{...body,request_id:transferPending.id});transferPending=null;
-  toast(r.replayed?'이미 완료된 이체입니다.':`${body.recipient}님에게 ${nativeMoney(r.received,body.currency)}을 보냈습니다.`,'success');
-  $('transferAmount').value='';$('transferEstimate').replaceChildren();transferEstimateSignature=null;
-  await Promise.all([loadTransferWallets(),transferHistory()]);refresh().catch(()=>{});
- }catch(err){toast(`이체하지 못했습니다.\n${err.message}`,'error',7000);$('transferSubmit').disabled=false;}
-});
-async function transferHistory(){const rows=await api('transfers');table($('transferHistory'),['시각','구분','상대방','금액','수수료'],rows.map(r=>[new Date(r.created_at).toLocaleString(),r.direction==='sent'?'보냄':'받음',r.counterparty,nativeMoney(r.amount,r.currency),nativeMoney(r.fee,r.currency)]));}

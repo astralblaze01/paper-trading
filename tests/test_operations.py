@@ -117,37 +117,17 @@ def test_company_cache_and_provider_outage():
     assert company_info('OFFLINETEST',m)['notice']
 
 
-def test_transfers_fee_flow_idempotency_and_ownership(client):
-    from app.transfers import TransferOrder,transfer
-    headers,recipient=users(client)
-    with Session() as db:sender=db.scalar(select(User.id).where(User.username=='operator'))
-    body=TransferOrder(recipient='investor',currency='USD',amount=D(1000),request_id=uuid4())
-    result=transfer(sender,body,main.fx)
-    assert result['fee']==1 and transfer(sender,body,main.fx)['replayed']
-    assert portfolio(sender,FakeMarket(),main.fx)['return_pct']==D('-.001')
-    assert portfolio(recipient,FakeMarket(),main.fx)['return_pct']==0
-    with Session() as db:
-        assert db.get(Wallet,(sender,'USD')).balance==98999
-        assert db.get(Wallet,(recipient,'USD')).balance==101000
-    token=register(client,'outsider')
-    assert client.get('/api/transfers').json()==[]
-    assert client.post('/api/transfers',headers={'x-csrf-token':token},json={'sender_id':sender,**body.model_dump(mode='json')}).status_code==422
-
-def test_transfer_recipient_suggestions(client):
-    headers,recipient=users(client)
-    rows=client.get('/api/users/suggest?q=vest').json()
-    assert rows==[{'username':'investor'}]
-
-
-def test_transfer_concurrency_prevents_overdraft_and_negative_units(client):
-    from app.transfers import TransferOrder,transfer
-    headers,recipient=users(client)
-    with Session() as db:sender=db.scalar(select(User.id).where(User.username=='operator'))
-    def send(_):
-        try:transfer(sender,TransferOrder(recipient='investor',currency='USD',amount=D(60000),request_id=uuid4()),main.fx);return 200
-        except HTTPException as e:return e.status_code
-    with ThreadPoolExecutor(max_workers=2) as pool: assert sorted(pool.map(send,[1,2]))==[200,409]
-    with Session() as db:assert db.get(Wallet,(sender,'USD')).balance==39940
-    import pytest
-    with pytest.raises(HTTPException):transfer(sender,TransferOrder(recipient='operator',currency='USD',amount=D(1),request_id=uuid4()),main.fx)
-    with pytest.raises(HTTPException):transfer(sender,TransferOrder(recipient='investor',currency='KRW',amount=D('.5'),request_id=uuid4()),main.fx)
+def test_transfer_feature_is_removed_but_history_is_kept(client):
+    headers,uid=users(client)
+    with Session() as db:admin_id=db.scalar(select(User.id).where(User.username=='operator'))
+    with Session.begin() as db:
+        db.add(WalletTransfer(sender_id=admin_id,recipient_id=uid,request_id=str(uuid4()),currency='USD',amount=10,fee=0,fee_bps=0,fx_rate=1000,rate_date='2026-09-24',created_at=datetime.now(timezone.utc)))
+    body={'recipient':'investor','currency':'USD','amount':'1'}
+    for method,path,payload in [('post','/api/transfers',body|{'request_id':str(uuid4())}),('post','/api/transfers/preview',body),
+                                ('get','/api/transfers',None),('get','/api/transfers/share?currency=USD&percent=50',None),
+                                ('get','/api/users/suggest?q=inv',None),('get','/api/wallets',None)]:
+        r=getattr(client,method)(path,headers=headers,**({'json':payload} if payload else {}))
+        assert r.status_code in (404,405),(path,r.status_code)
+    assert 'TRANSFER_FEE_BPS' not in client.get('/api/admin').json()['fees'] and 'transfers' not in client.get('/api/admin').json()['counts']
+    # Past transfers stay stored; balances are untouched by the removal.
+    with Session() as db:assert db.scalar(select(func.count()).select_from(WalletTransfer))==1

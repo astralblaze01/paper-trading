@@ -40,71 +40,6 @@ def image_bytes(fmt, size=(40, 30)):
     out = io.BytesIO(); Image.new('RGB', size, (200, 40, 40)).save(out, fmt); return out.getvalue()
 
 
-# 이체 ---------------------------------------------------------------------
-
-def test_transfer_usd_and_krw_update_both_sides_and_history(client):
-    sender_headers = {'x-csrf-token': register(client, 'sender')}
-    other, _ = second_client('receiver')
-    sender, receiver = uid_of('sender'), uid_of('receiver')
-    with Session.begin() as db: db.get(Wallet, (sender, 'KRW')).balance = D(500000)
-    for currency, amount in (('USD', '100'), ('KRW', '50000')):
-        body = {'recipient': 'receiver', 'currency': currency, 'amount': amount}
-        preview = client.post('/api/transfers/preview', headers=sender_headers, json=body).json()
-        assert D(str(preview['total'])) == D(amount) * D('1.001')
-        assert client.post('/api/transfers', headers=sender_headers, json=body | {'request_id': str(uuid4())}).status_code == 200
-    assert balances(sender) == {'USD': D('99899.9'), 'KRW': D('449950')}
-    assert balances(receiver) == {'USD': D('100100'), 'KRW': D('50000')}
-    # A fresh session (page reload) reads the same persisted balances.
-    assert client.get('/api/wallets').json() == {'USD': 99899.9, 'KRW': 449950}
-    assert [r['direction'] for r in other.get('/api/transfers').json()] == ['received', 'received']
-    other.close()
-
-
-@pytest.mark.parametrize('body,status,text', [
-    ({'recipient': 'nobody', 'currency': 'USD', 'amount': '1'}, 404, '찾을 수 없습니다'),
-    ({'recipient': 'sender', 'currency': 'USD', 'amount': '1'}, 422, '본인'),
-    ({'recipient': 'receiver', 'currency': 'USD', 'amount': '0'}, 422, None),
-    ({'recipient': 'receiver', 'currency': 'USD', 'amount': '-5'}, 422, None),
-    ({'recipient': 'receiver', 'currency': 'EUR', 'amount': '1'}, 422, None),
-    ({'recipient': 'receiver', 'currency': 'USD', 'amount': '100000'}, 409, '잔액이 부족'),
-    ({'recipient': 'receiver', 'currency': 'KRW', 'amount': '1'}, 409, '잔액이 부족'),
-])
-def test_invalid_transfers_change_nothing(client, body, status, text):
-    headers = {'x-csrf-token': register(client, 'sender')}
-    other, _ = second_client('receiver'); other.close()
-    before = balances(uid_of('sender')), balances(uid_of('receiver'))
-    r = client.post('/api/transfers', headers=headers, json=body | {'request_id': str(uuid4())})
-    assert r.status_code == status, r.text
-    if text: assert text in r.json()['detail']
-    assert (balances(uid_of('sender')), balances(uid_of('receiver'))) == before
-    with Session() as db: assert not db.scalar(select(func.count()).select_from(WalletTransfer))
-
-
-def test_transfer_storage_failure_rolls_back_both_wallets(client, monkeypatch):
-    headers = {'x-csrf-token': register(client, 'sender')}
-    other, _ = second_client('receiver'); other.close()
-    before = balances(uid_of('sender')), balances(uid_of('receiver'))
-    def failing(**kwargs): raise RuntimeError('simulated storage failure')
-    # Fails after both balances were changed inside the transaction.
-    monkeypatch.setattr('app.transfers.WalletTransfer', failing)
-    from app.transfers import TransferOrder, transfer
-    with pytest.raises(RuntimeError):
-        transfer(uid_of('sender'), TransferOrder(recipient='receiver', currency='USD', amount=D(100), request_id=uuid4()), main.fx)
-    assert (balances(uid_of('sender')), balances(uid_of('receiver'))) == before
-
-
-def test_transfer_share_amounts_fit_balance_including_fee(client):
-    register(client, 'sender')
-    for percent, expected in ((100, D('99900.0999')), (50, D('49950.0499')), (5, D('4995.0049'))):
-        r = client.get(f'/api/transfers/share?currency=USD&percent={percent}').json()
-        amount = D(str(r['amount']))
-        assert amount == expected
-        fee = (amount * D('0.001')).quantize(D('.0001'), rounding='ROUND_CEILING')
-        assert amount + fee <= D(100000) * percent / 100
-    assert client.get('/api/transfers/share?currency=KRW&percent=100').json()['amount'] == 0
-    assert client.get('/api/transfers/share?currency=USD&percent=30').status_code == 422
-
-
 # 관리자 -------------------------------------------------------------------
 
 def test_admin_notes_are_searchable_and_admin_only(client):
@@ -164,8 +99,9 @@ def test_account_delete_keeps_counterparty_history(client):
         db.add(UserAdminNote(user_id=uid, note='memo', created_at=main.datetime.now(main.timezone.utc), updated_at=main.datetime.now(main.timezone.utc)))
     friend_before = balances(friend)
     assert client.post(f'/api/admin/users/{uid}/manage', headers=headers, json={'action': 'delete', 'request_id': str(uuid4())}).status_code == 200
-    history = other.get('/api/transfers').json()
-    assert history[0]['counterparty'] == '탈퇴한 사용자' and history[0]['direction'] == 'received'
+    with Session() as db:
+        kept = db.scalar(select(WalletTransfer))
+        assert kept.sender_id is None and kept.recipient_id == friend  # detached, not deleted
     assert balances(friend) == friend_before
     with Session() as db: assert db.get(UserAdminNote, uid) is None
     other.close()
@@ -292,7 +228,8 @@ def test_withdrawal_removes_account_and_invalidates_session(client):
     execute_order(leaver, order(quantity=2), FakeMarket())
     client.post('/api/profile', headers=headers, json={'bio': 'bye'})
     client.post('/api/profile/image', headers=headers | {'content-type': 'image/png'}, content=image_bytes('PNG'))
-    assert other.post('/api/transfers', headers=other_headers, json={'recipient': 'leaver', 'currency': 'USD', 'amount': '10', 'request_id': str(uuid4())}).status_code == 200
+    with Session.begin() as db:
+        db.add(WalletTransfer(sender_id=stayer, recipient_id=leaver, request_id=str(uuid4()), currency='USD', amount=10, fee=0, fee_bps=0, fx_rate=1000, rate_date='2026-09-24', created_at=main.datetime.now(main.timezone.utc)))
     stayer_before = balances(stayer)
     old_cookie = client.cookies.get('paper_session')
     assert client.post('/api/account/delete', headers=headers, json={'password': 'wrong-password'}).status_code == 401
@@ -310,7 +247,9 @@ def test_withdrawal_removes_account_and_invalidates_session(client):
     assert client.post('/api/login', headers={'x-csrf-token': token}, json={'username': 'leaver', 'password': 'a-secure-password-123'}).status_code == 401
     # The other account keeps its balance and its transfer record.
     assert balances(stayer) == stayer_before
-    assert other.get('/api/transfers').json()[0]['counterparty'] == '탈퇴한 사용자'
+    with Session() as db:
+        kept = db.scalar(select(WalletTransfer))
+        assert kept.sender_id == stayer and kept.recipient_id is None
     other.close()
 
 
@@ -366,14 +305,11 @@ def test_dividend_yield_statuses():
 
 
 def test_reads_and_previews_do_not_spend_the_trade_limit(client):
-    headers = {'x-csrf-token': register(client, 'sender')}
-    other, _ = second_client('receiver'); other.close()
-    body = {'recipient': 'receiver', 'currency': 'USD', 'amount': '1'}
+    headers = {'x-csrf-token': register(client, 'trader')}
     for _ in range(35):
         assert client.get('/api/limit-orders').status_code == 200
-        assert client.post('/api/transfers/preview', headers=headers, json=body).status_code == 200
-    assert client.post('/api/transfers', headers=headers, json=body | {'request_id': str(uuid4())}).status_code == 200
-
+        assert client.post('/api/fx/preview', headers=headers, json={'source': 'USD', 'amount': '1'}).status_code == 200
+    assert client.post('/api/fx/exchange', headers=headers, json={'source': 'USD', 'amount': '1', 'request_id': str(uuid4())}).status_code == 200
 
 def test_fx_share_amounts_use_currency_units(client):
     headers = {'x-csrf-token': register(client, 'trader')}

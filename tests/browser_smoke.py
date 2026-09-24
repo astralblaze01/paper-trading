@@ -142,7 +142,7 @@ with sync_playwright() as p:
         expect(page.locator('#myProfile .profile-name')).to_have_text(name)
         expect(page.locator('#myProfile .member-days')).to_contain_text('가입 기간')
         expect(page.locator('#myProfile .member-days dd')).to_have_text('1일')
-        expect(page.locator('.app-nav a:visible')).to_have_text(['시장 탐색','포트폴리오','관심종목','랭킹','환전','이체','거래내역'])
+        expect(page.locator('.app-nav a:visible')).to_have_text(['시장 탐색','포트폴리오','관심종목','랭킹','환전','거래내역'])
         expect(page.locator('#myProfile .avatar')).to_have_attribute('src','/static/avatar-default.svg')
         expect(page.locator('#allocation .allocation-segment')).to_have_count(2)
         expect(page.locator('#allocation .allocation-legend')).to_contain_text('현금')
@@ -234,19 +234,14 @@ with sync_playwright() as p:
         expect(page.locator('#publicProfile')).not_to_contain_text('소개 수정')
         expect(page.locator('#publicProfile')).not_to_contain_text('사진 변경')
         expect(page.locator('#publicAllocation .allocation-legend')).to_be_visible()
-        page.locator('a[href="#transfer"]').click()
-        expect(page.locator('#transferUSD')).to_contain_text('$')
-        page.locator('#transferRecipient').fill(other_name)
-        page.locator('[data-transfer-share="10"]').click()
-        expect(page.locator('#transferEstimate')).to_contain_text('총 차감 금액')
-        expect(page.locator('#transferSubmit')).to_be_enabled()
-        page.locator('#transferSubmit').click()
-        expect(page.locator('#toasts')).to_contain_text('보냈습니다')
-        expect(page.locator('#transferHistory')).to_contain_text(other_name)
+        # Transfers were removed: no menu entry, and an old link falls back to 시장 탐색.
+        expect(page.locator('a[href="#transfer"]')).to_have_count(0)
+        page.goto('http://browserweb:8000/#transfer')
+        expect(page.locator('[data-page="explore"]')).to_be_visible()
         # Every page follows one amount format: "$1,000.00" and "1,000원".
         for display in ('native','KRW','USD'):
             page.locator('#displayCurrency').select_option(display)
-            for hash_ in ('#explore','#portfolio','#history','#fx','#transfer','#watchlist','#ranking','#detail/AAPL'):
+            for hash_ in ('#explore','#portfolio','#history','#fx','#watchlist','#ranking','#detail/AAPL'):
                 page.goto('http://browserweb:8000/'+hash_);page.wait_for_load_state('networkidle')
                 text=page.locator('main').inner_text()
                 assert 'US$' not in text and '₩' not in text, (display,hash_,[l for l in text.splitlines() if 'US$' in l or '₩' in l][:3])
@@ -381,4 +376,4 @@ with sync_playwright() as p:
     page.screenshot(path='/artifacts/allocation-many-1280.png',full_page=True)
     page.close()
     browser.close()
-print('Desktop + mobile browser flows passed: signup/login, FX, charts, buy/sell, watchlist, portfolio, profile, ranking, transfer, admin, withdrawal')
+print('Desktop + mobile browser flows passed: signup/login, FX, charts, buy/sell, watchlist, portfolio, profile, ranking, admin, notices, withdrawal')
