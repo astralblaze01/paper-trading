@@ -123,9 +123,13 @@ async function refreshMarketSessions(){
   try{const r=await api('market-overview');window.marketOpen=Object.fromEntries(r.markets.map(x=>[x.market,['정규장','장전','장후','프리장','애프터장'].includes(x.label)]));$('marketSessions').textContent=r.markets.map(x=>{const unsupported=x.market==='US'&&['프리장','애프터장'].includes(x.label)&&x.extended_prices===false?' (체결 시세 미지원)':'';return `${x.market==='KR'?'한국':'미국'} ${x.label}${unsupported}`;}).join(' · ');}catch(e){$('marketSessions').textContent='시장 상태 확인 불가';}
 }
 setInterval(()=>{if(!document.hidden)refreshMarketSessions();},60000);
-// Server maintenance notice set by an administrator: a banner only, nothing is blocked.
-function showMaintenanceNotice(on){$('maintenanceNotice').hidden=!on||!!window.isAdmin;}
-async function refreshNotice(){try{showMaintenanceNotice((await api('notice')).maintenance);}catch{}}
+// Notice posted by an administrator (e.g. the maintenance template): a banner only, nothing is blocked.
+function showSiteNotice(notice){
+  const box=$('siteNotice');box.hidden=!notice||!!window.isAdmin;if(box.hidden)return;
+  box.dataset.kind=notice.kind;box.querySelector('.notice-kind').textContent=notice.label;
+  box.querySelector('.notice-title').textContent=notice.title;box.querySelector('.notice-body').textContent=notice.body;
+}
+async function refreshNotice(){try{showSiteNotice((await api('notice')).notice);}catch{}}
 setInterval(()=>{if(!document.hidden)refreshNotice();},30000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshNotice();});
 // The price collector fetches a symbol only after it is first requested, so a

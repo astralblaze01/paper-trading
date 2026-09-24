@@ -239,7 +239,7 @@ async function fxHistory(){const rows=await api('fx/history');table($('fxHistory
 let adminUsers=[],adminSelectedId=null,adminPending=null,adminSearchTimer=null,adminSearchVersion=0;
 const adminLabel=u=>u.note?`${u.username} - ${u.note}`:u.username;
 function adminSelected(){return adminUsers.find(u=>u.id===adminSelectedId)||null;}
-async function admin(){const r=await api('admin');adminUsers=r.users;$('adminHealth').textContent=`DB ${r.health.database} · Redis ${r.health.redis} · 국내 시세 ${r.providers.kr?'설정됨':'미설정'} · 미국 시세 ${r.providers.us?'설정됨':'미설정'}`;$('adminFees').textContent=Object.entries(r.fees).map(([k,v])=>k+': '+v+' bps').join(' · ');$('initialAmount').value=r.initial_usd;renderMaintenance(r.maintenance);
+async function admin(){const r=await api('admin');adminUsers=r.users;$('adminHealth').textContent=`DB ${r.health.database} · Redis ${r.health.redis} · 국내 시세 ${r.providers.kr?'설정됨':'미설정'} · 미국 시세 ${r.providers.us?'설정됨':'미설정'}`;$('adminFees').textContent=Object.entries(r.fees).map(([k,v])=>k+': '+v+' bps').join(' · ');$('initialAmount').value=r.initial_usd;noticeTemplates=r.notice_templates||noticeTemplates;renderNoticeAdmin(r.notice);
  $('adminOverview').replaceChildren();for(const [label,value] of [['사용자',r.counts.users],['체결',r.counts.transactions],['보유 종목',r.counts.positions],['대기 주문',r.counts.pending_orders],['이체',r.counts.transfers]]){const box=node('div',null,'metric');box.append(node('small',label),node('strong',value));$('adminOverview').append(box);}
  $('adminUsers').replaceChildren();for(const u of r.users){const row=node('div',null,'watch-row'),status=node('button',u.active?'계정 정지':'계정 활성화','secondary');row.append(node('strong',`${adminLabel(u)} · ${u.admin?'관리자':'일반'} · ${u.active?'활성':'정지'}`),node('span',nativeMoney(u.wallets.USD,'USD')+' / '+nativeMoney(u.wallets.KRW,'KRW')),status);status.addEventListener('click',async()=>{try{await api(`admin/users/${u.id}/active`,{active:!u.active});await admin();}catch(e){toast(e.message,'error');}});$('adminUsers').append(row);}
  if(adminSelectedId!==null&&!adminSelected())adminSelectedId=null;
@@ -276,8 +276,29 @@ async function runAdminAction(action,extra={}){
 handle('adminGrantForm','submit',()=>runAdminAction('grant',{currency:$('adminCurrency').value,amount:$('adminAmount').value}));
 document.querySelectorAll('[data-admin-action]').forEach(b=>b.addEventListener('click',()=>runAdminAction(b.dataset.adminAction).catch(e=>$('adminResult').textContent=e.message)));
 for(const [select,input] of [['adminCurrency','adminAmount'],['adminBulkCurrency','adminBulkAmount']])$(select).addEventListener('change',()=>{$(input).step=$(select).value==='KRW'?'1':'0.0001';$(input).min=$(input).step;});
-function renderMaintenance(on){$('maintenanceStatus').textContent=on?'점검 예고가 표시되고 있습니다. 사용자는 서비스를 계속 이용할 수 있습니다.':'점검 예고가 없습니다. 등록하면 사용자 화면에 점검 예정 안내가 표시됩니다.';$('maintenanceToggle').textContent=on?'점검 예고 해제':'점검 예고 등록';$('maintenanceToggle').dataset.on=String(on);$('maintenanceToggle').disabled=false;}
-handle('maintenanceToggle','click',async()=>{const enable=$('maintenanceToggle').dataset.on!=='true';$('maintenanceToggle').disabled=true;try{const r=await api('admin/maintenance',{enabled:enable});renderMaintenance(r.maintenance);toast(r.maintenance?'서버 점검 예고를 등록했습니다.':'서버 점검 예고를 해제했습니다.','success');}finally{$('maintenanceToggle').disabled=false;}});
+let noticeTemplates={},noticeKindShown=null;
+function renderNoticeAdmin(notice){
+ $('noticeStatus').textContent=notice?`게시 중 · ${notice.label} · ${notice.title} · ${new Date(notice.posted_at).toLocaleString()}`:'게시 중인 공지가 없습니다. 등록하면 사용자 화면 상단에 표시됩니다.';
+ $('noticeClear').disabled=!notice;$('noticePost').textContent=notice?'새 공지로 교체':'공지 등록';
+ if(noticeKindShown===null)fillNoticeTemplate();
+}
+// Picking a type fills in its template, unless the text was already edited.
+function fillNoticeTemplate(){
+ const previous=noticeTemplates[noticeKindShown],next=noticeTemplates[$('noticeKind').value]||{title:'',body:''};
+ const untouched=!previous||($('noticeTitle').value===previous.title&&$('noticeBody').value===previous.body)||(!$('noticeTitle').value&&!$('noticeBody').value);
+ if(untouched){$('noticeTitle').value=next.title;$('noticeBody').value=next.body;}
+ noticeKindShown=$('noticeKind').value;updateNoticeCount();
+}
+function updateNoticeCount(){$('noticeCount').textContent=`${$('noticeBody').value.length}/500`;$('noticeError').textContent='';}
+$('noticeKind').addEventListener('change',fillNoticeTemplate);
+$('noticeBody').addEventListener('input',updateNoticeCount);$('noticeTitle').addEventListener('input',()=>{$('noticeError').textContent='';});
+$('noticeForm').addEventListener('submit',async e=>{
+ e.preventDefault();const body={kind:$('noticeKind').value,title:$('noticeTitle').value.trim(),body:$('noticeBody').value.trim()};
+ if(!body.title||!body.body){$('noticeError').textContent='공지 제목과 내용을 입력하세요.';return;}
+ $('noticePost').disabled=true;
+ try{const r=await api('admin/notice',body);renderNoticeAdmin(r.notice);toast(`공지를 등록했습니다.\n${r.notice.label} · ${r.notice.title}`,'success');}catch(err){$('noticeError').textContent=err.message;}finally{$('noticePost').disabled=false;}
+});
+handle('noticeClear','click',async()=>{$('noticeClear').disabled=true;try{await api('admin/notice/clear',{});renderNoticeAdmin(null);toast('공지를 해제했습니다.','success');}catch(err){$('noticeClear').disabled=false;throw err;}});
 let adminBulkPending=null;
 handle('adminBulkForm','submit',async()=>{const body={action:'grant',currency:$('adminBulkCurrency').value,amount:$('adminBulkAmount').value,reason:$('adminReason').value.trim()},sig=JSON.stringify(body);if(!adminBulkPending||adminBulkPending.sig!==sig)adminBulkPending={sig,id:uuid()};const r=await api('admin/users/manage-all',{...body,request_id:adminBulkPending.id});adminBulkPending=null;$('adminResult').textContent=`${r.count}명에게 지원금을 지급했습니다.`;toast(`${r.count}명에게 지원금을 지급했습니다.`,'success');await admin();});
 handle('initialForm','submit',async()=>{await api('admin/initial',{amount:$('initialAmount').value});message('이후 생성/초기화되는 계좌의 지급액을 저장했습니다.');});

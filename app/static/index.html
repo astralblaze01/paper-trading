@@ -4,10 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{BRAND_NAME}} · 모의투자</title>
-  <link rel="stylesheet" href="/static/style.css?v=26">
-  <script src="/static/app.js?v=26" defer></script>
-  <script src="/static/portal.js?v=26" defer></script>
-  <script src="/static/profile.js?v=26" defer></script>
+  <link rel="stylesheet" href="/static/style.css?v=27">
+  <script src="/static/app.js?v=27" defer></script>
+  <script src="/static/portal.js?v=27" defer></script>
+  <script src="/static/profile.js?v=27" defer></script>
 </head>
 <body>
   <header>
@@ -18,7 +18,7 @@
     </div>
   </header>
   <main>
-    <div id="maintenanceNotice" class="maintenance-notice" role="status" hidden><strong>서버 점검 예정</strong><p>서버 점검이 예정되어 있습니다. 점검 중에는 일시적으로 서비스 이용이 어려울 수 있습니다.</p></div>
+    <div id="siteNotice" class="site-notice" role="status" hidden><span class="notice-kind"></span><strong class="notice-title"></strong><p class="notice-body"></p></div>
     <p id="status" role="status" aria-live="polite"></p>
     <section id="auth">
       <div class="intro">
@@ -75,7 +75,11 @@
         <div id="transferEstimate" class="quote-info" aria-live="polite"></div><button id="transferSubmit" class="full-width" disabled>이체하기</button></form><h3>이체내역</h3><div id="transferHistory" class="scroll"></div></section>
       <section data-page="fx" class="panel"><h2>가상 환전</h2><details class="fx-details"><summary>환율 정보</summary><p class="field-help">ECB 일별 기준환율을 사용합니다. 수수료와 스프레드는 환전 견적에 표시합니다.</p></details><div id="fxRate" class="fx-rate" aria-live="polite">환율 확인 중…</div><form id="fxForm"><div class="toolbar"><label>보낼 통화<select id="fxSource"><option value="USD">USD → KRW</option><option value="KRW">KRW → USD</option></select></label><label>보낼 금액 (<span id="fxAmountUnit">USD</span>)<input id="fxAmount" type="number" min="0.0001" step="0.0001" required></label></div><div class="fx-balance"><span id="fxAvailable" aria-live="polite"></span></div><div class="order-quick" aria-label="환전 금액 비율 선택"><span>금액 빠른 선택</span><button type="button" class="secondary" data-fx-share="100">전액</button><button type="button" class="secondary" data-fx-share="50">50%</button><button type="button" class="secondary" data-fx-share="25">25%</button><button type="button" class="secondary" data-fx-share="10">10%</button><button type="button" class="secondary" data-fx-share="5">5%</button></div><p class="field-help">비율은 보낼 통화의 보유 금액 기준입니다. 환전 수수료는 보낸 금액에서 차감됩니다.</p><button id="fxPreview" type="button" class="secondary">환전 예상 확인</button><div id="fxEstimate" class="quote-info"></div><button class="full-width">모의 환전 실행</button></form><h3>환전내역</h3><div id="fxHistory" class="scroll"></div></section>
       <section data-page="watchlist" class="panel"><div class="section-heading"><h2>관심종목</h2><span class="unit">종목 상세에서 추가할 수 있습니다.</span></div><div id="watchRows" class="scroll"></div></section>
-      <section data-page="admin" class="panel"><h2>종합 관리자</h2><p id="adminHealth"></p><div id="adminOverview" class="metrics"></div><section class="admin-maintenance" aria-labelledby="maintenanceTitle"><div><h3 id="maintenanceTitle">서버 점검 예고</h3><p id="maintenanceStatus" class="field-help">상태 확인 중…</p></div><button id="maintenanceToggle" type="button" class="secondary" disabled>점검 예고 등록</button></section><pre id="adminFees"></pre><form id="initialForm" class="toolbar"><label>새 계좌 초기 지급 USD<input id="initialAmount" type="number" min="1" max="1000000000" step="0.0001" required></label><button>설정 저장</button></form><section id="adminManage" class="admin-manage" aria-labelledby="adminManageTitle"><h3 id="adminManageTitle">사용자 관리</h3>
+      <section data-page="admin" class="panel"><h2>종합 관리자</h2><p id="adminHealth"></p><div id="adminOverview" class="metrics"></div><section class="admin-notice" aria-labelledby="noticeHeading"><div class="admin-notice-head"><div><h3 id="noticeHeading">공지</h3><p id="noticeStatus" class="field-help">상태 확인 중…</p></div><button id="noticeClear" type="button" class="secondary" disabled>공지 해제</button></div>
+<form id="noticeForm" class="admin-notice-form" novalidate><label for="noticeKind">공지 유형</label><select id="noticeKind"><option value="maintenance">서버 점검 예고</option><option value="update">업데이트 안내</option><option value="general">일반 공지 (직접 작성)</option></select>
+<label for="noticeTitle">제목</label><input id="noticeTitle" maxlength="60" required placeholder="공지 제목">
+<label for="noticeBody">내용</label><textarea id="noticeBody" maxlength="500" rows="3" required placeholder="사용자에게 보여줄 안내 내용"></textarea><span id="noticeCount" class="field-help"></span>
+<p id="noticeError" class="order-error" role="alert"></p><button id="noticePost">공지 등록</button></form></section><pre id="adminFees"></pre><form id="initialForm" class="toolbar"><label>새 계좌 초기 지급 USD<input id="initialAmount" type="number" min="1" max="1000000000" step="0.0001" required></label><button>설정 저장</button></form><section id="adminManage" class="admin-manage" aria-labelledby="adminManageTitle"><h3 id="adminManageTitle">사용자 관리</h3>
 <label for="adminTargetSearch">대상 사용자 검색 (아이디 또는 관리자 메모)</label><input id="adminTargetSearch" autocomplete="off" placeholder="예: abc123 또는 홍길동">
 <div id="adminSearchResults" class="admin-results" role="listbox" aria-label="검색 결과"></div>
 <div id="adminSelected" class="admin-selected" hidden>

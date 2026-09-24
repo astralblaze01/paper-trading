@@ -36,13 +36,6 @@ class ResetInput(Strict):
     label: str=Field(min_length=1,max_length=80)
 class AmountInput(Strict): amount: Decimal=Field(ge=1,le=1000000000,max_digits=14,decimal_places=4)
 class ActiveInput(Strict): active: bool
-class NoticeInput(Strict): enabled: bool
-
-# Advance notice only: users see a banner, nothing is blocked.
-MAINTENANCE_KEY='MAINTENANCE_NOTICE'
-def maintenance_notice(db):
-    row=db.get(Settings,MAINTENANCE_KEY)
-    return bool(row and row.value=='on')
 
 
 def event(uid,symbol,kind):
@@ -232,19 +225,11 @@ def install(app,ctx):
             users=[{'id':u.id,'username':u.username,'active':u.active,'admin':u.is_admin,'initial_usd':u.initial_usd,'initial_krw':u.initial_krw,'note':notes.get(u.id,''),'wallets':{w.currency:w.balance for w in db.scalars(select(Wallet).where(Wallet.user_id==u.id))}} for u in db.scalars(select(User).order_by(User.id))]
             amount=initial_amount(db)
             counts={'users':db.scalar(select(func.count()).select_from(User)),'transactions':db.scalar(select(func.count()).select_from(Transaction)),'positions':db.scalar(select(func.count()).select_from(Position)),'pending_orders':db.scalar(select(func.count()).select_from(LimitOrder).where(LimitOrder.status=='pending')),'transfers':db.scalar(select(func.count()).select_from(WalletTransfer))}
-        with Session() as db: maintenance=maintenance_notice(db)
-        return {'users':users,'initial_usd':amount,'maintenance':maintenance,'fees':{n:bps(n,'10' if n in ('FX_FEE_BPS','TRANSFER_FEE_BPS') else '5' if n=='FX_SPREAD_BPS' else '0') for n in names},'health':ctx.health(),'providers':ctx.market.status(),'counts':counts}
-    @app.get('/api/notice')
-    def notice():
-        with Session() as db: return {'maintenance':maintenance_notice(db)}
-    @app.post('/api/admin/maintenance',dependencies=[Depends(csrf)])
-    def set_maintenance(data:NoticeInput,uid=Depends(admin)):
-        with Session.begin() as db:
-            before=maintenance_notice(db)
-            db.merge(Settings(key=MAINTENANCE_KEY,value='on' if data.enabled else 'off'))
-            if before!=data.enabled:
-                db.add(AdminAudit(actor_id=uid,target_id=uid,request_id=str(uuid4()),action='maintenance_notice',reason='서버 점검 예고 '+('등록' if data.enabled else '해제'),data={'before':before,'after':data.enabled},created_at=datetime.now(timezone.utc)))
-        return {'maintenance':data.enabled}
+        from .notices import active_notice, public, TEMPLATES
+        with Session() as db: notice=public(active_notice(db))
+        return {'users':users,'initial_usd':amount,'notice':notice,'notice_templates':TEMPLATES,'maintenance':bool(notice and notice['kind']=='maintenance'),'fees':{n:bps(n,'10' if n in ('FX_FEE_BPS','TRANSFER_FEE_BPS') else '5' if n=='FX_SPREAD_BPS' else '0') for n in names},'health':ctx.health(),'providers':ctx.market.status(),'counts':counts}
+    from .notices import install_notices
+    install_notices(app,admin,csrf)
     @app.post('/api/admin/initial',dependencies=[Depends(csrf)])
     def set_initial(data:AmountInput,uid=Depends(admin)):
         with Session.begin() as db:

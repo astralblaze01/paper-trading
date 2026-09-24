@@ -443,10 +443,19 @@ table { font-size:15px; }
 .crop-zoom label { margin:0; flex-shrink:0; }
 .crop-zoom input[type="range"] { height:auto; padding:0; border:0; accent-color:var(--accent); }
 .crop-zoom .crop-step { min-width:40px; min-height:36px; padding:0; font-size:20px; line-height:1; }
-/* Advance notice of server maintenance (informational only). */
-.maintenance-notice { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 12px; padding:13px 18px; margin:0 0 24px; background:#eef4fd; border:1px solid #c9dbf5; border-left:4px solid var(--accent); border-radius:4px; color:#1f3b5c; }
-.maintenance-notice strong { font-weight:700; white-space:nowrap; }
-.maintenance-notice p { margin:0; font-size:15px; }
-.admin-maintenance { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px 24px; max-width:820px; padding:18px 24px; margin:0 0 24px; background:#fff; border:1px solid var(--border); border-radius:10px; }
-.admin-maintenance h3 { margin:0 0 4px; font-size:17px; }
-.admin-maintenance .field-help { margin:0; }
+/* Site notice banner (maintenance template, update or custom notice). */
+.site-notice { display:grid; grid-template-columns:auto minmax(0,1fr); align-items:baseline; gap:4px 12px; padding:13px 18px; margin:0 0 24px; background:#eef4fd; border:1px solid #c9dbf5; border-left:4px solid var(--accent); border-radius:4px; color:#1f3b5c; }
+.site-notice .notice-kind { grid-row:span 2; align-self:start; padding:2px 8px; border-radius:999px; background:#fff; border:1px solid currentColor; font-size:12px; font-weight:700; white-space:nowrap; }
+.site-notice .notice-title { font-weight:700; overflow-wrap:anywhere; }
+.site-notice .notice-body { margin:0; font-size:15px; white-space:pre-line; overflow-wrap:anywhere; }
+.site-notice[data-kind="maintenance"] { background:#fff8ed; border-color:#ecd7b0; border-left-color:#ba8a42; color:#6a4a1a; }
+.site-notice[data-kind="update"] { background:#eef8f2; border-color:#c6e6d2; border-left-color:#2f8f5b; color:#1d4d33; }
+.admin-notice { max-width:820px; padding:18px 24px; margin:0 0 24px; background:#fff; border:1px solid var(--border); border-radius:10px; }
+.admin-notice-head { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px 24px; margin-bottom:14px; }
+.admin-notice h3 { margin:0 0 4px; font-size:17px; }
+.admin-notice-head .field-help { margin:0; overflow-wrap:anywhere; }
+.admin-notice-form label { margin-top:12px; }
+.admin-notice-form textarea { width:100%; border:1px solid #cbd3da; border-radius:4px; padding:10px 12px; font:inherit; font-size:16px; resize:vertical; }
+.admin-notice-form #noticeCount { display:block; text-align:right; margin:4px 0 8px; }
+#noticeError:empty { display:none; }
+@media(max-width:600px){ .site-notice { grid-template-columns:1fr; } .site-notice .notice-kind { grid-row:auto; justify-self:start; } }

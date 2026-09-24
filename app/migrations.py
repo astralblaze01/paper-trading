@@ -77,3 +77,12 @@ def migrate(engine):
             db.execute(text('ALTER TABLE wallet_transfers ALTER COLUMN sender_id DROP NOT NULL'))
             db.execute(text('ALTER TABLE wallet_transfers ALTER COLUMN recipient_id DROP NOT NULL'))
             db.execute(text('INSERT INTO schema_migrations(version) VALUES (7)'))
+
+        if not db.scalar(text('SELECT 1 FROM schema_migrations WHERE version=8')):
+            # The on/off maintenance switch became a notice with a type.
+            if db.scalar(text("SELECT value FROM settings WHERE key='MAINTENANCE_NOTICE'"))=='on':
+                from .notices import TEMPLATES
+                template=TEMPLATES['maintenance']
+                db.execute(text("INSERT INTO site_notices(kind,title,body,active,posted_at) VALUES ('maintenance',:t,:b,true,now())"),{'t':template['title'],'b':template['body']})
+            db.execute(text("DELETE FROM settings WHERE key='MAINTENANCE_NOTICE'"))
+            db.execute(text('INSERT INTO schema_migrations(version) VALUES (8)'))
