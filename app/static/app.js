@@ -73,6 +73,8 @@ function table(target, headers, rows) {
 async function boot() {
   const s = await api('session'); csrf = s.csrf;
   window.sessionUsername=s.username; window.isAdmin=!!s.is_admin; $('auth').hidden = !!s.username; $('dashboard').hidden = !s.username; $('logout').hidden = !s.username; $('adminNav').hidden = !s.is_admin;
+  document.querySelectorAll('.app-nav a').forEach(a=>{if(s.is_admin)a.hidden=a.id!=='adminNav';else if(a.id!=='adminNav')a.hidden=false;});
+  const settings=document.querySelector('.view-settings');if(settings)settings.hidden=!!s.is_admin;
   const unavailable = [];
   if (!s.providers.us) unavailable.push('미국 시세');
   if (!s.providers.kr) unavailable.push('한국 시세');

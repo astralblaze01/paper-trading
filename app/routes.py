@@ -8,7 +8,7 @@ from fastapi import Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select, func, delete, text
 from sqlalchemy.dialects.postgresql import insert
-from .db import Session, User, Wallet, Position, Transaction, FxTransaction, Watchlist, PopularityEvent, Settings, SeasonArchive, WeeklyState, LimitOrder, AdminAudit
+from .db import Session, User, Wallet, Position, Transaction, FxTransaction, Watchlist, PopularityEvent, Settings, SeasonArchive, WeeklyState, LimitOrder, AdminAudit, WalletTransfer
 from .instruments import SYMBOL_PATTERN, valid_symbol, instrument, CATALOG
 from .market import MarketError
 from .fx import preview, exchange
@@ -207,7 +207,8 @@ def install(app,ctx):
         with Session() as db:
             users=[{'id':u.id,'username':u.username,'active':u.active,'admin':u.is_admin,'initial_usd':u.initial_usd,'initial_krw':u.initial_krw,'wallets':{w.currency:w.balance for w in db.scalars(select(Wallet).where(Wallet.user_id==u.id))}} for u in db.scalars(select(User).order_by(User.id))]
             amount=initial_amount(db)
-        return {'users':users,'initial_usd':amount,'fees':{n:bps(n,'10' if n in ('FX_FEE_BPS','TRANSFER_FEE_BPS') else '5' if n=='FX_SPREAD_BPS' else '0') for n in names},'health':ctx.health(),'providers':ctx.market.status()}
+            counts={'users':db.scalar(select(func.count()).select_from(User)),'transactions':db.scalar(select(func.count()).select_from(Transaction)),'positions':db.scalar(select(func.count()).select_from(Position)),'pending_orders':db.scalar(select(func.count()).select_from(LimitOrder).where(LimitOrder.status=='pending')),'transfers':db.scalar(select(func.count()).select_from(WalletTransfer))}
+        return {'users':users,'initial_usd':amount,'fees':{n:bps(n,'10' if n in ('FX_FEE_BPS','TRANSFER_FEE_BPS') else '5' if n=='FX_SPREAD_BPS' else '0') for n in names},'health':ctx.health(),'providers':ctx.market.status(),'counts':counts}
     @app.post('/api/admin/initial',dependencies=[Depends(csrf)])
     def set_initial(data:AmountInput,uid=Depends(admin)):
         with Session.begin() as db:

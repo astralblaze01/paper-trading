@@ -6,7 +6,7 @@ from sqlalchemy import select,func
 from fastapi import HTTPException
 from test_service import database,client,register,seed,FakeMarket,order
 from app import main
-from app.db import Session,User,Wallet,Transaction,AdminAudit,SeasonArchive,WeeklyState,WeeklyReport
+from app.db import Session,User,Wallet,Transaction,AdminAudit,SeasonArchive,WeeklyState,WeeklyReport,WalletTransfer
 from app.trading import execute_order
 from app.portfolio import portfolio
 from app.weekly import tick,report_list
@@ -46,9 +46,33 @@ def test_grants_dont_inflate_returns_and_are_idempotent(client):
     assert after['equity']==before['equity']+1100000
     with Session() as db: assert db.scalar(select(func.count()).select_from(AdminAudit))==2
 
+def test_bulk_grant_targets_active_non_admin_users(client):
+    headers,uid=users(client)
+    with Session.begin() as db:
+        other=User(username='두번째사용자',password_hash='unused');db.add(other);db.flush();from app.money import wallets;wallets(db,other)
+    body=command(confirmation='ALL USERS')
+    result=client.post('/api/admin/users/manage-all',headers=headers,json=body)
+    assert result.status_code==200 and result.json()['count']==2
+    with Session() as db:
+        assert db.get(Wallet,(uid,'USD')).balance==101000
+        assert db.get(Wallet,(other.id,'USD')).balance==101000
+
+def test_admin_can_delete_account_but_not_self(client):
+    headers,uid=users(client)
+    body=command('delete',confirmation='DELETE investor')
+    assert client.post(f'/api/admin/users/{uid}/manage',headers=headers,json=body).status_code==200
+    assert client.post(f'/api/admin/users/{uid}/manage',headers=headers,json=body).json()['replayed']
+    with Session() as db: assert db.get(User,uid) is None
+    with Session() as db: admin_id=db.scalar(select(User.id).where(User.username=='operator'))
+    own=command('delete',confirmation='DELETE operator')
+    assert client.post(f'/api/admin/users/{admin_id}/manage',headers=headers,json=own).status_code==409
+
 def test_rebase_preserves_assets_clear_archives_and_removes_records(client):
     headers,uid=users(client)
     execute_order(uid,order(quantity=2),FakeMarket())
+    with Session.begin() as db:
+        admin_id=db.scalar(select(User.id).where(User.username=='operator'))
+        db.add(WalletTransfer(sender_id=admin_id,recipient_id=uid,request_id=str(uuid4()),currency='USD',amount=10,fee=0,fee_bps=0,fx_rate=1000,rate_date='2026-09-24',created_at=datetime.now(timezone.utc)))
     assert client.post(f'/api/admin/users/{uid}/manage',headers=headers,json=command('rebase')).status_code==200
     with Session() as db: assert db.scalar(select(func.count()).select_from(Transaction))==1
     assert client.post(f'/api/admin/users/{uid}/manage',headers=headers,json=command('clear')).status_code==422
@@ -58,6 +82,7 @@ def test_rebase_preserves_assets_clear_archives_and_removes_records(client):
         assert db.scalar(select(SeasonArchive)).data['transactions'][0]['quantity']==2
         assert db.get(Wallet,(uid,'USD')).balance==100000
         assert db.get(User,uid).net_contributions_krw==0
+        assert db.scalar(select(func.count()).select_from(WalletTransfer))==0
 
 def test_normal_user_cannot_admin_manage(client):
     token=register(client)

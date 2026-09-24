@@ -6,14 +6,14 @@ from typing import Literal
 from uuid import UUID
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select, delete, text
-from .db import Session, User, Position, Wallet, Transaction, FxTransaction, LimitOrder, Watchlist, PopularityEvent, SeasonArchive, WeeklyState, WeeklyReport, AdminAudit
+from sqlalchemy import select, delete, text, or_
+from .db import Session, User, Position, Wallet, Transaction, FxTransaction, LimitOrder, Watchlist, PopularityEvent, SeasonArchive, WeeklyState, WeeklyReport, AdminAudit, WalletTransfer
 from .money import wallets, initial_amount, rounded
 from .market import MarketError
 
 class ManagementInput(BaseModel):
     model_config=ConfigDict(extra='forbid')
-    action: Literal['grant','rebase','clear']
+    action: Literal['grant','rebase','clear','delete']
     currency: Literal['USD','KRW']='USD'
     amount: Decimal=Field(default=Decimal(0),ge=0,le=1000000000,max_digits=18,decimal_places=4)
     reason: str=Field(min_length=3,max_length=300)
@@ -35,15 +35,31 @@ def install_admin_ops(app,ctx,admin,csrf):
     def manage(target:int,data:ManagementInput,uid=Depends(admin)):
         with Session.begin() as db:
             db.execute(text('SELECT pg_advisory_xact_lock(74923102)'))
-            u=db.scalar(select(User).where(User.id==target).with_for_update())
-            if not u: raise HTTPException(404,'사용자가 없습니다.')
             prior=db.scalar(select(AdminAudit).where(AdminAudit.actor_id==uid,AdminAudit.request_id==str(data.request_id)))
             signature=data.model_dump(mode='json')
             if prior:
-                if prior.target_id!=target or prior.data.get('request')!=signature: raise HTTPException(409,'재시도 요청 내용이 다릅니다.')
+                same_target=prior.target_id==target or (prior.action=='account_delete' and prior.data.get('deleted_user_id')==target)
+                if not same_target or prior.data.get('request')!=signature: raise HTTPException(409,'재시도 요청 내용이 다릅니다.')
                 return {'ok':True,'replayed':True}
-            required='CLEAR '+u.username if data.action=='clear' else u.username
+            u=db.scalar(select(User).where(User.id==target).with_for_update())
+            if not u: raise HTTPException(404,'사용자가 없습니다.')
+            required=('CLEAR '+u.username if data.action=='clear' else 'DELETE '+u.username if data.action=='delete' else u.username)
             if data.confirmation!=required: raise HTTPException(422,'대상 사용자 확인 문구가 일치하지 않습니다.')
+            if data.action=='delete':
+                if target==uid: raise HTTPException(409,'현재 로그인한 관리자 계정은 삭제할 수 없습니다.')
+                username=u.username
+                for report in db.scalars(select(WeeklyReport)):
+                    report.rows=[r for r in report.rows if r.get('username')!=username]
+                state=db.get(WeeklyState,1)
+                if state: state.baseline={k:v for k,v in state.baseline.items() if k!=str(target)}
+                db.execute(delete(WalletTransfer).where(or_(WalletTransfer.sender_id==target,WalletTransfer.recipient_id==target)))
+                for model in (Position,Transaction,FxTransaction,LimitOrder,Watchlist,PopularityEvent,SeasonArchive,Wallet):
+                    db.execute(delete(model).where(model.user_id==target))
+                db.execute(delete(AdminAudit).where(or_(AdminAudit.actor_id==target,AdminAudit.target_id==target)))
+                db.delete(u)
+                db.flush()
+                db.add(AdminAudit(actor_id=uid,target_id=uid,request_id=str(data.request_id),action='account_delete',reason=data.reason,data={'request':signature,'deleted_username':username,'deleted_user_id':target},created_at=datetime.now(timezone.utc)))
+                return {'ok':True,'replayed':False,'deleted':username}
             q=ctx.fx.current_rate('USD','KRW');rate=q['rate'];now=datetime.now(timezone.utc)
             ws=wallets(db,u)
             before={c:str(w.balance) for c,w in ws.items()}
@@ -66,6 +82,7 @@ def install_admin_ops(app,ctx,admin,csrf):
                 # Preserve recovery evidence before removing user-facing records.
                 models=[Position,Transaction,FxTransaction,LimitOrder,Watchlist,PopularityEvent]
                 archive={m.__tablename__:records(db,m,target) for m in models}
+                archive['wallet_transfers']=[{c.name:getattr(row,c.name) for c in WalletTransfer.__table__.columns} for row in db.scalars(select(WalletTransfer).where(or_(WalletTransfer.sender_id==target,WalletTransfer.recipient_id==target)))]
                 archive['wallets']=before;archive['actor']=uid;archive['reason']=data.reason
                 archive['performance']={'initial_krw':u.initial_krw,'initial_usd':u.initial_usd,'net_contributions_krw':u.net_contributions_krw,'initial_fx_date':u.initial_fx_date,'performance_since':u.performance_since}
                 archive['weekly_rows']=[]
@@ -81,11 +98,35 @@ def install_admin_ops(app,ctx,admin,csrf):
                         report.rows=rows
                 db.add(SeasonArchive(user_id=target,label='전체 초기화',data=serial(archive),created_at=now))
                 for model in models: db.execute(delete(model).where(model.user_id==target))
+                db.execute(delete(WalletTransfer).where(or_(WalletTransfer.sender_id==target,WalletTransfer.recipient_id==target)))
                 amount=initial_amount(db);ws['USD'].balance=amount;ws['KRW'].balance=0
-                u.initial_usd=amount;u.initial_krw=amount*rate;u.net_contributions_krw=0;u.initial_fx_date=q['date'];u.performance_since=now;u.baseline_note='admin-clear';u.records_since=now
+                u.initial_usd=amount;u.initial_krw=amount*rate;u.net_contributions_krw=0;u.initial_fx_date=q['date'];u.performance_since=None;u.baseline_note='registration';u.records_since=None
             u.cash=ws['USD'].balance
             if data.action!='grant':
                 state=db.get(WeeklyState,1)
                 if state: state.baseline={k:v for k,v in state.baseline.items() if k!=str(target)}
             db.add(AdminAudit(actor_id=uid,target_id=target,request_id=str(data.request_id),action=data.action,reason=data.reason,data={'request':signature,'before':before,'after':{c:str(w.balance) for c,w in ws.items()},'fx_rate':str(rate),'fx_date':q['date']},created_at=now))
         return {'ok':True,'replayed':False}
+
+    @app.post('/api/admin/users/manage-all',dependencies=[Depends(csrf)])
+    def manage_all(data:ManagementInput,uid=Depends(admin)):
+        if data.action!='grant': raise HTTPException(422,'모든 사용자 대상 작업은 지원금 지급만 허용합니다.')
+        if data.confirmation!='ALL USERS': raise HTTPException(422,'전체 사용자 확인 문구가 일치하지 않습니다.')
+        with Session.begin() as db:
+            db.execute(text('SELECT pg_advisory_xact_lock(74923102)'))
+            prior=db.scalar(select(AdminAudit).where(AdminAudit.actor_id==uid,AdminAudit.request_id==str(data.request_id)))
+            signature=data.model_dump(mode='json')
+            if prior:
+                if prior.data.get('request')!=signature: raise HTTPException(409,'재시도 요청 내용이 다릅니다.')
+                return {'ok':True,'replayed':True,'count':prior.data.get('count',0)}
+            if data.amount<=0 or rounded(data.amount,data.currency)!=data.amount: raise HTTPException(422,'지원금과 통화별 최소 단위를 확인하세요.')
+            q=ctx.fx.current_rate('USD','KRW');rate=q['rate']
+            users=list(db.scalars(select(User).where(User.active.is_(True),User.is_admin.is_(False)).order_by(User.id).with_for_update()))
+            for user in users:
+                ws=wallets(db,user)
+                if ws[data.currency].balance+data.amount>Decimal('1000000000000000'): raise HTTPException(409,f'{user.username} 지갑 한도를 초과합니다.')
+                ws[data.currency].balance+=data.amount
+                user.net_contributions_krw+=data.amount*(rate if data.currency=='USD' else 1)
+                user.cash=ws['USD'].balance
+            db.add(AdminAudit(actor_id=uid,target_id=uid,request_id=str(data.request_id),action='bulk_grant',reason=data.reason,data={'request':signature,'count':len(users),'currency':data.currency,'amount':str(data.amount)},created_at=datetime.now(timezone.utc)))
+            return {'ok':True,'replayed':False,'count':len(users)}
