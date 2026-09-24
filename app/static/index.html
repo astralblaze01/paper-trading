@@ -4,10 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{BRAND_NAME}} · 모의투자</title>
-  <link rel="stylesheet" href="/static/style.css?v=27">
-  <script src="/static/app.js?v=27" defer></script>
-  <script src="/static/portal.js?v=27" defer></script>
-  <script src="/static/profile.js?v=27" defer></script>
+  <link rel="stylesheet" href="/static/style.css?v=28">
+  <script src="/static/app.js?v=28" defer></script>
+  <script src="/static/portal.js?v=28" defer></script>
+  <script src="/static/profile.js?v=28" defer></script>
 </head>
 <body>
   <header>
@@ -18,7 +18,7 @@
     </div>
   </header>
   <main>
-    <div id="siteNotice" class="site-notice" role="status" hidden><span class="notice-kind"></span><strong class="notice-title"></strong><p class="notice-body"></p></div>
+    <div id="siteNotice" class="site-notice" role="status" aria-live="polite" hidden><span class="notice-new" aria-label="새 공지">새 공지</span><span class="notice-kind"></span><strong class="notice-title"></strong><p class="notice-body"></p></div>
     <p id="status" role="status" aria-live="polite"></p>
     <section id="auth">
       <div class="intro">
@@ -58,7 +58,7 @@
       </form>
     </section>
     <div id="dashboard" hidden>
-      <div class="view-settings"><label>표시 통화 <select id="displayCurrency"><option value="native">거래 통화</option><option value="KRW">원화 KRW</option><option value="USD">달러 USD</option></select></label><span id="marketSessions" class="market-sessions">시장 상태 확인 중…</span><span id="displayRateNote" class="field-help"></span></div><nav class="app-nav" aria-label="주요 메뉴"><a href="#explore">시장 탐색</a><a href="#portfolio">포트폴리오</a><a href="#history">거래내역</a><a href="#fx">환전</a><a href="#transfer">이체</a><a href="#watchlist">관심종목</a><a href="#ranking">랭킹</a><a id="adminNav" href="#admin" hidden>관리자</a></nav>
+      <div class="view-settings"><label>표시 통화 <select id="displayCurrency"><option value="native">거래 통화</option><option value="KRW">원화 KRW</option><option value="USD">달러 USD</option></select></label><span id="marketSessions" class="market-sessions">시장 상태 확인 중…</span><span id="displayRateNote" class="field-help"></span></div><nav class="app-nav" aria-label="주요 메뉴"><a href="#explore">시장 탐색</a><a href="#portfolio">포트폴리오</a><a href="#watchlist">관심종목</a><a href="#ranking">랭킹</a><a href="#fx">환전</a><a href="#transfer">이체</a><a href="#history">거래내역</a><a id="adminNav" href="#admin" hidden>관리자</a></nav>
       <section data-page="explore" class="panel">
         <div class="section-heading"><h2>시장 둘러보기</h2><span class="unit">데이터 제공 범위 기준</span></div>
         <div class="explore-options"><div id="exploreMarkets" class="chip-row" role="group" aria-label="자산"><button type="button" data-asset="kr">국내주식</button><button type="button" data-asset="us">해외주식</button><button type="button" data-asset="kr_bond">국내채권 ETF</button><button type="button" data-asset="us_bond">해외채권 ETF</button><button type="button" data-asset="gold">금 ETF</button></div><div id="exploreKinds" class="chip-row" role="group" aria-label="순위"><button type="button" data-kind="shares">거래량</button><button type="button" data-kind="volume">거래대금</button><button type="button" data-kind="up">급상승</button><button type="button" data-kind="down">급하락</button><button type="button" data-kind="popular">{{BRAND_NAME}} 인기</button></div></div>

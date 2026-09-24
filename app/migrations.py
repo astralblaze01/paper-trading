@@ -86,3 +86,29 @@ def migrate(engine):
                 db.execute(text("INSERT INTO site_notices(kind,title,body,active,posted_at) VALUES ('maintenance',:t,:b,true,now())"),{'t':template['title'],'b':template['body']})
             db.execute(text("DELETE FROM settings WHERE key='MAINTENANCE_NOTICE'"))
             db.execute(text('INSERT INTO schema_migrations(version) VALUES (8)'))
+
+        if not db.scalar(text('SELECT 1 FROM schema_migrations WHERE version=9')):
+            # Sign-up time was never stored. Estimate it for existing accounts
+            # from their earliest recorded activity, including rows an admin
+            # reset moved into season_archives and admin actions on the
+            # account; accounts that predate the multi-currency migration also
+            # existed by their migration FX date.
+            db.execute(text('ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ'))
+            db.execute(text("""UPDATE users u SET created_at = COALESCE(LEAST(
+                (SELECT min(created_at) FROM transactions WHERE user_id=u.id),
+                (SELECT min(created_at) FROM fx_transactions WHERE user_id=u.id),
+                (SELECT min(created_at) FROM popularity_events WHERE user_id=u.id),
+                (SELECT min(created_at) FROM watchlists WHERE user_id=u.id),
+                (SELECT min(created_at) FROM limit_orders WHERE user_id=u.id),
+                (SELECT min(created_at) FROM wallet_transfers WHERE sender_id=u.id OR recipient_id=u.id),
+                (SELECT min(created_at) FROM admin_audits WHERE target_id=u.id),
+                (SELECT min(created_at) FROM season_archives WHERE user_id=u.id),
+                (SELECT min((item->>'created_at')::timestamptz) FROM season_archives a,
+                    jsonb_array_elements(COALESCE(a.data->'transactions','[]'::jsonb) || COALESCE(a.data->'fx_transactions','[]'::jsonb)
+                        || COALESCE(a.data->'popularity_events','[]'::jsonb) || COALESCE(a.data->'watchlists','[]'::jsonb)
+                        || COALESCE(a.data->'limit_orders','[]'::jsonb) || COALESCE(a.data->'wallet_transfers','[]'::jsonb)) item
+                    WHERE a.user_id=u.id AND item ? 'created_at'),
+                CASE WHEN u.baseline_note LIKE 'migration%' AND u.initial_fx_date IS NOT NULL THEN (u.initial_fx_date || ' 00:00:00+09')::timestamptz END
+            ), now()) WHERE created_at IS NULL"""))
+            db.execute(text('ALTER TABLE users ALTER COLUMN created_at SET DEFAULT now()'))
+            db.execute(text('INSERT INTO schema_migrations(version) VALUES (9)'))

@@ -1,7 +1,7 @@
 import os
 from decimal import Decimal
 from datetime import datetime
-from sqlalchemy import create_engine, String, Numeric, Integer, ForeignKey, DateTime, Boolean, CheckConstraint, UniqueConstraint, URL, LargeBinary
+from sqlalchemy import create_engine, String, Numeric, Integer, ForeignKey, DateTime, Boolean, CheckConstraint, UniqueConstraint, URL, LargeBinary, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 url = os.getenv('DATABASE_URL') or URL.create('postgresql+psycopg', username='paper', password=os.environ['DB_PASSWORD'], host=os.getenv('DB_HOST', 'db'), database='paper')
@@ -23,6 +23,8 @@ class User(Base):
     records_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     performance_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     baseline_note: Mapped[str] = mapped_column(String(40), default='registration', server_default='registration')
+    # Sign-up time. Accounts older than this column carry an estimate (migration 9).
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=True)
     __table_args__ = (CheckConstraint('cash >= 0'),)
 class Position(Base):
     __tablename__ = 'positions'

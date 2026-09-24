@@ -184,7 +184,7 @@ def register(data: Registration, request: Request):
     try:
         with Session.begin() as db:
             amount = initial_amount(db)
-            user = User(username=data.username, password_hash=hasher.hash(data.password), cash=amount, initial_usd=amount)
+            user = User(username=data.username, password_hash=hasher.hash(data.password), cash=amount, initial_usd=amount, created_at=datetime.now(timezone.utc))
             db.add(user)
             db.flush()
             uid = user.id

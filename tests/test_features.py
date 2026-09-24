@@ -222,7 +222,9 @@ def test_ranking_orders_by_usd_equity_not_return(client):
 
 def test_profile_bio_and_image_lifecycle(client):
     headers = {'x-csrf-token': register(client, 'painter')}
-    assert client.get('/api/profile').json() | {} == {'username': 'painter', 'bio': '', 'image_version': 0, 'bio_max_length': 160}
+    profile = client.get('/api/profile').json()
+    assert {k: profile[k] for k in ('username', 'bio', 'image_version', 'bio_max_length')} == {'username': 'painter', 'bio': '', 'image_version': 0, 'bio_max_length': 160}
+    assert profile['member_days'] == 1 and profile['member_since']  # sign-up day counts as day 1
     assert client.post('/api/profile', headers=headers, json={'bio': '  장기 투자 위주로 하고 있습니다.\x07 '}).json()['bio'] == '장기 투자 위주로 하고 있습니다.'
     assert client.post('/api/profile', headers=headers, json={'bio': 'x' * 161}).status_code == 422
     for fmt, mime in (('PNG', 'image/png'), ('JPEG', 'image/jpeg'), ('WEBP', 'image/webp')):
@@ -494,3 +496,17 @@ def test_english_code_and_korean_market_searches_unchanged(monkeypatch):
     assert all(r['symbol'].startswith('KR:') for r in market.search('테슬라', 'kr'))
     assert [r['symbol'] for r in market.search('삼성', 'kr')] == ['KR:005930']
     market.close()
+
+
+
+def test_membership_days_count_signup_day_as_one_in_korea_time():
+    from datetime import datetime, timezone
+    from app.accounts import membership_days
+    utc = lambda *a: datetime(*a, tzinfo=timezone.utc)
+    now = utc(2026, 9, 25, 1, 0)                            # 10:00 on 9/25 in Seoul
+    assert membership_days(utc(2026, 9, 25, 0, 30), now) == 1  # same Seoul day
+    assert membership_days(utc(2026, 9, 24, 14, 59), now) == 2  # 23:59 on 9/24 Seoul
+    assert membership_days(utc(2026, 9, 24, 15, 0), now) == 1   # 00:00 on 9/25 Seoul
+    assert membership_days(utc(2026, 9, 1, 3, 0), now) == 25
+    assert membership_days(utc(2026, 9, 26, 0, 0), now) == 1    # clock skew never shows 0
+    assert membership_days(None, now) is None

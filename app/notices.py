@@ -43,7 +43,7 @@ def active_notice(db):
 
 def public(notice):
     if not notice: return None
-    return {'kind': notice.kind, 'label': TEMPLATES[notice.kind]['label'], 'title': notice.title, 'body': notice.body, 'posted_at': notice.posted_at}
+    return {'id': notice.id, 'kind': notice.kind, 'label': TEMPLATES[notice.kind]['label'], 'title': notice.title, 'body': notice.body, 'posted_at': notice.posted_at}
 
 
 def post(db, uid, kind, title, body):

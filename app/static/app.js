@@ -124,14 +124,29 @@ async function refreshMarketSessions(){
 }
 setInterval(()=>{if(!document.hidden)refreshMarketSessions();},60000);
 // Notice posted by an administrator (e.g. the maintenance template): a banner only, nothing is blocked.
+// A notice that arrives while the page is open is marked "새 공지" with a toast;
+// notices already seen in this browser are not marked again after a reload.
+let noticeShownId=null;
+function noticeSeen(id){try{return localStorage.getItem(storageNamespace+':notice-seen')===String(id);}catch{return false;}}
+function markNoticeSeen(id){try{localStorage.setItem(storageNamespace+':notice-seen',String(id));}catch{}}
 function showSiteNotice(notice){
-  const box=$('siteNotice');box.hidden=!notice||!!window.isAdmin;if(box.hidden)return;
-  box.dataset.kind=notice.kind;box.querySelector('.notice-kind').textContent=notice.label;
+  const box=$('siteNotice'),hide=!notice||!!window.isAdmin;
+  if(hide){box.hidden=true;box.classList.remove('is-new');noticeShownId=null;return;}
+  const arrived=notice.id!==noticeShownId&&!noticeSeen(notice.id);
+  box.hidden=false;box.dataset.kind=notice.kind;box.querySelector('.notice-kind').textContent=notice.label;
   box.querySelector('.notice-title').textContent=notice.title;box.querySelector('.notice-body').textContent=notice.body;
+  if(arrived){
+    box.classList.remove('is-new');void box.offsetWidth;box.classList.add('is-new');
+    toast(`새 공지가 등록되었습니다.\n${notice.label} · ${notice.title}`,'info',7000);
+    markNoticeSeen(notice.id);
+  }
+  noticeShownId=notice.id;
 }
+$('siteNotice').addEventListener('click',()=>$('siteNotice').classList.remove('is-new'));
 async function refreshNotice(){try{showSiteNotice((await api('notice')).notice);}catch{}}
-setInterval(()=>{if(!document.hidden)refreshNotice();},30000);
+setInterval(()=>{if(!document.hidden)refreshNotice();},10000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshNotice();});
+window.addEventListener('focus',()=>refreshNotice());
 // The price collector fetches a symbol only after it is first requested, so a
 // holding can briefly have no price. Re-read the valuation until all are priced.
 let pricingRetryTimer=null;

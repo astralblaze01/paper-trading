@@ -36,6 +36,15 @@ def delete_account_data(db, user):
     return username
 
 
+def membership_days(created_at, now=None):
+    """Days since sign-up in Korea time; the sign-up day itself counts as day 1."""
+    if created_at is None: return None
+    from zoneinfo import ZoneInfo
+    seoul = ZoneInfo('Asia/Seoul')
+    today = (now or datetime.now(timezone.utc)).astimezone(seoul).date()
+    return max(1, (today - created_at.astimezone(seoul).date()).days + 1)
+
+
 def profile_of(db, uid):
     row = db.get(UserProfile, uid)
     return {'bio': row.bio if row else '', 'image_version': row.image_version if row else 0}
@@ -106,7 +115,9 @@ def install_accounts(app, ctx):
     @app.get('/api/profile')
     def my_profile(uid=Depends(user)):
         with Session() as db:
-            return {'username': db.get(User, uid).username, **profile_of(db, uid), 'bio_max_length': BIO_LENGTH}
+            me = db.get(User, uid)
+            return {'username': me.username, **profile_of(db, uid), 'bio_max_length': BIO_LENGTH,
+                    'member_since': me.created_at, 'member_days': membership_days(me.created_at)}
 
     @app.post('/api/profile', dependencies=[Depends(csrf)])
     def save_profile(data: BioInput, uid=Depends(user)):
