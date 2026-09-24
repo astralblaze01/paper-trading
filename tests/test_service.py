@@ -1,4 +1,5 @@
 """Integration suite: only run against a dedicated PostgreSQL test database."""
+import json
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -327,6 +328,89 @@ def test_kis_read_only_timestamp_and_cache():
     finally:
         redis_cache.delete(m._token_key())
         m.client.close()
+
+class FakeRedis:
+    """Just enough of redis-py for the shared KIS token path."""
+    def __init__(self): self.data = {}
+    def get(self, key): return self.data.get(key)
+    def setex(self, key, ttl, value): self.data[key] = value
+    def delete(self, key): self.data.pop(key, None)
+    def lock(self, name, **kwargs):
+        import threading
+        return threading.Lock()
+    def pipeline(self): return FakePipeline(self)
+
+class FakePipeline:
+    def __init__(self, redis): self.redis = redis; self.deletes = []
+    def __enter__(self): return self
+    def __exit__(self, *exc): pass
+    def watch(self, key): pass
+    def get(self, key): return self.redis.get(key)
+    def multi(self): pass
+    def delete(self, key): self.deletes.append(key)
+    def execute(self):
+        for key in self.deletes: self.redis.delete(key)
+
+@pytest.fixture
+def shared_kis(monkeypatch):
+    import httpx
+    from app.multi_market import KoreaPrices
+    from app.redis_cache import redis_cache
+    fake = FakeRedis()
+    monkeypatch.setattr(redis_cache, 'client', fake)
+    monkeypatch.setattr('app.multi_market.time.sleep', lambda seconds: None)
+    state = {'issued': 0, 'status': 200, 'auth': []}
+    def handler(request):
+        if request.url.path == '/oauth2/tokenP':
+            state['issued'] += 1
+            return httpx.Response(200, json={'access_token': f"token-{state['issued']}", 'expires_in': 86400})
+        state['auth'].append(request.headers['authorization'])
+        if state['status'] != 200: return httpx.Response(state['status'])
+        return httpx.Response(200, json={'rt_cd': '0'})
+    processes = []
+    def process():
+        m = KoreaPrices()
+        m.configured = True; m.key = 'key'; m.secret = 'secret'
+        m.client.close()
+        m.client = httpx.Client(base_url='https://test', transport=httpx.MockTransport(handler))
+        processes.append(m)
+        return m
+    yield process, state, fake
+    for m in processes: m.client.close()
+
+def kis_request(m, n):
+    return m.get('/uapi/domestic-stock/v1/quotations/test', 'TEST', {'n': n}, ttl=1)
+
+def test_kis_token_is_issued_once_across_processes(shared_kis):
+    process, state, fake = shared_kis
+    web, worker = process(), process()
+    kis_request(web, 1); kis_request(worker, 2)
+    assert state['issued'] == 1
+    assert state['auth'] == ['Bearer token-1', 'Bearer token-1']
+    assert json.loads(fake.get(web._token_key()))['access_token'] == 'token-1'
+
+def test_kis_rate_limit_cooldown_blocks_requests_with_valid_token(shared_kis):
+    process, state, fake = shared_kis
+    m = process()
+    kis_request(m, 1)
+    state['status'] = 429
+    with pytest.raises(MarketError): kis_request(m, 2)
+    sent = len(state['auth'])
+    state['status'] = 200
+    with pytest.raises(MarketError, match='대기'): kis_request(m, 3)
+    assert len(state['auth']) == sent
+
+def test_kis_rejected_token_keeps_newer_shared_token(shared_kis):
+    process, state, fake = shared_kis
+    web, worker = process(), process()
+    kis_request(web, 1); kis_request(worker, 2)
+    state['status'] = 401
+    with pytest.raises(MarketError): kis_request(web, 3)
+    assert fake.get(web._token_key()) is None
+    # Another process already stored a replacement; a stale 401 must keep it.
+    fake.setex(web._token_key(), 60, json.dumps({'access_token': 'token-2', 'expires_at': time.time() + 3600}))
+    with pytest.raises(MarketError): kis_request(worker, 4)
+    assert json.loads(fake.get(web._token_key()))['access_token'] == 'token-2'
 
 def test_stale_fx_and_outage_rejected():
     import httpx

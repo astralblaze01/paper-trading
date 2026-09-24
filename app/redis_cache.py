@@ -64,6 +64,24 @@ class RedisCache:
         except RedisError:
             return False
 
+    def delete_if(self, key, matches):
+        if not self.client:
+            return False
+        try:
+            with self.client.pipeline() as pipe:
+                # WATCH makes the delete fail if another process replaced the
+                # value between the read and the delete.
+                pipe.watch(key)
+                value = pipe.get(key)
+                if not value or not matches(json.loads(value)):
+                    return False
+                pipe.multi()
+                pipe.delete(key)
+                pipe.execute()
+                return True
+        except (RedisError, ValueError, TypeError, AttributeError):
+            return False
+
     def get_or_load(self, key, ttl, load):
         cached = self.get_json(key)
         if cached is not None:

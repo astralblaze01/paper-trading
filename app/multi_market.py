@@ -42,13 +42,19 @@ class KoreaPrices:
             d=self._json(self.client.post('/oauth2/tokenP',json={'grant_type':'client_credentials','appkey':self.key,'appsecret':self.secret}))
             token=d['access_token']; lifetime=max(60,int(d.get('expires_in',86400))-120)
             if not token: raise ValueError()
+            self.cooldown=0
             return {'access_token':token,'expires_at':time.time()+lifetime}
         shared=redis_cache.get_or_load(self._token_key(),21600,issue)
         token=str(shared['access_token']); remaining=float(shared.get('expires_at',time.time()+3600))-time.time()
         if not token or remaining<=0:
-            redis_cache.delete(self._token_key())
+            self._drop_shared_token(token)
             raise ValueError('expired KIS token')
-        self.token=token; self.expires=now+remaining; self.cooldown=0
+        self.token=token; self.expires=now+remaining
+
+    def _drop_shared_token(self, token):
+        # Another process may already have stored a replacement; only remove
+        # the token this process actually saw rejected.
+        redis_cache.delete_if(self._token_key(),lambda shared:shared.get('access_token')==token)
 
     def _json(self, response):
         if response.status_code == 429:
@@ -73,10 +79,9 @@ class KoreaPrices:
             with self.lock:
                 now=time.monotonic()
                 if not self.configured: raise MarketError('국내 데이터 공급자 설정 필요')
+                if now<self.cooldown: raise MarketError('국내 시세 요청 한도 대기 중입니다.')
                 try:
-                    if now>=self.expires:
-                        if now<self.cooldown: raise MarketError('국내 시세 요청 한도 대기 중입니다.')
-                        self._access_token(now)
+                    if now>=self.expires: self._access_token(now)
                     # The KIS overseas historical endpoints rejected consecutive
                     # 0.5s requests in live verification; serialize at 1.1s.
                     delay=1.1-(time.monotonic()-self.last_call)
@@ -86,7 +91,7 @@ class KoreaPrices:
                     if tr_cont: headers['tr_cont']=tr_cont
                     r=self.client.get(path,headers=headers,params=params)
                     if r.status_code in (401,403):
-                        self.expires=0; self.cooldown=time.monotonic()+60; redis_cache.delete(self._token_key())
+                        self.expires=0; self.cooldown=time.monotonic()+60; self._drop_shared_token(self.token)
                     data=self._json(r)
                     if data.get('rt_cd')!='0':
                         if data.get('msg_cd') in ('EGW00201','EGW00133'): self.cooldown=time.monotonic()+60
