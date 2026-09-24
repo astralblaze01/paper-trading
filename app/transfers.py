@@ -11,7 +11,7 @@ from .money import wallets,rounded,bps
 
 class TransferInput(BaseModel):
     model_config=ConfigDict(extra='forbid')
-    recipient: str=Field(min_length=3,max_length=32,pattern=r'^[A-Za-z0-9_]+$')
+    recipient: str=Field(min_length=3,max_length=32,pattern=r'^[가-힣A-Za-z0-9_]+$')
     currency: Literal['USD','KRW']
     amount: Decimal=Field(gt=0,le=1000000000,max_digits=18,decimal_places=4)
     @field_validator('recipient')

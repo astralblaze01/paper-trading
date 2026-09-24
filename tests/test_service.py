@@ -93,6 +93,12 @@ def test_auth_csrf_and_isolation(client):
     assert client.post('/api/login', headers={'x-csrf-token':token}, json={'username':'alice','password':'incorrect-password'}).status_code==401
     assert client.post('/api/login', headers={'x-csrf-token':token}, json={'username':'ALICE','password':'a-secure-password-123'}).status_code==200
 
+def test_korean_username_registration_and_login(client):
+    token=register(client,'홍길동_01')
+    assert client.post('/api/logout',headers={'x-csrf-token':token},json={}).status_code==200
+    token=client.get('/api/session').json()['csrf']
+    assert client.post('/api/login',headers={'x-csrf-token':token},json={'username':'홍길동_01','password':'a-secure-password-123'}).status_code==200
+
 def test_weighted_average_and_realized_return():
     uid=seed()
     market=FakeMarket()
