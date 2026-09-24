@@ -65,10 +65,12 @@ async function deleteProfileImage(){myProfile={...myProfile,...await api('profil
 (function(){const input=document.createElement('input');input.type='file';input.id='profileImageInput';input.accept=IMAGE_TYPES.join(',');input.hidden=true;document.body.append(input);
   input.addEventListener('change',async()=>{const file=input.files[0];input.value='';if(file)try{await uploadProfileImage(file);}catch(e){toast(e.message,'error');}});})();
 
-/* Asset allocation donut: holdings by value plus cash, at most six segments.
-   Colors are the validated categorical slots in fixed order; the legend below
-   always lists every value, so identity never relies on color alone. */
-const SLOT_COLORS=['#2a78d6','#eb6834','#1baf7a','#eda100','#e87ba4'], CASH_COLOR='#008300', SVG_NS='http://www.w3.org/2000/svg';
+/* Asset allocation donut: every holding by value, plus cash.
+   Holdings take the validated categorical slots in fixed order (seven, with
+   cash as the eighth); any further holdings share a neutral tone. The legend
+   lists every holding with its share and value, so identity never relies on
+   color alone and no holding is ever folded away. */
+const SLOT_COLORS=['#2a78d6','#eb6834','#1baf7a','#eda100','#e87ba4','#4a3aa7','#e34948'], EXTRA_COLOR='#8b949d', CASH_COLOR='#008300', SVG_NS='http://www.w3.org/2000/svg';
 function svg(tag,attrs){const n=document.createElementNS(SVG_NS,tag);for(const [k,v] of Object.entries(attrs))n.setAttribute(k,v);return n;}
 window.renderAllocation=function(target,p){
   if(!target)return;target.replaceChildren();
@@ -76,14 +78,13 @@ window.renderAllocation=function(target,p){
   if(!p||!Number.isFinite(rate)||rate<=0){target.append(node('p','기준환율을 확인한 뒤 자산 비중을 표시합니다.','empty-state'));return;}
   const toKRW=(v,c)=>c==='KRW'?Number(v):Number(v)*rate;
   const priced=p.positions.filter(x=>x.value!=null).map(x=>({label:x.name,note:x.currency==='KRW'?'원화':'달러',krw:toKRW(x.value,x.currency),value:viewMoney(x.value,x.currency)})).sort((a,b)=>b.krw-a.krw);
-  const missing=p.positions.length-priced.length;
-  let holdings=priced;
-  if(priced.length>5){const rest=priced.slice(4),krw=rest.reduce((a,x)=>a+x.krw,0);holdings=[...priced.slice(0,4),{label:`기타 ${rest.length}종목`,note:rest.map(x=>x.label).join(', '),krw,value:viewMoney(krw,'KRW')}];}
-  const slices=holdings.map((x,i)=>({...x,color:SLOT_COLORS[i]}));
+  const pending=p.positions.filter(x=>x.value==null);
+  const slices=priced.map((x,i)=>({...x,color:SLOT_COLORS[i]||EXTRA_COLOR}));
   const cashKRW=toKRW(p.wallets.USD,'USD')+Number(p.wallets.KRW);
   if(cashKRW>0)slices.push({label:'현금',note:'USD·KRW 지갑',krw:cashKRW,value:`USD ${nativeMoney(p.wallets.USD,'USD')} · KRW ${nativeMoney(p.wallets.KRW,'KRW')}`,color:CASH_COLOR});
   const total=slices.reduce((a,x)=>a+x.krw,0);
-  if(total<=0){target.append(node('p','평가할 자산이 없습니다.','empty-state'));return;}
+  if(total<=0&&!pending.length){target.append(node('p','평가할 자산이 없습니다.','empty-state'));return;}
+  if(total<=0){target.append(node('p','시세를 준비 중입니다. 잠시 후 자동으로 다시 확인합니다.','empty-state'));return;}
   for(const s of slices)s.share=s.krw/total*100;
   const size=220,r=82,width=30,C=2*Math.PI*r,gap=slices.length>1?2:0;
   const chart=node('div',null,'allocation-chart'),figure=svg('svg',{viewBox:`0 0 ${size} ${size}`,role:'img','aria-label':'자산 비중: '+slices.map(s=>`${s.label} ${s.share.toFixed(1)}%`).join(', ')});
@@ -91,7 +92,8 @@ window.renderAllocation=function(target,p){
   const tip=node('div',null,'allocation-tip');tip.hidden=true;
   const segments=[];let offset=0;
   for(const s of slices){
-    const len=s.share/100*C,visible=Math.max(len-gap,Math.min(len,1));
+    // Small holdings keep a visible 3px sliver instead of disappearing.
+    const len=s.share/100*C,visible=Math.min(len,Math.max(len-gap,3));
     const seg=svg('circle',{cx:size/2,cy:size/2,r,fill:'none',stroke:s.color,'stroke-width':width,'stroke-dasharray':`${visible} ${C-visible}`,'stroke-dashoffset':String(-offset),transform:`rotate(-90 ${size/2} ${size/2})`,class:'allocation-segment',tabindex:'0'});
     seg.append(svg('title',{}));seg.firstChild.textContent=`${s.label} ${s.share.toFixed(1)}%`;
     const show=e=>{tip.replaceChildren(node('strong',s.label),node('span',`${s.share.toFixed(1)}%`),node('span',s.value));tip.hidden=false;const box=chart.getBoundingClientRect(),x=(e?.clientX??box.left+box.width/2)-box.left,y=(e?.clientY??box.top+box.height/2)-box.top;tip.style.left=Math.min(Math.max(x,70),box.width-70)+'px';tip.style.top=Math.max(y-12,0)+'px';highlight(s);};
@@ -110,9 +112,14 @@ window.renderAllocation=function(target,p){
     li.addEventListener('pointerenter',()=>highlight(s));li.addEventListener('pointerleave',()=>highlight(null));
     rows.push([s,li]);legend.append(li);
   }
+  for(const x of pending){
+    const li=node('li','','pending'),swatch=node('span',null,'swatch');
+    const name=node('span',null,'legend-name');name.append(node('strong',x.name),node('small',x.currency==='KRW'?'원화':'달러'));
+    li.append(swatch,name,node('span','—','legend-share'),node('span','시세 준비 중 · 잠시 후 자동으로 반영됩니다','legend-value'));legend.append(li);
+  }
   function highlight(active){for(const [s,seg] of segments)seg.classList.toggle('dimmed',!!active&&s!==active);for(const [s,li] of rows)li.classList.toggle('active',s===active);}
   target.append(chart,legend);
-  if(missing)target.append(node('p',`시세를 확인하지 못한 ${missing}개 종목은 비중에서 제외했습니다.`,'field-help allocation-note'));
+  if(pending.length)target.append(node('p',`시세를 준비 중인 ${pending.length}개 종목은 가격이 확인되면 비중에 반영됩니다.`,'field-help allocation-note'));
   else if(!p.positions.length)target.append(node('p','보유 종목이 없어 자산이 모두 현금입니다.','field-help allocation-note'));
 };
 window.addEventListener('displaycurrencychange',()=>{if(portfolioCache)renderAllocation($('allocation'),portfolioCache);if(publicCache)renderAllocation($('publicAllocation'),publicCache);});

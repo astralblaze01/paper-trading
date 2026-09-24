@@ -426,3 +426,12 @@ table { font-size:15px; }
 .admin-user-list { margin:8px 0 24px; }
 .admin-user-list summary { cursor:pointer; color:var(--accent); font-weight:600; padding:8px 0; }
 @media(max-width:600px){ .admin-actions { grid-template-columns:1fr; } }
+.allocation-legend li.pending .swatch { background:transparent; border:1.5px dashed #8b949d; }
+.allocation-legend li.pending .legend-value { color:var(--muted); }
+@media(min-width:760px){
+ .allocation-legend li { grid-template-columns:12px minmax(0,1fr) auto 64px; grid-template-areas:"swatch name value share"; align-items:baseline; padding:7px 6px; }
+ .allocation-legend .swatch { margin-top:0; align-self:center; }
+ .allocation-legend .legend-share { text-align:right; }
+ .allocation-legend .legend-name small { display:inline; margin-left:8px; }
+ .allocation-legend .legend-name strong { display:inline; }
+}

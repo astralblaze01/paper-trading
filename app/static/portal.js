@@ -31,7 +31,8 @@ window.routePage = async function() {
   message('');
   try {
     if(selected==='explore')await explore();
-    if(selected==='public' && symbol){publicCache=null;$('publicTitle').textContent='투자 현황 조회 중…';for(const id of ['publicPositions','publicMetrics','publicProfile','publicAllocation'])$(id).replaceChildren();const name=decodeURIComponent(symbol);const [p]=await Promise.all([api('portfolios/'+encodeURIComponent(name)),rankingCache?null:refreshRankingOnly().catch(()=>null)]);publicCache=p;renderPublic();}
+    if(selected==='public' && symbol){publicCache=null;$('publicTitle').textContent='투자 현황 조회 중…';for(const id of ['publicPositions','publicMetrics','publicProfile','publicAllocation'])$(id).replaceChildren();const name=decodeURIComponent(symbol);const [p]=await Promise.all([api('portfolios/'+encodeURIComponent(name)),rankingCache?null:refreshRankingOnly().catch(()=>null)]);publicCache=p;renderPublic();
+      if(p.positions.some(x=>x.value==null))retryMissingPrices(async()=>{if(location.hash.split('/')[1]!==symbol)return null;const next=await api('portfolios/'+encodeURIComponent(name));publicCache=next;renderPublic();return next;});}
     if(selected==='detail' && symbol) { currentSymbol=decodeURIComponent(symbol);detailCompany=null;detailQuote=null;orderPreview=null;$('symbol').value=currentSymbol;maxMode=false;loadCompany(currentSymbol);await loadStock(true);await api('popularity',{symbol:currentSymbol,kind:'view'}); }
     if(selected==='transfer'){await Promise.all([loadTransferWallets(),transferHistory()]);}
     if(selected==='fx'){await Promise.all([fxHistory(),loadFxRate()]);}

@@ -114,9 +114,28 @@ async function refreshMarketSessions(){
   try{const r=await api('market-overview');window.marketOpen=Object.fromEntries(r.markets.map(x=>[x.market,['정규장','장전','장후','프리장','애프터장'].includes(x.label)]));$('marketSessions').textContent=r.markets.map(x=>{const unsupported=x.market==='US'&&['프리장','애프터장'].includes(x.label)&&x.extended_prices===false?' (체결 시세 미지원)':'';return `${x.market==='KR'?'한국':'미국'} ${x.label}${unsupported}`;}).join(' · ');}catch(e){$('marketSessions').textContent='시장 상태 확인 불가';}
 }
 setInterval(()=>{if(!document.hidden)refreshMarketSessions();},60000);
+// The price collector fetches a symbol only after it is first requested, so a
+// holding can briefly have no price. Re-read the valuation until all are priced.
+let pricingRetryTimer=null;
+function retryMissingPrices(load,attempt=1){
+  clearTimeout(pricingRetryTimer);
+  if(attempt>4)return;
+  pricingRetryTimer=setTimeout(async()=>{try{const p=await load();if(p&&p.positions.some(x=>x.value==null))retryMissingPrices(load,attempt+1);}catch{}},2500*attempt);
+}
+function applyPortfolio(p){
+  window.walletBalances=p.wallets; if(window.updateFxBalance)window.updateFxBalance();
+  portfolioCache=p;viewFx=p.fx||viewFx;syncCurrency();renderPortfolio();
+}
+async function reloadPortfolioPrices(){
+  if(!window.sessionUsername||window.isAdmin)return null;
+  const p=await api('portfolio');applyPortfolio(p);
+  if(!p.errors.length&&$('status').textContent.includes('준비 중'))message('');
+  return p;
+}
 async function refresh() {
-  const p = await api('portfolio'); window.walletBalances=p.wallets; if(window.updateFxBalance)window.updateFxBalance(); $('metrics').replaceChildren();
-  portfolioCache=p;viewFx=p.fx;syncCurrency();renderPortfolio();
+  const p = await api('portfolio'); $('metrics').replaceChildren();
+  applyPortfolio(p);
+  if(p.positions.some(x=>x.value==null))retryMissingPrices(reloadPortfolioPrices);
   if (p.errors.length) message(p.errors.join('\n')); else if (p.stale) message('마지막 제공 시세 기준 평가입니다. 지연 시세 종목은 거래가 제한됩니다.');
   await history(); if(window.loadLimits)await loadLimits(); await weekly(); const r = await api('ranking');
   rankingCache=r;renderRanking(); rankingBucketSeen=seoulTenSecondKey();

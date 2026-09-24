@@ -241,5 +241,36 @@ with sync_playwright() as p:
     page.locator('#username').fill(name+'_x'); page.locator('#password').fill('abcd1234'); page.locator('#loginSubmit').click()
     expect(page.locator('#status')).to_contain_text('올바르지 않습니다')
     page.close()
+    # Many holdings: every one gets its own segment; a missing price shows as pending, then fills in.
+    page=browser.new_page(viewport={'width':1280,'height':900})
+    page.goto('http://browserweb:8000/')
+    page.locator('#showSignup').click()
+    page.locator('#registerUsername').fill(name+'_many'); page.locator('#registerPassword').fill('abcd1234'); page.locator('#registerConfirm').fill('abcd1234')
+    page.locator('#registerSubmit').click()
+    page.locator('#password').fill('abcd1234'); page.locator('#loginSubmit').click()
+    expect(page.locator('#dashboard')).to_be_visible()
+    symbols=['AAPL','MSFT','NVDA','QQQ','VOO','IAU','MU','RKLB']
+    page.evaluate('''async symbols=>{for(const [i,symbol] of symbols.entries())await api('orders',{symbol,side:'buy',quantity:i+1,request_id:uuid()});}''',symbols)
+    state={'first':True}
+    def first_without_price(route):
+        response=route.fetch();data=response.json()
+        if state['first']:
+            state['first']=False
+            for row in data['positions']:
+                if row['symbol']=='MSFT':row['value']=None;row['pnl']=None;row['return_pct']=None
+            data['equity']=None;data['errors']=['MSFT: 시세 수집기가 가격을 준비 중입니다. 잠시 후 다시 시도하세요.']
+        route.fulfill(response=response,json=data)
+    page.route('**/api/portfolio',first_without_price)
+    page.evaluate('refresh()')
+    page.locator('a[href="#portfolio"]').click()
+    expect(page.locator('#allocation .allocation-legend li.pending')).to_contain_text('시세 준비 중')
+    expect(page.locator('#allocation .allocation-segment')).to_have_count(8)
+    expect(page.locator('#allocation .allocation-segment')).to_have_count(9,timeout=10000)
+    expect(page.locator('#allocation .allocation-legend li')).to_have_count(9)
+    expect(page.locator('#allocation .allocation-legend li.pending')).to_have_count(0)
+    legend=page.locator('#allocation .allocation-legend').inner_text()
+    assert '기타' not in legend and all(n in legend for n in ['Apple','현금']), legend
+    page.screenshot(path='/artifacts/allocation-many-1280.png',full_page=True)
+    page.close()
     browser.close()
 print('Desktop + mobile browser flows passed: signup/login, FX, charts, buy/sell, watchlist, portfolio, profile, ranking, transfer, admin, withdrawal')
