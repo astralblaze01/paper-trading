@@ -137,8 +137,8 @@ class USProvider:
         def load():
             d=self.adapter.get('/stock/market-status',{'exchange':'US'},60)
             session=d.get('session')
-            label='휴장' if d.get('holiday') else {'pre-market':'장전','post-market':'장후','regular':'정규장'}.get(session,'정규장' if d.get('isOpen') else '장마감')
-            return {'label':label,'timezone':'America/New_York','source':'Finnhub','verified':True,'extended_prices':False}
+            label='휴장' if d.get('holiday') else {'pre-market':'프리장','post-market':'애프터장','regular':'정규장'}.get(session,'정규장' if d.get('isOpen') else '장마감')
+            return {'label':label,'timezone':'America/New_York','source':'Finnhub','verified':True,'extended_prices':False,'day_market_supported':False}
         try: return self.cache.get('status',60,load)
         except MarketError: return {'label':'장 상태 확인 불가','timezone':'America/New_York','verified':False,'extended_prices':False}
 

@@ -77,7 +77,8 @@ async function explore(silent=false) {
   if(!silent){$('exploreNotice').textContent='목록을 불러오는 중입니다.';$('exploreRows').replaceChildren();}
   try{
     const [r]=await Promise.all([api('explore?'+new URLSearchParams({asset,kind})),loadDisplayFx()]);if(version!==exploreVersion)return;
-    $('exploreNotice').textContent=[r.scope,r.notice].filter(Boolean).join(' · ');
+    const next=new Date(Date.now()+30000).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    $('exploreNotice').textContent=[r.scope,r.notice,`30초 자동 갱신 · 다음 확인 ${next}`].filter(Boolean).join(' · ');
     if($('status').textContent==='입력값을 확인하세요.')$('status').textContent='';
     exploreRowsCache=r.rows;explorePopular=kind==='popular';stockTable($('exploreRows'),r.rows,explorePopular);
   }catch(e){if(version===exploreVersion){$('exploreNotice').textContent=e.message;stockTable($('exploreRows'),[]);}}

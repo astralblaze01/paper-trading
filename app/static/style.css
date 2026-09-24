@@ -283,3 +283,5 @@ table { font-size:15px; }
  #ranking th:last-child { width:23%; }
  #ranking .user-link { font-size:18px; }
 }
+.market-sessions{font-weight:700;color:#26374a;white-space:nowrap}
+.view-settings{gap:.75rem;flex-wrap:wrap}

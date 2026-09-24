@@ -79,8 +79,16 @@ async function boot() {
   if (!s.providers.us) unavailable.push('미국 시세');
   if (!s.providers.kr) unavailable.push('한국 시세');
   if (unavailable.length) message(unavailable.join(' · ') + ' 서비스 연결이 필요합니다. 계좌 생성과 지원 종목 목록 조회는 이용할 수 있습니다.');
-  if (s.username) { $('greeting').textContent = s.username + '님의 투자 현황'; await refresh(); if(window.renderRecentStocks)renderRecentStocks(); if(window.routePage) await routePage(); }
+  if (s.username) {
+    if(s.is_admin){if(location.hash!=='#admin')location.hash='admin';if(window.routePage)await routePage();}
+    else {$('greeting').textContent = s.username + '님의 투자 현황'; await Promise.all([refresh(),refreshMarketSessions()]); if(window.renderRecentStocks)renderRecentStocks(); if(window.routePage) await routePage();}
+  }
 }
+async function refreshMarketSessions(){
+  if(!window.sessionUsername||window.isAdmin)return;
+  try{const r=await api('market-overview');window.marketOpen=Object.fromEntries(r.markets.map(x=>[x.market,['정규장','장전','장후','프리장','애프터장'].includes(x.label)]));$('marketSessions').textContent=r.markets.map(x=>{const unsupported=x.market==='US'&&['프리장','애프터장'].includes(x.label)&&x.extended_prices===false?' (체결 시세 미지원)':'';return `${x.market==='KR'?'한국':'미국'} ${x.label}${unsupported}`;}).join(' · ');}catch(e){$('marketSessions').textContent='시장 상태 확인 불가';}
+}
+setInterval(()=>{if(!document.hidden)refreshMarketSessions();},60000);
 async function refresh() {
   const p = await api('portfolio'); window.walletBalances=p.wallets; if(window.updateFxBalance)window.updateFxBalance(); $('metrics').replaceChildren();
   portfolioCache=p;viewFx=p.fx;syncCurrency();renderPortfolio();

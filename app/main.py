@@ -79,7 +79,7 @@ def _ranking_market_state():
     # to calculate rankings; production providers always expose the status.
     if not statuses:
         return {'open': None, 'unknown': True, 'labels': []}
-    open_labels = {'정규장', '장전', '장후'}
+    open_labels = {'정규장', '장전', '장후', '프리장', '애프터장'}
     unknown = any(s.get('label') == '장 상태 확인 불가' for s in statuses)
     is_open = any(s.get('label') in open_labels for s in statuses)
     return {'open': is_open if not (unknown and not is_open) else None,
@@ -215,6 +215,15 @@ def search(q: str = Query('', max_length=60), category: str = Query('all'), uid=
 def quote(symbol: str, uid=Depends(current_user)):
     if not valid_symbol(symbol): raise HTTPException(422, '잘못된 종목 코드입니다.')
     return market.quote(symbol)
+
+@app.get('/api/market-overview')
+def market_overview(uid=Depends(current_user)):
+    rows=[]
+    for code in ('KR','US'):
+        status=dict(market.providers[code].market_status())
+        status['market']=code
+        rows.append(status)
+    return {'markets':rows,'refreshed_at':datetime.now(timezone.utc),'refresh_seconds':60}
 
 @app.post('/api/orders', dependencies=[Depends(csrf)])
 def order(data: Order, uid=Depends(current_user)):
