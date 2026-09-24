@@ -63,3 +63,11 @@ def migrate(engine):
         if not db.scalar(text('SELECT 1 FROM schema_migrations WHERE version=5')):
             db.execute(text('ALTER TABLE users ADD COLUMN IF NOT EXISTS records_since TIMESTAMPTZ'))
             db.execute(text('INSERT INTO schema_migrations(version) VALUES (5)'))
+
+        if not db.scalar(text('SELECT 1 FROM schema_migrations WHERE version=6')):
+            db.execute(text('CREATE INDEX IF NOT EXISTS idx_transactions_user_created_at ON transactions(user_id, created_at DESC)'))
+            db.execute(text('CREATE INDEX IF NOT EXISTS idx_transactions_symbol ON transactions(symbol)'))
+            db.execute(text('CREATE INDEX IF NOT EXISTS idx_limit_orders_user_status ON limit_orders(user_id, status)'))
+            db.execute(text('CREATE INDEX IF NOT EXISTS idx_limit_orders_user_created_at ON limit_orders(user_id, created_at DESC)'))
+            db.execute(text('CREATE INDEX IF NOT EXISTS idx_limit_orders_symbol ON limit_orders(symbol)'))
+            db.execute(text('INSERT INTO schema_migrations(version) VALUES (6)'))

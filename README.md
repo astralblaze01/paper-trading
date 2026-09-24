@@ -1,6 +1,6 @@
 # VANTAGE
 
-Raspberry Pi 5 / Ubuntu ARM64용 다중 사용자 모의투자 웹 서비스입니다. FastAPI, PostgreSQL 17, Nginx, Docker Compose를 사용합니다. **실제 자금 이체·증권 주문 기능은 없습니다.** KIS 연결도 인증과 시세 조회에만 사용하며 계좌번호를 받지 않습니다.
+Raspberry Pi 5 / Ubuntu ARM64용 다중 사용자 모의투자 웹 서비스입니다. FastAPI, PostgreSQL 17, Redis 7, Nginx, Docker Compose를 사용합니다. **실제 자금 이체·증권 주문 기능은 없습니다.** KIS 연결도 인증과 시세 조회에만 사용하며 계좌번호를 받지 않습니다.
 
 기본 로컬 접속 주소는 **http://127.0.0.1:8080**입니다. LAN 접속은 `.env`의 `BIND_ADDRESS`에 서버의 LAN IP를 설정합니다. 외부 HTTPS는 아래 인증서 발급 절차로 활성화하며 운영 중에는 도메인 주소를 사용하세요.
 
@@ -29,18 +29,19 @@ curl --fail http://192.168.100.13:8080/health
 |---|---|
 | `app/db.py`, `app/migrations.py` | ORM, 버전 기록을 갖춘 추가형 migration |
 | `app/money.py`, `app/fx.py`, `app/trading.py`, `app/portfolio.py` | 지갑·환전·수수료·최대수량·체결·KRW 평가 |
-| `app/market.py`, `app/multi_market.py`, `app/providers.py`, `app/cache.py` | Finnhub/KIS/FX 어댑터, 시세·차트·순위·장 상태, 서버 캐시 |
+| `app/market.py`, `app/multi_market.py`, `app/providers.py`, `app/redis_cache.py` | Finnhub/KIS/FX 어댑터, Redis 시세 cache·중복 방지·호출 예산 |
+| `app/market_worker.py` | 활성 구독 종목을 중앙에서 수집하는 시세 worker |
 | `app/main.py`, `app/routes.py`, `app/security.py` | 인증, API, CSRF, 권한, 요청 제한 |
 | `app/limits.py`, `app/worker.py`, `app/weekly.py` | 지정가 처리와 주간 게시 작업 |
 | `app/admin_cli.py` | 기존 계정의 명시적 관리자 지정 |
 | `app/static/` | 의존성 없는 HTML/CSS/JS, 모바일 화면, Canvas 차트 |
-| `compose.yaml`, `Dockerfile` | web/db/nginx/worker, healthcheck, restart, ARM64 |
+| `compose.yaml`, `Dockerfile` | web/db/redis/nginx/scheduler/market-worker, healthcheck, restart, ARM64 |
 | `compose.https.yaml`, `compose.bootstrap.yaml`, `nginx/tls/`, `scripts/tls.py` | 선택적 Let's Encrypt 배포 |
 | `tests/`, `compose.browser.yaml` | 격리된 PostgreSQL 통합·migration·브라우저 검증 |
 
 ## DB migration과 회계
 
-앱 시작 시 기존 테이블을 삭제하지 않고 스키마를 확장합니다. migration은 PostgreSQL transaction과 advisory lock으로 보호하며 `schema_migrations`에 적용 버전(현재 5)을 기록합니다. 재시작 시 같은 변환을 반복하지 않습니다. 이번 UI 개편 자체에는 추가 migration이 없습니다.
+앱 시작 시 기존 테이블을 삭제하지 않고 스키마를 확장합니다. migration은 PostgreSQL transaction과 advisory lock으로 보호하며 `schema_migrations`에 적용 버전(현재 6)을 기록합니다. 재시작 시 같은 변환을 반복하지 않습니다.
 
 - 신규 테이블: `wallets`, `fx_transactions`, `watchlists`, `popularity_events`, `settings`, `season_archives`, `limit_orders` (지정가·대기 시장가).
 - 사용자: 관리자/활성 상태, 초기 USD/KRW 평가액과 환율 기준일을 추가합니다.
@@ -117,7 +118,7 @@ KIS 권한/쿼터 또는 계정 계약상 시세를 웹 사용자에게 재배�
 
 ALL은 상장 이후 완전한 이력을 보장하지 않습니다. 국내는 최대10페이지의 기간별 데이터를 읽습니다. 수정주가 차트와 실제 보유 수량 조정은 별개입니다. 차트는 Canvas 종가선, 마우스/터치/키보드 tooltip과 OHLC·거래량을 제공하며 브라우저가 공급자 API에 직접 연결하지 않습니다.
 
-종목 상세와 탐색 화면에서30초마다 backend quote/순위를 다시 확인합니다. 누적 수익률 랭킹 화면은 10초마다 API를 확인하며, 서버는 공급자 캐시·rate limit을 적용합니다. 한국·미국 시장이 모두 휴장/마감이면 마지막 스냅샷을 유지합니다. 이는 실시간 스트리밍이 아니며 가격 자체는 공급자 지연·시장 시간·캐시에 좌우됩니다. 서버 캐시는 quote15초, 검색5분, 당일차트60초, 기타차트15분, 국내순위120초, 미국순위1시간, 환율1시간, 장상태60초/국내휴장일1일입니다. `TTLCache`가 동시 동일 요청을 합칩니다. **web worker는1개**를 유지하세요. 여러 web 복제본으로 확장할 때는 캐시·요청예산·rate limit을 Redis/PostgreSQL로 옮겨야 합니다.
+종목 상세와 탐색 화면에서30초마다 backend quote/순위를 다시 확인합니다. 누적 수익률 랭킹 화면은 10초마다 API를 확인합니다. 활성 종목은 market-worker가 중앙에서 수집하고 Redis TTL cache를 모든 요청이 공유합니다. Finnhub 호출 예산도 Redis에서 공유하며 provider 원본 응답은 분산 lock으로 중복 요청을 막습니다. 가격은 공급자 지연·시장 시간에 좌우되며 WebSocket 스트리밍은 다음 단계입니다.
 
 VANTAGE 인기는 최근24시간( API는1시간도 지원)의 상세조회·단일결과검색·주문·관심등록 이벤트 합계입니다. 사용자/종목/행동/시간당1회만 기록하고 요청 제한을 적용합니다. 외부 시장의 인기 순위가 아닙니다. 대량 허위 계정까지 막는 강한 부정행위 방지는 별도 과제입니다.
 
@@ -125,7 +126,7 @@ VANTAGE 인기는 최근24시간( API는1시간도 지원)의 상세조회·단�
 
 ## 주간 게시와 관리자
 
-별도 **worker 컨테이너**가1분마다 내부 인증된 작업 endpoint를 호출합니다. 시세 캐시·공급자 호출 예산은 web 프로세스에서 공유합니다. Nginx는 `/internal/`을 외부에 노출하지 않습니다.
+별도 scheduler **worker 컨테이너**가1분마다 내부 인증된 작업 endpoint를 호출하고, 별도 **market-worker**가 활성 종목 시세를 수집합니다. 시세 cache와 공급자 호출 예산은 Redis에서 공유합니다. Nginx는 `/internal/`을 외부에 노출하지 않습니다.
 
 - 기본 매주 토요일09시(Asia/Seoul), 사이트의 랭킹 메뉴에 보고서를 저장합니다. 외부 SNS/메신저 전송은 없습니다.
 - 주간 수익률은 직전 기준 KRW 자산 대비 변화입니다. 새 계좌/초기화 계좌는 비교 가능한 시작값이 생긴 다음 보고서부터 포함합니다.

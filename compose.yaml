@@ -1,4 +1,18 @@
 services:
+  redis:
+    image: redis:7-alpine
+    command: [redis-server, --appendonly, 'yes']
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    logging: &logging
+      driver: json-file
+      options: {max-size: 10m, max-file: '3'}
   db:
     image: postgres:17-bookworm
     environment:
@@ -13,9 +27,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
-    logging: &logging
-      driver: json-file
-      options: {max-size: 10m, max-file: '3'}
+    logging: *logging
   web:
     build: .
     environment:
@@ -46,8 +58,11 @@ services:
       MAX_QUOTE_AGE: ${MAX_QUOTE_AGE:-900}
       US_MAX_QUOTE_AGE: ${US_MAX_QUOTE_AGE:-1800}
       MARKET_CALLS_PER_MINUTE: ${MARKET_CALLS_PER_MINUTE:-50}
+      REDIS_URL: redis://redis:6379/0
+      MARKET_CACHE_MODE: worker
     depends_on:
       db: {condition: service_healthy}
+      redis: {condition: service_healthy}
     restart: unless-stopped
     healthcheck:
       test: [CMD, python, -c, 'import urllib.request; urllib.request.urlopen("http://localhost:8000/health")']
@@ -70,6 +85,32 @@ services:
       timeout: 5s
       retries: 5
     logging: *logging
+  market-worker:
+    build: .
+    image: paper-trading-web
+    command: [python, -m, app.market_worker]
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      FINNHUB_API_KEY: ${FINNHUB_API_KEY:-}
+      KIS_APP_KEY: ${KIS_APP_KEY:-}
+      KIS_APP_SECRET: ${KIS_APP_SECRET:-}
+      KOREA_MARKET_PROVIDER: ${KOREA_MARKET_PROVIDER:-kis}
+      KOREA_MARKET_API_KEY: ${KOREA_MARKET_API_KEY:-}
+      KOREA_MARKET_API_SECRET: ${KOREA_MARKET_API_SECRET:-}
+      QUOTE_TTL: ${QUOTE_TTL:-15}
+      MAX_QUOTE_AGE: ${MAX_QUOTE_AGE:-900}
+      US_MAX_QUOTE_AGE: ${US_MAX_QUOTE_AGE:-1800}
+      MARKET_CALLS_PER_MINUTE: ${MARKET_CALLS_PER_MINUTE:-50}
+    depends_on:
+      redis: {condition: service_healthy}
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD, python, -c, 'import time,os; assert time.time()-os.stat("/tmp/market-worker-heartbeat").st_mtime < 90']
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    logging: *logging
   nginx:
     image: nginx:1.28-alpine
     ports:
@@ -87,3 +128,4 @@ services:
     logging: *logging
 volumes:
   pgdata:
+  redis_data:

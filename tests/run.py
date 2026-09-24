@@ -7,5 +7,5 @@ engine=create_engine(url,isolation_level='AUTOCOMMIT')
 with engine.connect() as db:
     if not db.scalar(text("SELECT 1 FROM pg_database WHERE datname = 'paper_test'")):
         db.execute(text('CREATE DATABASE paper_test'))
-env=dict(os.environ,DATABASE_URL=url.set(database='paper_test').render_as_string(hide_password=False))
+env=dict(os.environ,DATABASE_URL=url.set(database='paper_test').render_as_string(hide_password=False),REDIS_URL='',MARKET_CACHE_MODE='direct')
 raise SystemExit(subprocess.call(['python','-m','pytest','-q','-p','no:cacheprovider','tests'],env=env))

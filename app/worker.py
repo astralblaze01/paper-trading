@@ -5,6 +5,11 @@ import os
 import time
 from pathlib import Path
 import httpx
+import logging
+from .logging_config import configure_logging
+
+configure_logging()
+log=logging.getLogger('scheduler')
 
 if __name__=='__main__':
     token=hmac.new(os.environ['SESSION_SECRET'].encode(),b'paper-worker',hashlib.sha256).hexdigest()
@@ -14,5 +19,5 @@ if __name__=='__main__':
             r.raise_for_status()
             Path('/tmp/worker-heartbeat').touch()
         except httpx.HTTPError:
-            print('Scheduled work unavailable; retrying in 60 seconds',flush=True)
+            log.warning('scheduled work unavailable; retrying')
         time.sleep(60)

@@ -5,7 +5,7 @@ from sqlalchemy import create_engine, String, Numeric, Integer, ForeignKey, Date
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 url = os.getenv('DATABASE_URL') or URL.create('postgresql+psycopg', username='paper', password=os.environ['DB_PASSWORD'], host=os.getenv('DB_HOST', 'db'), database='paper')
-engine = create_engine(url, pool_pre_ping=True, pool_size=5, max_overflow=5)
+engine = create_engine(url, pool_pre_ping=True, pool_size=10, max_overflow=20, pool_recycle=1800)
 Session = sessionmaker(engine, expire_on_commit=False)
 class Base(DeclarativeBase): pass
 class User(Base):

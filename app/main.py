@@ -1,6 +1,8 @@
 import os
 import re
 import secrets
+import logging
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from threading import RLock
@@ -29,6 +31,11 @@ from .fx import FxService
 from .portfolio import portfolio as wallet_portfolio, initialize_equity, RETURN_BASIS
 from .weekly import WeeklyWorker, report_list
 from .branding import BRAND_NAME, STORAGE_NAMESPACE
+from .redis_cache import redis_cache
+from .logging_config import configure_logging
+
+configure_logging()
+request_log = logging.getLogger('request')
 
 secret = os.environ['SESSION_SECRET']
 if len(secret) < 32: raise RuntimeError('SESSION_SECRET must have at least 32 characters')
@@ -98,15 +105,20 @@ app.mount('/static', StaticFiles(directory='app/static'), name='static')
 async def no_cache(request, call_next):
     from .security import limiter
     path=request.url.path
+    started=time.monotonic()
+    supplied=request.headers.get('x-request-id','')
+    request_id=supplied if re.fullmatch(r'[A-Za-z0-9._-]{1,80}',supplied) else secrets.token_hex(12)
     category = 'auth' if path in ('/api/login','/api/register') else 'trade' if path in ('/api/orders','/api/fx/exchange','/api/limit-orders','/api/transfers','/api/transfers/preview') else 'market' if path.startswith(('/api/search','/api/quote','/api/candles','/api/explore','/api/order-preview','/api/fx/preview','/api/market-status','/api/company','/api/portfolios')) else 'event' if path=='/api/popularity' else None
     if category:
         identity=request.headers.get('x-real-ip') or (request.client.host if request.client else 'unknown')
         limit={'auth':20,'trade':30,'market':120,'event':60}[category]
         if not limiter.allow((identity,category),limit):
-            return JSONResponse(status_code=429,content={'detail':'요청이 너무 많습니다. 잠시 후 다시 시도하세요.'},headers={'Retry-After':'60'})
+            return JSONResponse(status_code=429,content={'detail':'요청이 너무 많습니다. 잠시 후 다시 시도하세요.'},headers={'Retry-After':'60','X-Request-ID':request_id})
     response = await call_next(request)
+    response.headers['X-Request-ID']=request_id
     if request.url.path.startswith('/api'):
         response.headers['Cache-Control'] = 'no-store'
+    request_log.info('request completed',extra={'request_id':request_id,'user_id':request.scope.get('session',{}).get('uid'),'method':request.method,'path':path,'status_code':response.status_code,'duration_ms':round((time.monotonic()-started)*1000,2)})
     return response
 
 @app.exception_handler(MarketError)
@@ -150,7 +162,8 @@ def index():
 @app.get('/health')
 def health():
     with engine.connect() as db: db.execute(text('SELECT 1'))
-    return {'status': 'ok', 'mode': 'paper-only'}
+    redis_status='ok' if redis_cache.ping() else 'unavailable'
+    return {'status':'ok' if redis_status=='ok' else 'degraded','database':'ok','redis':redis_status,'mode':'paper-only'}
 
 @app.get('/api/session')
 def session(request: Request):

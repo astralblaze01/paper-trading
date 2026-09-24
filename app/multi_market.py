@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 import httpx
 from .market import Finnhub, MarketError
 from .instruments import discover, instrument, valid_symbol
+from .redis_cache import redis_cache
 
 SEOUL = ZoneInfo('Asia/Seoul')
 
@@ -77,7 +78,8 @@ class KoreaPrices:
                     return data | {'_tr_cont':r.headers.get('tr_cont','')}
                 except (httpx.HTTPError,ValueError,KeyError,TypeError) as exc:
                     raise MarketError('국내 시세 공급자 응답 오류입니다.') from exc
-        return self.responses.get((path,tr_cont,tuple(sorted(params.items()))),ttl,load)
+        cache_key=(path,tr_cont,tuple(sorted(params.items())))
+        return self.responses.get(cache_key,ttl,lambda:redis_cache.get_or_load(redis_cache.key('market:provider:kis',repr(cache_key)),ttl,load))
 
     def quote(self, symbol):
         if not re.fullmatch(r'KR:[0-9]{6}',symbol): raise MarketError('잘못된 국내 종목코드입니다.')
@@ -167,6 +169,22 @@ class MultiMarket:
         return rows[:30]
 
     def quote(self, symbol):
+        if redis_cache.configured and os.getenv('MARKET_CACHE_MODE','direct').lower() == 'worker' and os.getenv('MARKET_WORKER_MODE','false').lower() != 'true':
+            cached = redis_cache.get_json(f'market:price:{symbol}')
+            redis_cache.request_quote(symbol, force=cached is None)
+            deadline = time.monotonic() + (3 if cached is None else 0)
+            while cached is None and time.monotonic() < deadline:
+                time.sleep(.1)
+                cached = redis_cache.get_json(f'market:price:{symbol}')
+            if cached is None:
+                raise MarketError('시세 수집기가 가격을 준비 중입니다. 잠시 후 다시 시도하세요.')
+            for field in ('price','native_price','fx_rate'):
+                if field in cached and cached[field] is not None:
+                    cached[field] = Decimal(str(cached[field]))
+            return cached
+        return self.quote_direct(symbol)
+
+    def quote_direct(self, symbol):
         if not valid_symbol(symbol): raise MarketError('잘못된 종목 코드입니다.')
         info = instrument(symbol)
         if info['currency'] == 'USD':
