@@ -30,6 +30,16 @@ CATALOG = [
     ('KR:411060', 'ACE KRX금현물 ETF', 'gold', 'KRW'),
 ]
 
+ALIASES = {
+    'AAPL': ('애플',), 'MSFT': ('마이크로소프트',), 'NVDA': ('엔비디아',),
+    'KR:005930': ('삼성 전자',), 'KR:000660': ('에스케이하이닉스','SK 하이닉스'),
+    'KR:005380': ('현대 자동차',), 'KR:035420': ('네이버',),
+    'GLD': ('금','골드'), 'IAU': ('금','골드'), 'GLDM': ('금','골드'),
+}
+
+def _search_text(value):
+    return re.sub(r'[\s._-]+','',value.casefold())
+
 def instrument(symbol):
     for code, name, category, currency in CATALOG:
         if code == symbol:
@@ -37,8 +47,9 @@ def instrument(symbol):
     return dict(symbol=symbol, name=symbol, category='kr' if symbol.startswith('KR:') else 'us', currency='KRW' if symbol.startswith('KR:') else 'USD')
 
 def discover(query='', category='all'):
-    query = query.casefold().strip()
-    return [instrument(row[0]) for row in CATALOG if (category == 'all' or row[2] == category) and (not query or query in row[0].casefold() or query in row[1].casefold())]
+    query = _search_text(query.strip())
+    return [instrument(row[0]) for row in CATALOG if (category == 'all' or row[2] == category) and
+            (not query or any(query in _search_text(value) for value in (row[0],row[1],*ALIASES.get(row[0],()))))]
 
 def valid_symbol(symbol):
     return re.fullmatch(SYMBOL_PATTERN, symbol) is not None

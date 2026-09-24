@@ -152,6 +152,10 @@ class MultiMarket:
         query = query.strip()
         rows = discover(query, category)
         if not query or category in ('us_bond', 'kr_bond', 'gold'): return rows
+        if category in ('all','kr'):
+            from .kr_symbols import search_master
+            for row in search_master(query):
+                if row['symbol'] not in {r['symbol'] for r in rows}: rows.append(row)
         code = query.removeprefix('KR:')
         if re.fullmatch(r'[0-9]{6}', code) and category in ('all', 'kr'):
             symbol = 'KR:' + code

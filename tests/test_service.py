@@ -291,6 +291,12 @@ def test_multimarket_discovery_and_normalization(monkeypatch):
         with pytest.raises(MarketError): m.quote('KR:005930/../orders')
     finally: m.close()
 
+def test_korean_master_parser_supports_name_and_code_search():
+    from app.kr_symbols import parse_master
+    line=('005930'.ljust(9)+'STD-CODE-000'.ljust(12)+'삼성전자'.ljust(40)).encode('euc-kr')
+    rows=parse_master(line+b'\n','kospi')
+    assert rows==[{'symbol':'KR:005930','name':'삼성전자','category':'kr','currency':'KRW','exchange':'kospi'}]
+
 def test_kis_read_only_timestamp_and_cache():
     import httpx
     from datetime import datetime, timedelta

@@ -7,6 +7,7 @@ from .instruments import valid_symbol
 from .multi_market import MultiMarket
 from .redis_cache import redis_cache
 from .logging_config import configure_logging
+from .kr_symbols import refresh_master
 
 configure_logging()
 log=logging.getLogger('market-worker')
@@ -17,9 +18,16 @@ def main():
     market = MultiMarket()
     interval = max(5, int(os.getenv('QUOTE_TTL', '15')))
     refreshed = {}
+    master_refreshed=0
     try:
         while True:
             Path('/tmp/market-worker-heartbeat').touch()
+            if time.monotonic()-master_refreshed>86400:
+                try:
+                    count=refresh_master();master_refreshed=time.monotonic();log.info(f'Korean symbol master refreshed ({count} symbols)')
+                except Exception as exc:
+                    master_refreshed=time.monotonic()-82800
+                    log.warning('Korean symbol master refresh failed',extra={'status_code':type(exc).__name__})
             urgent = redis_cache.next_refresh(timeout=1)
             symbols = ([urgent] if urgent else []) + redis_cache.requested_symbols()
             now = time.monotonic()
