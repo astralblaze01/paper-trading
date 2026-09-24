@@ -1,3 +1,6 @@
+# Resolve web per request through Docker DNS; a static proxy_pass keeps the
+# old container IP after web is recreated and returns 502 until a reload.
+resolver 127.0.0.11 valid=10s ipv6=off;
 limit_req_zone $binary_remote_addr zone=auth:10m rate=5r/m;
 limit_req_zone $binary_remote_addr zone=api:10m rate=10r/s;
 server {
@@ -8,6 +11,7 @@ server {
 }
 # Preserve the existing LAN service while the public certificate is requested.
 server {
+    set $web_upstream http://web:8000;
     listen 8080;
     server_tokens off;
     client_max_body_size 16k;
@@ -21,7 +25,7 @@ server {
     location ~ ^/api/(login|register)$ {
         limit_req zone=auth burst=5 nodelay;
         limit_req_status 429;
-        proxy_pass http://web:8000;
+        proxy_pass $web_upstream;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Request-ID $request_id;
@@ -29,11 +33,11 @@ server {
     location / {
         limit_req zone=api burst=30 nodelay;
         limit_req_status 429;
-        proxy_pass http://web:8000;
+        proxy_pass $web_upstream;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Request-ID $request_id;
         proxy_read_timeout 120s;
     }
 }
-server { listen 127.0.0.1:8081; location /health { proxy_pass http://web:8000/health; } }
+server { listen 127.0.0.1:8081; set $web_upstream http://web:8000; location /health { proxy_pass $web_upstream; } }
