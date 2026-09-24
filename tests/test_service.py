@@ -304,6 +304,8 @@ def test_kis_read_only_timestamp_and_cache():
     m = KoreaPrices()
     m.configured = True
     m.key = 'test'; m.secret = 'test'
+    from app.redis_cache import redis_cache
+    redis_cache.delete(m._token_key())
     m.client.close()
     calls = []
     stamp = datetime.now(SEOUL) - timedelta(minutes=1)
@@ -322,7 +324,9 @@ def test_kis_read_only_timestamp_and_cache():
         assert q['turnover'] == '140000000'
         m.quote('KR:005930')
         assert len(calls) == 2
-    finally: m.client.close()
+    finally:
+        redis_cache.delete(m._token_key())
+        m.client.close()
 
 def test_stale_fx_and_outage_rejected():
     import httpx

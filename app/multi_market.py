@@ -31,6 +31,25 @@ class KoreaPrices:
         from .cache import TTLCache
         self.responses = TTLCache()
 
+    def _token_key(self):
+        # KIS limits token issuance. Web and background workers therefore share
+        # one read-only quotation token instead of issuing one per process.
+        return redis_cache.key('market:kis:access-token',self.key+'\0'+self.secret)
+
+    def _access_token(self, now):
+        def issue():
+            self.cooldown=now+60
+            d=self._json(self.client.post('/oauth2/tokenP',json={'grant_type':'client_credentials','appkey':self.key,'appsecret':self.secret}))
+            token=d['access_token']; lifetime=max(60,int(d.get('expires_in',86400))-120)
+            if not token: raise ValueError()
+            return {'access_token':token,'expires_at':time.time()+lifetime}
+        shared=redis_cache.get_or_load(self._token_key(),21600,issue)
+        token=str(shared['access_token']); remaining=float(shared.get('expires_at',time.time()+3600))-time.time()
+        if not token or remaining<=0:
+            redis_cache.delete(self._token_key())
+            raise ValueError('expired KIS token')
+        self.token=token; self.expires=now+remaining; self.cooldown=0
+
     def _json(self, response):
         if response.status_code == 429:
             self.cooldown = time.monotonic() + 60
@@ -54,14 +73,10 @@ class KoreaPrices:
             with self.lock:
                 now=time.monotonic()
                 if not self.configured: raise MarketError('국내 데이터 공급자 설정 필요')
-                if now<self.cooldown: raise MarketError('국내 시세 요청 한도 대기 중입니다.')
                 try:
                     if now>=self.expires:
-                        self.cooldown=now+60
-                        d=self._json(self.client.post('/oauth2/tokenP',json={'grant_type':'client_credentials','appkey':self.key,'appsecret':self.secret}))
-                        self.token=d['access_token']; self.expires=now+int(d.get('expires_in',86400))-120
-                        if not self.token: raise ValueError()
-                        self.cooldown=0
+                        if now<self.cooldown: raise MarketError('국내 시세 요청 한도 대기 중입니다.')
+                        self._access_token(now)
                     # The KIS overseas historical endpoints rejected consecutive
                     # 0.5s requests in live verification; serialize at 1.1s.
                     delay=1.1-(time.monotonic()-self.last_call)
@@ -70,7 +85,8 @@ class KoreaPrices:
                     headers={'authorization':'Bearer '+self.token,'appkey':self.key,'appsecret':self.secret,'tr_id':tr_id,'custtype':'P'}
                     if tr_cont: headers['tr_cont']=tr_cont
                     r=self.client.get(path,headers=headers,params=params)
-                    if r.status_code in (401,403): self.expires=0; self.cooldown=time.monotonic()+60
+                    if r.status_code in (401,403):
+                        self.expires=0; self.cooldown=time.monotonic()+60; redis_cache.delete(self._token_key())
                     data=self._json(r)
                     if data.get('rt_cd')!='0':
                         if data.get('msg_cd') in ('EGW00201','EGW00133'): self.cooldown=time.monotonic()+60
