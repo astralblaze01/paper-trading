@@ -184,7 +184,7 @@ def test_ranking(client):
     assert r['rows'][0]['username']=='alice'
     assert float(r['rows'][0]['return_pct'])==0
     assert r['base_currency']=='KRW'
-    assert r['refresh_interval_minutes']==30
+    assert r['refresh_interval_seconds']==10
     assert r['return_basis']=='초기 KRW 평가액 대비 (외부 입출금 반영)'
     assert r['next_refresh_at']
 
@@ -204,6 +204,21 @@ def test_ranking_keeps_last_snapshot_when_all_markets_are_closed(client, monkeyp
     assert second['rows']==first['rows']
     assert second['refreshed'] is False
     assert second['market_open'] is False
+
+def test_ranking_ten_second_boundary_and_last_good_snapshot(client,monkeypatch):
+    from datetime import datetime, timezone, timedelta
+    register(client)
+    stamp=datetime(2026,9,24,0,0,19,tzinfo=timezone.utc)
+    assert main._ranking_bucket(stamp).second==10
+    assert main._next_ranking_boundary(stamp).second==20
+    first=client.get('/api/ranking').json()
+    main._ranking_cache[main.market]['bucket']-=timedelta(seconds=10)
+    monkeypatch.setattr(main,'wallet_portfolio',lambda *args:{'return_pct':None})
+    failed=client.get('/api/ranking').json()
+    assert failed['rows']==first['rows'] and failed['updated_at']==first['updated_at']
+    assert failed['stale'] and failed['incomplete']
+    with Session.begin() as db: db.scalar(select(User).where(User.username=='alice')).is_admin=True
+    assert not client.get('/api/ranking').json()['rows']
 
 def test_eight_character_password_registration_and_login(client):
     token = client.get('/api/session').json()['csrf']

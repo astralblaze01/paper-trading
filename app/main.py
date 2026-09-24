@@ -8,8 +8,9 @@ from typing import Literal
 from uuid import UUID
 from decimal import Decimal
 from zoneinfo import ZoneInfo
+from pathlib import Path
 from fastapi import FastAPI, Request, HTTPException, Depends, Query
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 from pydantic import BaseModel, Field, ConfigDict, field_validator
@@ -27,6 +28,7 @@ from .money import wallets, initial_amount
 from .fx import FxService
 from .portfolio import portfolio as wallet_portfolio, initialize_equity, RETURN_BASIS
 from .weekly import WeeklyWorker, report_list
+from .branding import BRAND_NAME, STORAGE_NAMESPACE
 
 secret = os.environ['SESSION_SECRET']
 if len(secret) < 32: raise RuntimeError('SESSION_SECRET must have at least 32 characters')
@@ -35,17 +37,17 @@ fx = FxService(market.fx)
 hasher = PasswordHasher(time_cost=2, memory_cost=19456, parallelism=1)
 dummy_hash = hasher.hash(secrets.token_urlsafe(32))
 SEOUL = ZoneInfo('Asia/Seoul')
-RANKING_INTERVAL = timedelta(minutes=30)
+RANKING_INTERVAL = timedelta(seconds=10)
 _ranking_lock = RLock()
-# Ranking is deliberately process-local.  The response is a view of the
-# database, and the half-hour boundary keeps provider calls bounded per web
-# process while the returned timestamp makes the snapshot explicit.
+# Ranking is deliberately process-local. The response is a view of the
+# database, and the ten-second boundary keeps browser polling from turning
+# into an external-provider call for every request.
 _ranking_cache = {}
 
 
 def _ranking_bucket(now=None):
     local = (now or datetime.now(timezone.utc)).astimezone(SEOUL)
-    return local.replace(minute=(local.minute // 30) * 30, second=0, microsecond=0)
+    return local.replace(second=(local.second // 10) * 10, microsecond=0)
 
 
 def _next_ranking_boundary(now=None):
@@ -88,7 +90,7 @@ async def lifespan(app):
         if worker: worker.stop()
         market.client.close()
 
-app = FastAPI(title='ASTER', lifespan=lifespan, docs_url=None, redoc_url=None)
+app = FastAPI(title=BRAND_NAME, lifespan=lifespan, docs_url=None, redoc_url=None)
 app.add_middleware(SessionMiddleware, secret_key=secret, session_cookie='paper_session', max_age=43200, same_site='strict', https_only=os.getenv('COOKIE_SECURE', 'false').lower() == 'true')
 app.mount('/static', StaticFiles(directory='app/static'), name='static')
 
@@ -141,7 +143,9 @@ class Order(BaseModel):
     use_max: bool = False
 
 @app.get('/')
-def index(): return FileResponse('app/static/index.html')
+def index():
+    html = Path('app/static/index.html').read_text()
+    return HTMLResponse(html.replace('{{BRAND_NAME}}', BRAND_NAME).replace('{{STORAGE_NAMESPACE}}', STORAGE_NAMESPACE), headers={'Cache-Control':'no-cache'})
 
 @app.get('/health')
 def health():
@@ -267,16 +271,21 @@ def ranking(uid=Depends(current_user)):
     cache_key = market
     with _ranking_lock:
         cached = _ranking_cache.get(cache_key)
+        with Session() as db:
+            eligible=list(db.execute(select(User.id,User.username).where(User.active.is_(True),User.is_admin.is_(False))))
+        if cached:
+            names={name for _,name in eligible}
+            cached['payload']['rows']=[row|{'rank':i+1} for i,row in enumerate(row for row in cached['payload']['rows'] if row['username'] in names)]
         # A closed holiday/weekend must not create a new ranking snapshot.  We
         # still return the last valid rows with their original as-of time.
-        if cached and state['open'] is False:
+        if cached and cached['payload'].get('updated_at') and state['open'] is False:
             return cached['payload'] | {
                 'refreshed': False,
                 'market_open': False,
                 'market_status': state['labels'],
                 'next_refresh_at': next_boundary.isoformat(),
             }
-        # Multiple browsers in the same half-hour share one calculation.
+        # Multiple browsers in the same ten-second window share one calculation.
         if cached and cached['bucket'] == bucket:
             return cached['payload'] | {
                 'refreshed': False,
@@ -285,21 +294,21 @@ def ranking(uid=Depends(current_user)):
                 'next_refresh_at': next_boundary.isoformat(),
             }
 
-        with Session() as db:
-            ids=list(db.scalars(select(User.id).where(User.active.is_(True),User.is_admin.is_(False))))
+        ids=[uid for uid,_ in eligible]
         values=[wallet_portfolio(i,market,fx) for i in ids]
         if any(v['return_pct'] is None for v in values):
             error='시세 또는 기준환율을 확인할 수 없어 랭킹을 보류합니다.'
             if cached:
                 return cached['payload'] | {
-                    'errors': [error], 'incomplete': True, 'refreshed': False,
+                    'errors': [error], 'incomplete': True, 'refreshed': False, 'stale': True,
                     'market_open': state['open'], 'market_status': state['labels'],
                     'next_refresh_at': next_boundary.isoformat(),
                 }
             payload={'rows': [], 'errors': [error], 'incomplete': True,
                      'base_currency': 'KRW', 'updated_at': None,
                      'return_basis': RETURN_BASIS,
-                     'refresh_interval_minutes': 30}
+                     'stale': True,
+                     'refresh_interval_seconds': 10}
             _ranking_cache[cache_key] = {'bucket': bucket, 'payload': payload}
             return payload | {'refreshed': True, 'market_open': state['open'],
                               'market_status': state['labels'],
@@ -311,7 +320,8 @@ def ranking(uid=Depends(current_user)):
                  'errors':[], 'incomplete':False, 'base_currency':'KRW',
                  'updated_at': now.isoformat(),
                  'return_basis': RETURN_BASIS,
-                 'refresh_interval_minutes':30}
+                 'stale': any(v['stale'] for v in values),
+                 'refresh_interval_seconds': 10}
         _ranking_cache[cache_key] = {'bucket': bucket, 'payload': payload}
         return payload | {'refreshed': True, 'market_open': state['open'],
                           'market_status': state['labels'],

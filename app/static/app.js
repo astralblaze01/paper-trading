@@ -1,4 +1,5 @@
 const $ = id => document.getElementById(id);
+const storageNamespace = document.documentElement.dataset.storageNamespace;
 let csrf = '', page = 1, weeklyPage = 1, pendingOrder = null;
 let maxMode = false;
 const money = x => x === null || x === undefined ? '—' : new Intl.NumberFormat('en-US', {style: 'currency', currency: 'USD'}).format(Number(x));
@@ -6,8 +7,8 @@ const nativeMoney = (x, currency) => x == null ? '—' : new Intl.NumberFormat('
 const pct = x => x == null ? '—' : `${Number(x).toFixed(2)}%`;
 const categories = {us: '미국 주식 / ETF', kr: '한국 주식 / ETF', us_bond: '미국 채권 ETF', kr_bond: '한국 채권 ETF', gold: '금 ETF'};
 let displayMode='native', viewFx=null, portfolioCache=null, rankingCache=null, historyCache=[], weeklyCache=null;
-let rankingBucketSeen='';
-try{displayMode=localStorage.getItem('paper-harbor:currency')||'native';}catch{}
+let rankingBucketSeen='', rankingRequest=null;
+try{displayMode=localStorage.getItem(storageNamespace+':currency')||localStorage.getItem('paper-harbor:currency')||'native';}catch{}
 if(!['native','KRW','USD'].includes(displayMode))displayMode='native';
 function viewCurrency(native){return displayMode==='native'?native:displayMode;}
 function viewValue(value,currency,rate=viewFx){
@@ -32,18 +33,19 @@ function renderRanking(){if(!rankingCache)return;
   const status=$('rankingStatus');
   if(status){
     const markets=(rankingCache.market_status||[]).map(x=>`${x.market==='KR'?'한국':'미국'} ${x.label}`).join(' · ');
-    const asOf=rankingCache.updated_at?reportDate(rankingCache.updated_at):'아직 없음';
-    const next=rankingCache.next_refresh_at?reportDate(rankingCache.next_refresh_at):'다음 경계 시각';
+    const stamp=value=>new Date(value).toLocaleString('ko-KR',{timeZone:'Asia/Seoul',hour12:false});
+    const asOf=rankingCache.updated_at?stamp(rankingCache.updated_at):'아직 없음';
+    const next=rankingCache.next_refresh_at?stamp(rankingCache.next_refresh_at):'다음 경계 시각';
     status.textContent=rankingCache.incomplete
-      ? '시세 또는 환율을 확인하지 못해 랭킹을 갱신하지 않았습니다. '+(rankingCache.errors||[]).join(' ')
+      ? `마지막 정상 갱신: ${asOf} · `+(rankingCache.errors||[]).join(' ')
       : (rankingCache.market_open===false
         ? `장이 닫혀 마지막 랭킹을 유지합니다 · 기준 ${asOf}${markets?' · '+markets:''}`
-        : `기준 ${asOf} · 다음 갱신 ${next}${markets?' · '+markets:''} · 30분 단위`);
+        : `기준 ${asOf} · 다음 갱신 ${next}${markets?' · '+markets:''} · 10초 단위`);
   }
   table($('ranking'),['순위','사용자 · 포트폴리오 보기','총 평가금액 ('+viewCurrency('KRW')+')','수익률'],rankingCache.rows.map(x=>[x.rank,userLink(x.username),viewMoney(x.equity,'KRW',x.fx||viewFx),signedPct(x.return_pct)]));
 }
 function syncCurrency(){for(const id of ['displayCurrency','detailCurrency','exploreCurrency'])$(id).value=displayMode;$('displayRateNote').textContent=viewFx?`${viewFx.date} 기준 · 1 USD = ${Number(viewFx.rate).toLocaleString('ko-KR',{maximumFractionDigits:2})} KRW · 환산 표시만 변경`:'환율 확인 중';}
-async function changeDisplayCurrency(value){displayMode=value;try{localStorage.setItem('paper-harbor:currency',value);}catch{}syncCurrency();renderPortfolio();renderRanking();renderHistory();if(weeklyCache)renderWeekly();window.dispatchEvent(new Event('displaycurrencychange'));}
+async function changeDisplayCurrency(value){displayMode=value;try{localStorage.setItem(storageNamespace+':currency',value);}catch{}syncCurrency();renderPortfolio();renderRanking();renderHistory();if(weeklyCache)renderWeekly();window.dispatchEvent(new Event('displaycurrencychange'));}
 $('displayCurrency').addEventListener('change',e=>changeDisplayCurrency(e.target.value));
 function message(text) { $('status').textContent = text; }
 async function api(path, body) {
@@ -70,7 +72,7 @@ function table(target, headers, rows) {
 }
 async function boot() {
   const s = await api('session'); csrf = s.csrf;
-  window.sessionUsername=s.username; $('auth').hidden = !!s.username; $('dashboard').hidden = !s.username; $('logout').hidden = !s.username; $('adminNav').hidden = !s.is_admin;
+  window.sessionUsername=s.username; window.isAdmin=!!s.is_admin; $('auth').hidden = !!s.username; $('dashboard').hidden = !s.username; $('logout').hidden = !s.username; $('adminNav').hidden = !s.is_admin;
   const unavailable = [];
   if (!s.providers.us) unavailable.push('미국 시세');
   if (!s.providers.kr) unavailable.push('한국 시세');
@@ -82,8 +84,13 @@ async function refresh() {
   portfolioCache=p;viewFx=p.fx;syncCurrency();renderPortfolio();
   if (p.errors.length) message(p.errors.join('\n')); else if (p.stale) message('마지막 제공 시세 기준 평가입니다. 지연 시세 종목은 거래가 제한됩니다.');
   await history(); if(window.loadLimits)await loadLimits(); await weekly(); const r = await api('ranking');
-  rankingCache=r;renderRanking(); rankingBucketSeen=seoulHalfHourKey();
+  rankingCache=r;renderRanking(); rankingBucketSeen=seoulTenSecondKey();
   if (r.incomplete) message('시세를 조회할 수 없어 전체 랭킹을 잠시 표시하지 않습니다.');
+}
+async function refreshRankingOnly(){
+  if(rankingRequest)return rankingRequest;
+  rankingRequest=(async()=>{try{rankingCache=await api('ranking');}catch(e){if(rankingCache)rankingCache={...rankingCache,incomplete:true,stale:true,errors:[e.message]};else throw e;}renderRanking();})();
+  try{await rankingRequest;}finally{rankingRequest=null;}
 }
 async function history() {
   const rows = await api('transactions?page=' + page);
@@ -100,7 +107,7 @@ async function search() {
   $('searchResults').replaceChildren();
   for (const row of rows) {
     const b = document.createElement('button'); b.type = 'button';
-    const title = document.createElement('strong'), detail = document.createElement('span'); title.textContent = row.name; detail.textContent = `${row.symbol} · ${categories[row.category]} · ${row.currency}`;
+    const title = document.createElement('strong'), detail = document.createElement('span'); title.textContent = row.name; detail.textContent = window.isAdmin ? `${row.symbol} · ${categories[row.category]} · ${row.currency}` : `${categories[row.category]} · ${row.currency}`;
     b.append(title, detail); b.addEventListener('click', () => { if(window.openStock) openStock(row.symbol); else $('symbol').value=row.symbol; }); $('searchResults').append(b);
   }
   if (!rows.length) { const p = document.createElement('p'); p.className = 'field-help'; p.textContent = '검색 결과가 없습니다. 한국 종목은 6자리 코드로도 조회할 수 있습니다.'; $('searchResults').append(p); }
@@ -114,15 +121,15 @@ handle('category', 'change', async () => { $('query').value = ''; $('marketHelp'
 handle('quote', 'click', async () => {
   if(window.openStock) { openStock($('symbol').value); return; }
   const q = await api('quote/' + encodeURIComponent($('symbol').value));
-  $('quoteInfo').textContent = nativeMoney(q.native_price, q.currency) + (q.currency === 'KRW' ? ` → ${money(q.price)} / 주 · 1 USD = ${Number(1 / Number(q.fx_rate)).toFixed(2)} KRW (${q.fx_date} 기준환율)` : '') + ' · ' + new Date(q.timestamp * 1000).toLocaleString() + (q.stale ? ' · 오래된 시세: 주문은 새 가격이 올 때까지 대기합니다.' : ' · 주문 시 가격이 달라질 수 있습니다.');
+  const adminStamp = window.isAdmin ? ` · ${new Date(q.timestamp * 1000).toLocaleString()} · ${q.data_status || q.source || '공급자 시세'}` : '';
+  $('quoteInfo').textContent = `${viewMoney(q.native_price, q.currency)} · 실제 주문 통화 ${q.currency}${q.stale ? ' · 오래된 시세: 주문은 새 가격이 올 때까지 대기합니다.' : ' · 주문 시 가격이 달라질 수 있습니다.'}${adminStamp}`;
 });
 handle('orderForm', 'submit', async () => {
-  const data = {symbol: $('symbol').value, side: $('side').value, quantity: Number($('quantity').value), use_max: maxMode}; const signature = JSON.stringify({...data, order_type: $('orderType').value, limit_price: $('limitPrice').value});
+  const data = {symbol: $('symbol').value, side: $('side').value, quantity: Number($('quantity').value), use_max: maxMode}; const signature = JSON.stringify(data);
   if (!pendingOrder || pendingOrder.signature !== signature) {
     const bytes = crypto.getRandomValues(new Uint8Array(16)); bytes[6] = (bytes[6] & 15) | 64; bytes[8] = (bytes[8] & 63) | 128;
     const h = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join(''); pendingOrder = {signature, id: `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`};
   }
-  if($('orderType').value==='limit'){await api('limit-orders',{symbol:data.symbol,side:data.side,quantity:data.quantity,limit_price:$('limitPrice').value,request_id:pendingOrder.id});pendingOrder=null;message('지정가 주문을 등록했습니다.');if(window.loadLimits)await loadLimits();return;}
   $('submitOrder').disabled = true;
   try { const result = await api('orders', {...data, request_id: pendingOrder.id}); pendingOrder = null; page = 1; maxMode=false; await refresh(); if(window.loadStock) await loadStock(false); message(result.pending ? '시장가 주문을 대기 목록에 등록했습니다. 새 시세가 오면 잔액을 다시 확인해 체결합니다.' : result.status==='cancelled' ? '이 주문은 취소되었습니다.' : result.replayed ? '이미 처리된 주문을 확인했습니다.' : '모의 주문이 체결되었습니다.'); } finally { $('submitOrder').disabled = false; }
 });
@@ -155,16 +162,16 @@ function renderWeekly(){
 }
 handle('weeklyPrevious', 'click', async () => { weeklyPage = Math.max(1, weeklyPage - 1); await weekly(); });
 handle('weeklyNext', 'click', async () => { weeklyPage++; await weekly(); });
-function seoulHalfHourKey(date=new Date()){
-  const parts=Object.fromEntries(new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(date).filter(x=>x.type!=='literal').map(x=>[x.type,x.value]));
-  return `${parts.year}-${parts.month}-${parts.day}-${parts.hour}-${Math.floor(Number(parts.minute)/30)}`;
+function seoulTenSecondKey(date=new Date()){
+  const parts=Object.fromEntries(new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).formatToParts(date).filter(x=>x.type!=='literal').map(x=>[x.type,x.value]));
+  return `${parts.year}-${parts.month}-${parts.day}-${parts.hour}-${parts.minute}-${Math.floor(Number(parts.second)/10)}`;
 }
 setInterval(async()=>{
   if(document.hidden||!window.sessionUsername||$('dashboard').hidden)return;
   const pageName=(location.hash.replace(/^#/,'').split('/')[0]||'explore');
-  if(!['portfolio','ranking'].includes(pageName))return;
-  const key=seoulHalfHourKey(); if(key===rankingBucketSeen)return;
+  if(pageName!=='ranking')return;
+  const key=seoulTenSecondKey(); if(key===rankingBucketSeen)return;
   rankingBucketSeen=key;
-  try{await refresh();}catch(err){message(err.message);}
-},15000);
+  try{await refreshRankingOnly();}catch(err){message(err.message);}
+},1000);
 boot().catch(e => message(e.message));

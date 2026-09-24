@@ -24,7 +24,7 @@ def checked_quote(symbol, market, allow_stale=False):
     return q, price
 
 
-def preview_order(uid, symbol, side, quantity, market):
+def preview_order(uid, symbol, side, quantity, market, share=None):
     q, price=checked_quote(symbol,market,allow_stale=True)
     with Session.begin() as db:
         user=db.scalar(select(User).where(User.id==uid).with_for_update())
@@ -34,11 +34,16 @@ def preview_order(uid, symbol, side, quantity, market):
         p=db.get(Position,(uid,symbol))
         available=ws[currency].balance
         maximum_quantity=maximum(symbol,price,available) if side=='buy' else (p.quantity if p else 0)
+        maximum_quantity=min(maximum_quantity,1000000)
+        if share is not None:
+            quantity=int(Decimal(maximum_quantity)*Decimal(share)/Decimal(100))
         c=costs(symbol,side,price,quantity)
         return c | {'price':price,'quantity':quantity,'max_quantity':maximum_quantity,'balance':available,
                     'balance_after':available-c['net_amount'] if side=='buy' else available+c['net_amount'],
                     'quote_timestamp':q['timestamp'],'indicative_only':q.get('stale',False) or datetime.now(timezone.utc).timestamp()-q['timestamp']>int(os.getenv('MAX_QUOTE_AGE','900') if symbol.startswith('KR:') else os.getenv('US_MAX_QUOTE_AGE','1800')),
                     'holding':p.quantity if p else 0,
+                    'holding_after':(p.quantity if p else 0)+(quantity if side=='buy' else -quantity),
+                    'can_submit':0<quantity<=maximum_quantity,
                     'average_cost':p.native_average_cost if p else None,
                     'unrealized_pnl':(price-(p.native_average_cost if p.native_average_cost is not None else p.average_cost))*p.quantity if p else Decimal(0)}
 

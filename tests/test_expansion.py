@@ -116,6 +116,41 @@ def test_watchlist_popularity_dedup_and_admin_forbidden(client):
         other.delete('/api/watchlist/AAPL',headers={'x-csrf-token':other_token})
     assert len(client.get('/api/watchlist').json())==1
 
+def test_order_share_rounding_fees_and_zero_quantity(client, monkeypatch):
+    token=register(client)
+    monkeypatch.setenv('US_BUY_FEE_BPS','10')
+    with Session.begin() as db:
+        uid=db.scalar(select(User.id).where(User.username=='alice'))
+        db.get(Wallet,(uid,'USD')).balance=D('10000')
+    main.market.quote=lambda s:{'price':D(250),'timestamp':int(time.time()),'stale':False}
+    for share,expected in [(100,39),(50,19),(25,9),(10,3),(5,1)]:
+        r=client.get(f'/api/order-preview?symbol=AAPL&side=buy&share={share}')
+        assert r.status_code==200
+        q=r.json()
+        assert q['quantity']==expected and q['can_submit']
+        assert D(str(q['net_amount']))<=10000
+    assert client.get('/api/order-preview?symbol=AAPL&share=33').status_code==422
+    assert client.post('/api/orders',headers={'x-csrf-token':token},json=order(quantity=3).model_dump(mode='json')).status_code==200
+    q=client.get('/api/order-preview?symbol=AAPL&side=sell&share=5').json()
+    assert q['quantity']==0 and q['holding_after']==3 and not q['can_submit']
+    assert client.get('/api/order-preview?symbol=AAPL&side=sell&share=100').json()['quantity']==3
+    invalid=order(side='sell').model_dump(mode='json')|{'quantity':0}
+    assert client.post('/api/orders',headers={'x-csrf-token':token},json=invalid).status_code==422
+
+def test_market_diagnostics_are_admin_only_and_cache_is_unchanged(client):
+    register(client)
+    cached={'rows':[{'symbol':'AAPL','name':'Apple','price':'100','currency':'USD','market':'US','data_time':'2026-09-24T00:00:00Z','data_status':'provider diagnostic'}],'source':'fixture','notice':''}
+    class Shared:
+        def volume_leaders(self): return cached
+    main.market.providers={'US':Shared()}
+    response=client.get('/api/explore?asset=us').json()
+    assert 'data_time' not in response['rows'][0] and 'data_status' not in response['rows'][0]
+    assert 'source' not in response
+    assert cached['rows'][0]['data_status']=='provider diagnostic'
+    with Session.begin() as db: db.scalar(select(User).where(User.username=='alice')).is_admin=True
+    admin_response=client.get('/api/explore?asset=us').json()
+    assert admin_response['rows'][0]['data_status']=='provider diagnostic'
+
 def test_auth_bruteforce_limit(client):
     token=client.get('/api/session').json()['csrf']
     codes=[client.post('/api/login',headers={'x-csrf-token':token},json={'username':'nobody','password':'wrongpass'}).status_code for _ in range(22)]
@@ -146,7 +181,9 @@ def test_limit_ownership_cancel_and_fill(client):
     from app.db import LimitOrder
     token=register(client)
     payload={'symbol':'AAPL','side':'buy','quantity':2,'limit_price':'101','request_id':str(uuid4())}
-    oid=client.post('/api/limit-orders',headers={'x-csrf-token':token},json=payload).json()['id']
+    assert client.post('/api/limit-orders',headers={'x-csrf-token':token},json=payload).status_code==405
+    with Session() as db: uid=db.scalar(select(User.id).where(User.username=='alice'))
+    oid=create(uid,LimitInput(**payload))['id']  # Existing order from before UI removal.
     with TestClient(main.app,base_url='https://testserver') as other:
         t=register(other,'bob')
         assert other.post(f'/api/limit-orders/{oid}/cancel',headers={'x-csrf-token':t},json={}).status_code==404
@@ -156,7 +193,7 @@ def test_limit_ownership_cancel_and_fill(client):
         assert db.get(LimitOrder,oid).status=='filled'
         assert db.scalar(select(func.count()).select_from(Transaction))==1
     payload['request_id']=str(uuid4());payload['limit_price']='90'
-    oid=client.post('/api/limit-orders',headers={'x-csrf-token':token},json=payload).json()['id']
+    oid=create(uid,LimitInput(**payload))['id']
     assert process(FakeMarket())==0
     assert client.post(f'/api/limit-orders/{oid}/cancel',headers={'x-csrf-token':token},json={}).json()['status']=='cancelled'
     assert process(FakeMarket())==0
@@ -237,6 +274,8 @@ def test_us_delayed_quote_window():
 
 def test_explore_bond_gold_quotes_and_honest_ranking_fallback(client):
     register(client)
+    with Session.begin() as db:
+        db.scalar(select(User).where(User.username=='alice')).is_admin=True
     class MissingRanks:
         def volume_leaders(self): raise MarketError('전체 시장 순위 키 필요')
         def movers(self, direction): raise MarketError('전체 시장 순위 키 필요')

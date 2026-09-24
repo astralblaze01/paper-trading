@@ -15,6 +15,7 @@ from .fx import preview, exchange
 from .money import wallets, initial_amount, bps
 from .trading import preview_order
 from .providers import RANGES
+from .branding import BRAND_NAME
 
 class Strict(BaseModel):
     model_config=ConfigDict(extra='forbid')
@@ -80,6 +81,26 @@ def curated_market_rows(market, asset, kind, unavailable=None):
 
 def install(app,ctx):
     user=ctx.current_user; csrf=ctx.csrf
+    def diagnostics_allowed(uid):
+        with Session() as db:
+            return bool(db.scalar(select(User.is_admin).where(User.id==uid)))
+    def market_result(result, uid):
+        """Keep operational symbols for detail navigation, but protect provider diagnostics."""
+        clean=dict(result)
+        with Session() as db:
+            watches=set(db.scalars(select(Watchlist.symbol).where(Watchlist.user_id==uid)))
+        is_admin=diagnostics_allowed(uid)
+        if not is_admin:
+            clean.pop('source',None); clean.pop('data_time',None)
+            count=len(result.get('rows',[]))
+            if '등록 종목' in result.get('scope',''):
+                clean['scope']='등록 종목'
+                clean['notice']=f'{count}개 · 전체 시장 순위가 아닙니다.'
+            elif '인기' not in result.get('scope',''):
+                clean['scope']='시장 순위'
+                clean['notice']=f'{count}개 종목'+(' · 거래대금 추정치' if any(r.get('turnover_estimated') for r in result.get('rows',[])) else '')
+        clean['rows']=[{k:v for k,v in row.items() if is_admin or k not in ('data_time','data_status','source')} | {'watchlisted':row['symbol'] in watches} for row in result.get('rows',[])]
+        return clean
     def admin(uid=Depends(user)):
         with Session() as db:
             if not db.get(User,uid).is_admin: raise HTTPException(403,'관리자 권한이 필요합니다.')
@@ -89,9 +110,10 @@ def install(app,ctx):
         return ctx.market.providers['KR' if symbol.startswith('KR:') else 'US']
 
     @app.get('/api/order-preview')
-    def order_preview(symbol: str, side: Literal['buy','sell']='buy', quantity: int=Query(1,ge=1,le=1000000),uid=Depends(user)):
+    def order_preview(symbol: str, side: Literal['buy','sell']='buy', quantity: int=Query(1,ge=1,le=1000000),share: int|None=Query(None),uid=Depends(user)):
         if not valid_symbol(symbol): raise HTTPException(422,'잘못된 종목코드입니다.')
-        return preview_order(uid,symbol,side,quantity,ctx.market)
+        if share is not None and share not in (5,10,25,50,100): raise HTTPException(422,'지원하지 않는 수량 비율입니다.')
+        return preview_order(uid,symbol,side,quantity,ctx.market,share=share)
 
     @app.get('/api/fx')
     def fx_rate(uid=Depends(user)): return ctx.fx.current_rate('USD','KRW')
@@ -144,9 +166,9 @@ def install(app,ctx):
                     row['data_status']=str(exc)
                 rows.append(row)
                 if len(rows)==100: break
-            return {'rows':rows, 'scope':f'ASTER 인기 · 최근 {hours}시간','notice':f'현재 집계 {len(rows)}개 · 사용자·종목·행동별 시간당 1회만 집계합니다.'}
+            return market_result({'rows':rows, 'scope':f'{BRAND_NAME} 인기 · 최근 {hours}시간','notice':f'현재 집계 {len(rows)}개 · 사용자·종목·행동별 시간당 1회만 집계합니다.'},uid)
         if asset in ('kr_bond','us_bond','gold'):
-            return curated_market_rows(ctx.market,asset,kind)
+            return market_result(curated_market_rows(ctx.market,asset,kind),uid)
         p=ctx.market.providers[market]
         try:
             # Provider results are cached. Never append UI notices onto that shared object.
@@ -154,8 +176,8 @@ def install(app,ctx):
             result['rows']=[r for r in result['rows'] if instrument(r['symbol'])['category']==asset]
             result['rows']=result['rows'][:100]
             result['notice']=f"현재 공급자 제공 {len(result['rows'])}개 · 최대 100개 표시. " + result.get('notice','')
-            return result
-        except MarketError as exc: return curated_market_rows(ctx.market,asset,kind,exc)
+            return market_result(result,uid)
+        except MarketError as exc: return market_result(curated_market_rows(ctx.market,asset,kind,exc),uid)
     @app.post('/api/popularity',dependencies=[Depends(csrf)])
     def track(data:EventInput,uid=Depends(user)):
         event(uid,data.symbol,data.kind); return {'ok':True}
@@ -230,10 +252,8 @@ def install(app,ctx):
     def limits(uid=Depends(user)):
         with Session() as db:
             return [{'id':o.id,'symbol':o.symbol,'side':o.side,'quantity':o.quantity,'limit_price':o.limit_price if o.order_type=='limit' else None,'order_type':o.order_type,'use_max':o.use_max,'status':o.status,'reason':o.reason} for o in db.scalars(select(LimitOrder).where(LimitOrder.user_id==uid).order_by(LimitOrder.id.desc()).limit(100))]
-    @app.post('/api/limit-orders',dependencies=[Depends(csrf)])
-    def limit_create(data:LimitInput,uid=Depends(user)):
-        from .limits import create
-        return create(uid,data)
+    # New limit orders are no longer exposed. Existing records can still be
+    # inspected/cancelled and the worker honours their original terms.
     @app.post('/api/limit-orders/{order_id}/cancel',dependencies=[Depends(csrf)])
     def limit_cancel(order_id:int,uid=Depends(user)):
         from .limits import cancel
