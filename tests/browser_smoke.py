@@ -169,6 +169,16 @@ with sync_playwright() as p:
         page.locator('#cropApply').click()
         expect(page.locator('#cropDialog')).to_be_hidden()
         expect(page.locator('#myProfile .avatar')).to_have_attribute('src',f'/api/users/{name}/avatar?v=1')
+        # Deleting asks first; cancel keeps the photo, confirm removes it.
+        page.locator('#myProfile').get_by_text('사진 삭제').click()
+        expect(page.locator('#photoDeleteDialog')).to_contain_text('프로필 사진을 삭제하시겠습니까?')
+        page.locator('#photoDeleteCancel').click()
+        expect(page.locator('#photoDeleteDialog')).to_be_hidden()
+        expect(page.locator('#myProfile .avatar')).to_have_attribute('src',f'/api/users/{name}/avatar?v=1')
+        page.locator('#myProfile').get_by_text('사진 삭제').click()
+        page.keyboard.press('Escape')
+        expect(page.locator('#photoDeleteDialog')).to_be_hidden()
+        assert page.evaluate("api('profile').then(p=>p.image_version)")==1
         center=page.evaluate('''async url=>{const b=await createImageBitmap(await (await fetch(url)).blob());const c=document.createElement('canvas');c.width=b.width;c.height=b.height;const x=c.getContext('2d');x.drawImage(b,0,0);return [b.width,[...x.getImageData(b.width/2,b.height/2,1,1).data].slice(0,3)];}''',f'/api/users/{name}/avatar?v=1')
         assert center[0]==512 and center[1][2]>150 and center[1][0]<100, center
         # Zooming out below the frame leaves white margins around the whole photo.
@@ -182,6 +192,11 @@ with sync_playwright() as p:
         expect(page.locator('#myProfile .avatar')).to_have_attribute('src',f'/api/users/{name}/avatar?v=2')
         pixels=page.evaluate('''async url=>{const b=await createImageBitmap(await (await fetch(url)).blob());const c=document.createElement('canvas');c.width=b.width;c.height=b.height;const x=c.getContext('2d');x.drawImage(b,0,0);const at=(px,py)=>[...x.getImageData(px,py,1,1).data].slice(0,3);return {top:at(256,30),center:at(256,256)};}''',f'/api/users/{name}/avatar?v=2')
         assert min(pixels['top'])>235 and min(pixels['center'])<200, pixels
+        page.locator('#myProfile').get_by_text('사진 삭제').click()
+        page.locator('#photoDeleteConfirm').click()
+        expect(page.locator('#photoDeleteDialog')).to_be_hidden()
+        expect(page.locator('#myProfile .avatar')).to_have_attribute('src','/static/avatar-default.svg')
+        expect(page.locator('#toasts')).to_contain_text('프로필 사진을 삭제했습니다.')
         page.locator('#profileImageInput').set_input_files({'name':'avatar.png','mimeType':'image/png','buffer':b'MZ not a png'})
         expect(page.locator('#toasts')).to_contain_text('올바른 이미지 파일이 아닙니다')
         expect(page.locator('#positions .portfolio-stock-link')).to_have_attribute('href','#detail/AAPL')

@@ -21,7 +21,7 @@ window.renderProfileCard=function(target,p,editable){
     const tools=node('div',null,'profile-photo-tools');
     const pick=node('label','사진 변경','button-link secondary');pick.htmlFor='profileImageInput';
     tools.append(pick);
-    if(p.image_version){const remove=node('button','사진 삭제','text-button');remove.type='button';remove.addEventListener('click',()=>deleteProfileImage().catch(e=>toast(e.message,'error')));tools.append(remove);}
+    if(p.image_version){const remove=node('button','사진 삭제','text-button');remove.type='button';remove.addEventListener('click',()=>{$('photoDeleteConfirm').disabled=false;$('photoDeleteDialog').showModal();$('photoDeleteCancel').focus();});tools.append(remove);}
     media.append(tools);
   }
   const info=node('div',null,'profile-info');info.append(node('h2',p.username,'profile-name'));
@@ -61,6 +61,9 @@ async function uploadProfileImage(file){
   if(!response.ok)throw Error(typeof data.detail==='string'?data.detail:'업로드하지 못했습니다.');
   myProfile={...myProfile,...data};renderMyProfile();if(rankingCache)renderRanking();toast('프로필 사진을 변경했습니다.','success');
 }
+// Deleting the photo asks once; cancel (button or Esc) keeps the current photo.
+$('photoDeleteCancel').addEventListener('click',()=>$('photoDeleteDialog').close());
+$('photoDeleteForm').addEventListener('submit',async e=>{e.preventDefault();$('photoDeleteConfirm').disabled=true;try{await deleteProfileImage();$('photoDeleteDialog').close();}catch(err){toast(err.message,'error');$('photoDeleteConfirm').disabled=false;}});
 async function deleteProfileImage(){myProfile={...myProfile,...await api('profile/image/delete',{})};renderMyProfile();if(rankingCache)renderRanking();toast('프로필 사진을 삭제했습니다.','success');}
 (function(){const input=document.createElement('input');input.type='file';input.id='profileImageInput';input.accept=IMAGE_TYPES.join(',');input.hidden=true;document.body.append(input);
   input.addEventListener('change',async()=>{const file=input.files[0];input.value='';if(file)try{await openCropper(file);}catch(e){toast(e.message,'error');}});})();
