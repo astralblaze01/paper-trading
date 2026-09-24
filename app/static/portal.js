@@ -1,5 +1,5 @@
 /* Page navigation and chart rendering. Prices used for settlement stay on the server. */
-let currentSymbol = '', currentRange = '1D', chartRows = [], chartIndex = null, loadVersion = 0, stockLoading = false;
+let currentSymbol = '', currentRange = '1D', chartRows = [], chartIndex = null, loadVersion = 0, stockLoading = false, detailMarketOpen = false;
 let exchangePending = null;
 let detailChange = null, detailQuote=null, publicCache=null, detailCompany=null, watchCache=[];
 let orderPreview=null, previewVersion=0, previewTimer=null;
@@ -89,7 +89,7 @@ $('exploreKinds').addEventListener('click',e=>{const b=e.target.closest('[data-k
 handle('exploreMarket','change',()=>explore());handle('exploreKind','change',()=>explore());
 window.addEventListener('displaycurrencychange',()=>{displayFx=viewFx;stockTable($('exploreRows'),exploreRowsCache,explorePopular);renderDetailQuote();renderOrderPreview();drawChart();renderPublic();renderWatchlist();});
 handle('discoverySearch','submit',async()=>{exploreMode='search';++exploreVersion;const query=$('discoveryQuery').value;const rows=await api('search?'+new URLSearchParams({q:query,category:$('exploreMarket').value}));exploreRowsCache=rows;explorePopular=false;stockTable($('exploreRows'),rows);$('exploreNotice').textContent='검색 결과 · 등록 종목 목록이며 가격은 종목 상세에서 확인합니다.';if(rows.length===1)await api('popularity',{symbol:rows[0].symbol,kind:'search'});});
-setInterval(()=>{if(!document.hidden&&(!location.hash||location.hash==='#explore')&&!$('dashboard').hidden&&exploreMode==='ranking')explore(true);},30000);
+setInterval(()=>{if(document.hidden||(location.hash&&location.hash!=='#explore')||!$('dashboard').hidden||exploreMode!=='ranking')return;const asset=$('exploreMarket').value,markets=['kr','kr_bond'].includes(asset)?['KR']:['us','us_bond'].includes(asset)?['US']:['KR','US'];if(markets.every(m=>window.marketOpen?.[m]===false))return;explore(true);},30000);
 window.loadStock = async function(withChart=true) {
   if(!currentSymbol)return;
   const version=++loadVersion, symbol=currentSymbol;
@@ -99,9 +99,11 @@ window.loadStock = async function(withChart=true) {
   if(results[0].status==='fulfilled') {
     const q=results[0].value;detailQuote=q;detailChange=q.change_pct==null?null:Number(q.change_pct);rememberStock(symbol,detailCompany?.name||q.name);renderDetailQuote();
   } else { $('detailPrice').textContent='시세를 불러오지 못했습니다.';$('detailMeta').textContent=results[0].reason.message; }
-  $('marketState').textContent=results[1].status==='fulfilled'?`${results[1].value.label} · ${results[1].value.timezone}${results[1].value.verified?'':' · 확정 상태 아님'}`:'장 상태를 확인할 수 없습니다.';
+  detailMarketOpen=results[1].status==='fulfilled'&&['정규장','장전','장후','프리장','애프터장'].includes(results[1].value.label);
+  $('marketState').textContent=results[1].status==='fulfilled'?`${results[1].value.label} · ${results[1].value.timezone}${results[1].value.verified?'':' · 확정 상태 아님'}${detailMarketOpen?' · 현재가·차트 30초 자동 갱신':' · 장 마감, 마지막 데이터 유지'}`:'장 상태를 확인할 수 없습니다.';
   try { await estimate(false); } catch(e) { $('orderEstimate').textContent=e.message; }
-  if(withChart)await loadChart();else drawChart();
+  if(withChart)await loadChart();
+  applyLiveQuoteToChart();
 };
 function renderDetailQuote(){
   const q=detailQuote;if(!q)return;
@@ -119,6 +121,15 @@ function renderDetailQuote(){
 }
 async function loadCompany(symbol){$('companyInfo').textContent='회사 정보를 불러오는 중입니다.';try{const r=await api('company/'+encodeURIComponent(symbol));if(symbol!==currentSymbol)return;detailCompany=r;$('detailTitle').textContent=r.name+(window.isAdmin?' · '+symbol:'');const target=$('companyInfo');target.replaceChildren();const fields=[['회사 / 상품명',r.name],['업종',r.industry],['거래소',r.exchange],['국가',r.country],['상장일',r.ipo],['자산 종류',categories[r.category]]];for(const [label,value] of fields){if(!value)continue;const d=node('div');d.append(node('small',label),node('strong',value));target.append(d);}if(r.website){try{const u=new URL(r.website);if(['http:','https:'].includes(u.protocol)){const a=node('a','공식 홈페이지 ↗');a.href=u.href;a.target='_blank';a.rel='noopener noreferrer';target.append(a);}}catch{}}target.append(node('p',[r.source,r.notice].filter(Boolean).join(' · '),'field-help'));}catch(e){if(symbol===currentSymbol)$('companyInfo').textContent=e.message;}}
 async function loadChart(){const symbol=currentSymbol,range=currentRange;chartRows=[];chartIndex=null;drawChart();$('chartNotice').textContent='차트 조회 중…';$('chartRetry').hidden=true;try{const r=await api('candles/'+encodeURIComponent(symbol)+'?range='+range);if(symbol!==currentSymbol||range!==currentRange)return;chartRows=r.candles;chartIndex=null;$('chartRetry').hidden=!!r.candles.length;const technical=window.isAdmin?`${r.source} · ${r.resolution} · ${r.data_status}`:'과거 가격 데이터';const partial=!window.isAdmin&&r.partial?' · 공급자가 제공한 범위만 표시합니다.':'';$('chartNotice').textContent=`${technical}${partial}${r.stale?' · 마지막 데이터가 오래되었습니다':''}${!r.candles.length?' · 데이터 없음':''}`;drawChart();}catch(e){if(symbol===currentSymbol&&range===currentRange){$('chartNotice').textContent=e.message+' 잠시 후 다시 불러오세요.';$('chartRetry').hidden=false;chartRows=[];drawChart();}}}
+function applyLiveQuoteToChart(){
+ if(!detailMarketOpen||!detailQuote||!chartRows.length){drawChart();return;}
+ const price=Number(detailQuote.native_price??detailQuote.price),stamp=Number(detailQuote.timestamp||Date.now()/1000);if(!Number.isFinite(price)||price<=0)return;
+ const last=chartRows.at(-1),base=last._live&&chartRows.length>1?chartRows.at(-2):last;
+ const live={time:Math.max(stamp,Number(base.time)+1),open:Number(base.close),high:Math.max(Number(base.high),price),low:Math.min(Number(base.low),price),close:price,volume:detailQuote.volume??base.volume,_live:true};
+ if(last._live)chartRows[chartRows.length-1]=live;else chartRows.push(live);
+ if(!$('chartNotice').textContent.includes('장중 현재가 반영'))$('chartNotice').textContent+=' · 장중 현재가 반영';
+ drawChart();
+}
 $('chartRetry').addEventListener('click',()=>loadChart());
 $('chartRanges').addEventListener('click',e=>{if(e.target.dataset.range){currentRange=e.target.dataset.range;document.querySelectorAll('[data-range]').forEach(b=>b.setAttribute('aria-pressed',String(b===e.target)));loadChart();}});
 function chartNativeCurrency(){return currentSymbol.startsWith('KR:')?'KRW':'USD';}
@@ -146,7 +157,7 @@ $('priceChart').addEventListener('pointermove',chartPointer);$('priceChart').add
 $('priceChart').addEventListener('pointerleave',()=>{chartIndex=null;drawChart();});
 $('priceChart').addEventListener('keydown',e=>{if(['ArrowLeft','ArrowRight'].includes(e.key)){e.preventDefault();chartIndex=Math.max(0,Math.min(chartRows.length-1,(chartIndex??0)+(e.key==='ArrowRight'?1:-1)));drawChart();}});
 new ResizeObserver(drawChart).observe($('priceChart'));
-setInterval(async()=>{if(document.hidden||!location.hash.startsWith('#detail/')||$('dashboard').hidden||stockLoading)return;stockLoading=true;try{await loadStock(false);}catch(e){message(e.message);}finally{stockLoading=false;}},30000);
+setInterval(async()=>{if(document.hidden||!location.hash.startsWith('#detail/')||$('dashboard').hidden||stockLoading)return;stockLoading=true;try{await loadStock(detailMarketOpen&&currentRange==='1D');}catch(e){message(e.message);}finally{stockLoading=false;}},30000);
 function renderPublic(){if(!publicCache)return;const p=publicCache;$('publicTitle').textContent=p.username+'님의 포트폴리오';$('publicMetrics').replaceChildren();for(const [label,value,change] of [['총자산',viewMoney(p.equity,'KRW')],['가상 현금',viewMoney(p.wallets.USD,'USD')+' / '+viewMoney(p.wallets.KRW,'KRW')],['총 손익',viewMoney(p.pnl,'KRW'),p.pnl],['수익률',pct(p.return_pct),p.return_pct]]){const d=node('div',null,'metric');d.append(node('small',label),signed(change,value));$('publicMetrics').append(d);}renderPositions($('publicPositions'),p);$('publicNotice').textContent=(p.return_basis||'초기 KRW 평가액 대비 (외부 입출금 반영)')+(p.errors.length?' · '+p.errors.join(' · '):'')+(p.stale?' · 마지막 시세 기준 평가':'');}
 function renderOrderPreview(){
   const r=orderPreview;if(!r)return;

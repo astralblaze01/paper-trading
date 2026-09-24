@@ -53,7 +53,7 @@ class USProvider:
                     return self._kis_candles(s,period)
                 if isinstance(exc,MarketError): raise
                 raise MarketError('차트 응답 형식 오류 또는 이용 권한 부족입니다.') from exc
-        return self.cache.get(('candles',s,period),60 if period=='1D' else 900,load)
+        return self.cache.get(('candles',s,period),30 if period=='1D' else 900,load)
 
     def _kis_candles(self,s,period):
         # KIS quotation APIs are read-only. The exchange is selected from actual
@@ -121,7 +121,7 @@ class USProvider:
                 return data
             except (httpx.HTTPError,ValueError): raise MarketError('미국 순위 공급자 한도/응답 오류입니다.')
         return self.cache.get('leaders',3600,load)
-    def movers(self,direction):
+    def _alpha_movers(self,direction):
         data=self._leaders(); key={'up':'top_gainers','down':'top_losers','volume':'most_actively_traded'}[direction]
         rows=[]
         for row in data.get(key,[]):
@@ -132,6 +132,44 @@ class USProvider:
                 rows.append({'symbol':row['ticker'],'name':row['ticker'],'price':row['price'],'change_pct':row['change_percentage'].rstrip('%'),'volume':row['volume'],'turnover':estimated,'turnover_estimated':True,'market':'US','currency':'USD','data_time':data.get('last_updated'),'data_status':'공급자 순위 스냅샷 · 실시간 아님'})
         if direction=='volume': rows.sort(key=lambda r:Decimal(str(r['turnover'] or 0)) if r['turnover'] is not None else Decimal(0),reverse=True)
         return {'rows':rows,'source':'Alpha Vantage','data_time':data.get('last_updated'),'scope':'미국 거래량 상위 후보 · 거래대금 추정 정렬' if direction=='volume' else '미국 시장 · 공급자 순위','notice':'미국 거래대금은 스냅샷 가격×누적 거래량 추정치입니다. 전체 시장 거래대금 상위 순위는 아닙니다.' if direction=='volume' else '요금제별 갱신 주기/데이터 권한이 적용됩니다.'}
+    def _kis_rank_rows(self):
+        if not self.kis or not self.kis.configured: raise MarketError('KIS 미국 순위 공급자 설정이 필요합니다.')
+        def load():
+            rows=[]; stamp=datetime.now(timezone.utc).isoformat()
+            for exchange in ('NAS','NYS','AMS'):
+                data=self.kis.get('/uapi/overseas-stock/v1/ranking/trade-pbmn','HHDFS76320010',
+                    {'EXCD':exchange,'NDAY':'0','VOL_RANG':'0','AUTH':'','KEYB':'','PRC1':'','PRC2':''},30)
+                for raw in data.get('output2') or []:
+                    symbol=str(raw.get('symb','')).upper()
+                    if not valid_symbol(symbol): continue
+                    try:
+                        price=Decimal(str(raw['last'])); volume=Decimal(str(raw['tvol'])); turnover=Decimal(str(raw['tamt']))
+                        change=Decimal(str(raw.get('rate') or 0))
+                        if not all(v.is_finite() for v in (price,volume,turnover,change)) or price<=0 or volume<0 or turnover<0: continue
+                    except (KeyError,TypeError,ValueError,ArithmeticError): continue
+                    rows.append({'symbol':symbol,'name':raw.get('name') or raw.get('ename') or symbol,'price':price,
+                                 'change_pct':change,'volume':volume,'turnover':turnover,'market':'US','currency':'USD',
+                                 'data_time':stamp,'data_status':f'KIS {exchange} 당일 거래대금 순위 · 30초 확인'})
+            # A security can occasionally appear in more than one exchange result.
+            unique={}
+            for row in rows:
+                if row['symbol'] not in unique or row['turnover']>unique[row['symbol']]['turnover']: unique[row['symbol']]=row
+            if not unique: raise MarketError('KIS 미국 거래대금 순위를 불러오지 못했습니다.')
+            return list(unique.values()),stamp
+        return self.cache.get('kis-us-rank',30,load)
+    def _kis_movers(self,direction):
+        rows,stamp=self._kis_rank_rows()
+        if direction=='volume': rows=sorted(rows,key=lambda r:r['turnover'],reverse=True)
+        elif direction=='up': rows=sorted(rows,key=lambda r:r['change_pct'],reverse=True)
+        else: rows=sorted(rows,key=lambda r:r['change_pct'])
+        scope='미국 거래대금 순위' if direction=='volume' else f"미국 거래대금 상위 종목 중 {'상승률' if direction=='up' else '하락률'} 순위"
+        return {'rows':rows[:100],'source':'KIS','data_time':stamp,'scope':scope,
+                'notice':'NASDAQ·NYSE·AMEX의 KIS 당일 누적 거래대금 자료를 30초마다 다시 확인합니다.'}
+    def movers(self,direction):
+        if self.kis and self.kis.configured:
+            try:return self._kis_movers(direction)
+            except MarketError:pass
+        return self._alpha_movers(direction)
     def volume_leaders(self): return self.movers('volume')
     def market_status(self):
         def load():
@@ -180,7 +218,7 @@ class KRProvider:
                 if earliest<=start or earliest>end: break
                 end=earliest-timedelta(days=1)
             return candle_result(s,period,res,rows,'KIS 수정주가 · 1W는 일봉으로 제공')
-        try: return self.cache.get(('candles',s,period),60 if period=='1D' else 900,load)
+        try: return self.cache.get(('candles',s,period),30 if period=='1D' else 900,load)
         except (KeyError,TypeError,ValueError): raise MarketError('국내 차트 데이터 형식 오류입니다.')
     def movers(self,direction):
         def load():

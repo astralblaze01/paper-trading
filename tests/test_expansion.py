@@ -297,6 +297,21 @@ def test_kis_trade_value_ranking_uses_provider_money_sort():
     assert [r['symbol'] for r in rows]==['KR:000660','KR:005930']
     assert [r['turnover'] for r in rows]==['2000','1000']
 
+def test_kis_us_rankings_use_live_turnover_and_change():
+    from app.providers import USProvider
+    class Adapter:
+        configured=True
+        def get(self,path,tr_id,params,ttl):
+            assert path=='/uapi/overseas-stock/v1/ranking/trade-pbmn'
+            assert tr_id=='HHDFS76320010' and ttl==30
+            values={'NAS':[('NVDA','엔비디아','225','2.5','20','4500')],
+                    'NYS':[('IBM','IBM','300','-1.2','30','9000')],
+                    'AMS':[]}[params['EXCD']]
+            return {'output2':[{'symb':s,'name':n,'last':p,'rate':r,'tvol':v,'tamt':a} for s,n,p,r,v,a in values]}
+    provider=USProvider(type('FinnhubStub',(),{})(),Adapter())
+    assert [r['symbol'] for r in provider.volume_leaders()['rows']]==['IBM','NVDA']
+    assert [r['symbol'] for r in provider.movers('up')['rows']]==['NVDA','IBM']
+
 def test_us_chart_uses_read_only_kis_fallback_when_finnhub_denies():
     from app.providers import USProvider
     from zoneinfo import ZoneInfo

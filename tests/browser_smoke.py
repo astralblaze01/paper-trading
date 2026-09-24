@@ -67,11 +67,11 @@ with sync_playwright() as p:
         page.locator('#displayCurrency').select_option('USD')
         expect(page.locator('#displayCurrency')).to_have_value('USD')
         expect(page.locator('#detailPrice')).to_contain_text('US$100')
-        expect(page.locator('#periodPerformance')).to_contain_text('US$5.90')
+        expect(page.locator('#periodPerformance')).to_contain_text('US$100.00')
         expect(page.locator('#orderEstimate')).to_contain_text('US$')
         page.locator('#displayCurrency').select_option('KRW')
         expect(page.locator('#detailPrice')).to_contain_text('₩100,000')
-        expect(page.locator('#periodPerformance')).to_contain_text('₩5,900')
+        expect(page.locator('#periodPerformance')).to_contain_text('₩100,000')
         expect(page.locator('#orderEstimate')).to_contain_text('₩')
         for period in ['1D','1W','3M','1Y','5Y','ALL']:
             page.locator(f'[data-range="{period}"]').click()
