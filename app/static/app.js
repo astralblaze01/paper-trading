@@ -2,8 +2,16 @@ const $ = id => document.getElementById(id);
 const storageNamespace = document.documentElement.dataset.storageNamespace;
 let csrf = '', page = 1, weeklyPage = 1, pendingOrder = null;
 let maxMode = false;
-const money = x => x === null || x === undefined ? '—' : new Intl.NumberFormat('en-US', {style: 'currency', currency: 'USD'}).format(Number(x));
-const nativeMoney = (x, currency) => x == null ? '—' : new Intl.NumberFormat('ko-KR', {style: 'currency', currency: currency || 'USD', maximumFractionDigits: currency === 'KRW' ? 0 : 2}).format(Number(x));
+// One display rule for every amount: USD as "$1,000.00", KRW as "1,000원".
+// Formatting only; amounts are never rounded for calculation here.
+const usdFormat = new Intl.NumberFormat('en-US', {style: 'currency', currency: 'USD'}), krwFormat = new Intl.NumberFormat('ko-KR', {maximumFractionDigits: 0});
+const nativeMoney = (x, currency) => {
+  if (x == null) return '—';
+  const n = Number(x); if (!Number.isFinite(n)) return '—';
+  if (currency === 'KRW') { const won = Math.round(n); return krwFormat.format(won === 0 ? 0 : won) + '원'; }
+  return usdFormat.format(Math.abs(n) < 0.005 ? 0 : n);
+};
+const money = x => nativeMoney(x, 'USD');
 // Values that round to zero print as 0.00%, never -0.00%.
 const pct = x => x == null ? '—' : `${(Math.abs(Number(x)) < 0.005 ? 0 : Number(x)).toFixed(2)}%`;
 const categories = {us: '미국 주식 / ETF', kr: '한국 주식 / ETF', us_bond: '미국 채권 ETF', kr_bond: '한국 채권 ETF', gold: '금 ETF'};

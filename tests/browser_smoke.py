@@ -1,4 +1,4 @@
-import time,zlib,struct
+import re,time,zlib,struct
 from playwright.sync_api import sync_playwright,expect
 
 def png(width=64,height=64):
@@ -68,7 +68,7 @@ with sync_playwright() as p:
         expect(page.locator('#exploreRows td.loss').first).to_have_css('color','rgb(54, 122, 231)')
         page.locator('#displayCurrency').select_option('KRW')
         expect(page.locator('#exploreFxNote')).to_contain_text('기준환율')
-        expect(page.locator('#exploreRows')).to_contain_text('₩100,000')
+        expect(page.locator('#exploreRows')).to_contain_text('100,000원')
         page.locator('[data-asset="kr_bond"]').click()
         expect(page.locator('#exploreRows')).to_contain_text('Kodex 국고채3년')
         expect(page.locator('#exploreRows')).to_contain_text('억원')
@@ -93,18 +93,18 @@ with sync_playwright() as p:
         expect(page.locator('#periodPerformance')).to_contain_text('%')
         page.locator('#displayCurrency').select_option('USD')
         expect(page.locator('#displayCurrency')).to_have_value('USD')
-        expect(page.locator('#detailPrice')).to_contain_text('US$100')
-        expect(page.locator('#periodPerformance')).to_contain_text('US$100.00')
-        expect(page.locator('#orderEstimate')).to_contain_text('US$')
+        expect(page.locator('#detailPrice')).to_contain_text('$100')
+        expect(page.locator('#periodPerformance')).to_contain_text('$100.00')
+        expect(page.locator('#orderEstimate')).to_contain_text('$')
         page.locator('#displayCurrency').select_option('KRW')
-        expect(page.locator('#detailPrice')).to_contain_text('₩100,000')
-        expect(page.locator('#periodPerformance')).to_contain_text('₩100,000')
-        expect(page.locator('#orderEstimate')).to_contain_text('₩')
+        expect(page.locator('#detailPrice')).to_contain_text('100,000원')
+        expect(page.locator('#periodPerformance')).to_contain_text('100,000원')
+        expect(page.locator('#orderEstimate')).to_contain_text('원')
         for period in ['1D','1W','3M','1Y','5Y','ALL']:
             page.locator(f'[data-range="{period}"]').click()
             expect(page.locator('#chartNotice')).to_contain_text('과거 가격 데이터')
             expect(page.locator('#periodPerformance')).to_contain_text(period+' ·')
-            expect(page.locator('#periodPerformance')).to_contain_text('₩5,900')
+            expect(page.locator('#periodPerformance')).to_contain_text('5,900원')
         page.locator('#priceChart').focus();page.keyboard.press('ArrowRight')
         expect(page.locator('#chartTooltip')).to_contain_text('구간 시작 대비')
         page.locator('[data-order-share="0.05"]').click()
@@ -134,7 +134,7 @@ with sync_playwright() as p:
         page.screenshot(path=f'/artifacts/detail-{width}.png',full_page=True)
         page.locator('a[href="#watchlist"]').click()
         expect(page.locator('#watchRows .watch-name')).to_contain_text('Apple')
-        expect(page.locator('#watchRows .watch-price')).to_contain_text('₩100,000')
+        expect(page.locator('#watchRows .watch-price')).to_contain_text('100,000원')
         expect(page.locator('#watchRows .watch-change .gain').first).to_have_css('color','rgb(217, 75, 87)')
         page.screenshot(path=f'/artifacts/watchlist-{width}.png',full_page=True)
         page.locator('a[href="#portfolio"]').click()
@@ -144,11 +144,14 @@ with sync_playwright() as p:
         expect(page.locator('#allocation .allocation-segment')).to_have_count(2)
         expect(page.locator('#allocation .allocation-legend')).to_contain_text('현금')
         page.locator('#displayCurrency').select_option('USD')
-        expect(page.locator('#metrics')).to_contain_text('KRW: ₩998,500')
-        expect(page.locator('#myProfile .profile-stats')).to_contain_text('US$')
+        expect(page.locator('#metrics')).to_contain_text('KRW: 998,500원')
+        expect(page.locator('#myProfile .profile-stats')).to_contain_text('$')
         page.locator('#displayCurrency').select_option('KRW')
-        expect(page.locator('#metrics')).to_contain_text('USD: US$')
-        expect(page.locator('#myProfile .profile-stats')).to_contain_text('₩')
+        expect(page.locator('#metrics')).to_contain_text('USD: $')
+        for text in (page.locator('#metrics').inner_text(),page.locator('#allocation').inner_text(),page.locator('#positions').inner_text()):
+            assert 'US$' not in text and '₩' not in text, text
+        assert re.search(r'USD: \$[0-9,]+\.[0-9]{2}',page.locator('#metrics').inner_text()) and re.search(r'KRW: [0-9,]+원',page.locator('#metrics').inner_text())
+        expect(page.locator('#myProfile .profile-stats')).to_contain_text('원')
         page.locator('#myProfile').get_by_text('소개 수정').click()
         page.locator('#bioInput').fill('장기 투자 위주로 하고 있습니다.')
         page.locator('#myProfile').get_by_text('소개 저장').click()
@@ -197,10 +200,10 @@ with sync_playwright() as p:
         assert page.locator('#ranking').inner_text()==rows_before
         page.unroute('**/api/ranking')
         expect(page.locator('#ranking th')).to_contain_text(['순위','사용자 · 프로필 보기','총 평가금액 (KRW)','누적 수익률'])
-        expect(page.locator('#ranking td').nth(2)).to_contain_text('₩')
+        expect(page.locator('#ranking td').nth(2)).to_contain_text('원')
         page.locator('#displayCurrency').select_option('USD')
         expect(page.locator('#ranking th').nth(2)).to_have_text('총 평가금액 (USD)')
-        expect(page.locator('#ranking td').nth(2)).to_contain_text('US$')
+        expect(page.locator('#ranking td').nth(2)).to_contain_text('$')
         page.locator('#displayCurrency').select_option('KRW')
         other=page.locator('#ranking .user-link').filter(has_not_text=name).first
         other_name=other.inner_text()
@@ -211,7 +214,7 @@ with sync_playwright() as p:
         expect(page.locator('#publicProfile')).not_to_contain_text('사진 변경')
         expect(page.locator('#publicAllocation .allocation-legend')).to_be_visible()
         page.locator('a[href="#transfer"]').click()
-        expect(page.locator('#transferUSD')).to_contain_text('US$')
+        expect(page.locator('#transferUSD')).to_contain_text('$')
         page.locator('#transferRecipient').fill(other_name)
         page.locator('[data-transfer-share="10"]').click()
         expect(page.locator('#transferEstimate')).to_contain_text('총 차감 금액')
@@ -219,6 +222,14 @@ with sync_playwright() as p:
         page.locator('#transferSubmit').click()
         expect(page.locator('#toasts')).to_contain_text('보냈습니다')
         expect(page.locator('#transferHistory')).to_contain_text(other_name)
+        # Every page follows one amount format: "$1,000.00" and "1,000원".
+        for display in ('native','KRW','USD'):
+            page.locator('#displayCurrency').select_option(display)
+            for hash_ in ('#explore','#portfolio','#history','#fx','#transfer','#watchlist','#ranking','#detail/AAPL'):
+                page.goto('http://browserweb:8000/'+hash_);page.wait_for_load_state('networkidle')
+                text=page.locator('main').inner_text()
+                assert 'US$' not in text and '₩' not in text, (display,hash_,[l for l in text.splitlines() if 'US$' in l or '₩' in l][:3])
+        page.locator('#displayCurrency').select_option('KRW')
         assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth+1'), 'page overflows viewport'
         assert not errors,errors
         page.close()

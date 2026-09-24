@@ -57,8 +57,9 @@ function displayedTurnover(r){
   const selected=displayMode,currency=selected==='native'?r.currency:selected;
   if(currency!==r.currency&&!displayFx)return '환율 확인 대기';
   const rate=Number(displayFx?.rate||1),value=Number(r.turnover)*(currency===r.currency?1:r.currency==='USD'?rate:1/rate);
-  const unit=currency==='KRW'?'억원':'백만 달러',divisor=currency==='KRW'?1e8:1e6;
-  return `${(value/divisor).toLocaleString('ko-KR',{maximumFractionDigits:1})}${unit}${r.turnover_estimated?' (추정)':''}`;
+  // Abbreviated turnover follows the same rule: "$12.3백만", "4.5억원".
+  const scaled=(value/(currency==='KRW'?1e8:1e6)).toLocaleString('ko-KR',{maximumFractionDigits:1});
+  return `${currency==='KRW'?scaled+'억원':'$'+scaled+'백만'}${r.turnover_estimated?' (추정)':''}`;
 }
 function stockTable(target,rows,popular=false){
  target.replaceChildren();const t=node('table',null,'market-table'),head=node('tr');
