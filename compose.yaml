@@ -1,0 +1,89 @@
+services:
+  db:
+    image: postgres:17-bookworm
+    environment:
+      POSTGRES_DB: paper
+      POSTGRES_USER: paper
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U paper -d paper']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    logging: &logging
+      driver: json-file
+      options: {max-size: 10m, max-file: '3'}
+  web:
+    build: .
+    environment:
+      DB_HOST: db
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET}
+      FINNHUB_API_KEY: ${FINNHUB_API_KEY:-}
+      KIS_APP_KEY: ${KIS_APP_KEY:-}
+      KIS_APP_SECRET: ${KIS_APP_SECRET:-}
+      WEEKLY_ENABLED: ${WEEKLY_ENABLED:-true}
+      WEEKLY_DAY: ${WEEKLY_DAY:-5}
+      WEEKLY_HOUR: ${WEEKLY_HOUR:-9}
+      KOREA_MARKET_PROVIDER: ${KOREA_MARKET_PROVIDER:-kis}
+      KOREA_MARKET_API_KEY: ${KOREA_MARKET_API_KEY:-}
+      KOREA_MARKET_API_SECRET: ${KOREA_MARKET_API_SECRET:-}
+      ALPHAVANTAGE_API_KEY: ${ALPHAVANTAGE_API_KEY:-}
+      INITIAL_USD: ${INITIAL_USD:-100000}
+      TRANSFER_FEE_BPS: ${TRANSFER_FEE_BPS:-10}
+      FX_FEE_BPS: ${FX_FEE_BPS:-10}
+      FX_SPREAD_BPS: ${FX_SPREAD_BPS:-5}
+      US_BUY_FEE_BPS: ${US_BUY_FEE_BPS:-0}
+      US_SELL_FEE_BPS: ${US_SELL_FEE_BPS:-0}
+      KR_BUY_FEE_BPS: ${KR_BUY_FEE_BPS:-0}
+      KR_SELL_FEE_BPS: ${KR_SELL_FEE_BPS:-0}
+      KR_SELL_TAX_BPS: ${KR_SELL_TAX_BPS:-0}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      QUOTE_TTL: ${QUOTE_TTL:-15}
+      MAX_QUOTE_AGE: ${MAX_QUOTE_AGE:-900}
+      US_MAX_QUOTE_AGE: ${US_MAX_QUOTE_AGE:-1800}
+      MARKET_CALLS_PER_MINUTE: ${MARKET_CALLS_PER_MINUTE:-50}
+    depends_on:
+      db: {condition: service_healthy}
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD, python, -c, 'import urllib.request; urllib.request.urlopen("http://localhost:8000/health")']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    logging: *logging
+  worker:
+    build: .
+    image: paper-trading-web
+    command: [python, -m, app.worker]
+    environment:
+      SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET}
+    depends_on:
+      web: {condition: service_healthy}
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD, python, -c, 'import time,os; assert time.time()-os.stat("/tmp/worker-heartbeat").st_mtime < 300']
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    logging: *logging
+  nginx:
+    image: nginx:1.28-alpine
+    ports:
+      - '${BIND_ADDRESS:-127.0.0.1}:${HTTP_PORT:-8080}:80'
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      web: {condition: service_healthy}
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, 'http://127.0.0.1/health']
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    logging: *logging
+volumes:
+  pgdata:

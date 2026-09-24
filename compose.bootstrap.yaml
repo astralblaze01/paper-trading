@@ -1,0 +1,14 @@
+# Temporary ACME challenge listener, while retaining the existing LAN 8080 service.
+services:
+  web:
+    environment:
+      COOKIE_SECURE: 'false'
+  nginx:
+    ports: !override
+      - '${BIND_ADDRESS:-127.0.0.1}:${HTTP_PORT:-8080}:8080'
+      - '${PUBLIC_HTTP_PORT:-80}:80'
+    volumes: !override
+      - ./nginx/tls/bootstrap.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - acme:/var/www/certbot:ro
+  renew:
+    profiles: [certificate]

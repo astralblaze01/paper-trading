@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ASTER · 모의투자</title>
+  <link rel="stylesheet" href="/static/style.css?v=13">
+  <script src="/static/app.js?v=14" defer></script>
+  <script src="/static/portal.js?v=14" defer></script>
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <a href="/" class="brand"><span class="brand-mark" aria-hidden="true">✳</span> ASTER</a>
+      <span class="service-label">주식 · 채권 ETF · 금 ETF</span>
+      <button id="logout" class="text-button" hidden>로그아웃</button>
+    </div>
+  </header>
+  <main>
+    <p id="status" role="status" aria-live="polite"></p>
+    <section id="auth">
+      <div class="intro">
+        <span class="section-label">투자 연습, 기록부터 차근차근.</span>
+        <h1>직접 투자해 보고,<br>결과를 돌아보세요.</h1>
+        <p class="intro-copy">한국·미국 주식과 채권·금 ETF를 거래하며<br>나만의 투자 기록을 쌓을 수 있습니다.</p>
+        <dl class="account-facts">
+          <div><dt>처음 시작하는 자금</dt><dd>$100,000<span>가상 USD</span></dd></div>
+          <div><dt>거래 방식</dt><dd class="fact-text">실제 시세 기준<span>모의 시장가 주문</span></dd></div>
+        </dl>
+        <p class="intro-note">USD·KRW 지갑을 따로 관리합니다. 국내 종목은 환전 후 원화로 주문하세요.</p>
+      </div>
+      <form id="authForm" class="login-panel">
+        <h2>내 계좌로 들어가기</h2>
+        <p class="form-description">처음이라면 정보를 입력한 뒤 회원가입을 눌러주세요.</p>
+        <label for="username">사용자 이름</label>
+        <input id="username" autocomplete="username" required minlength="3" maxlength="32" pattern="[a-zA-Z0-9_]+" placeholder="사용자 이름" aria-describedby="usernameHelp">
+        <p id="usernameHelp" class="field-help">영문, 숫자, 밑줄로 3~32자</p>
+        <label for="password">비밀번호</label>
+        <input id="password" type="password" autocomplete="current-password" required minlength="8" maxlength="128" placeholder="8자 이상" aria-describedby="passwordHelp">
+        <p id="passwordHelp" class="field-help">8자 이상 입력해주세요.</p>
+        <button name="mode" value="login" class="full-width">로그인</button>
+        <div class="signup-row"><span>아직 계좌가 없나요?</span><button name="mode" value="register" class="text-button">회원가입</button></div>
+      </form>
+    </section>
+    <div id="dashboard" hidden>
+      <div class="view-settings"><label>표시 통화 <select id="displayCurrency"><option value="native">거래 통화</option><option value="KRW">원화 KRW</option><option value="USD">달러 USD</option></select></label><span id="displayRateNote" class="field-help"></span></div><nav class="app-nav" aria-label="주요 메뉴"><a href="#explore">시장 탐색</a><a href="#portfolio">포트폴리오</a><a href="#history">거래내역</a><a href="#fx">환전</a><a href="#transfer">이체</a><a href="#watchlist">관심종목</a><a href="#ranking">랭킹</a><a id="adminNav" href="#admin" hidden>관리자</a></nav>
+      <section data-page="explore" class="panel">
+        <div class="section-heading"><h2>시장 둘러보기</h2><span class="unit">데이터 제공 범위 기준</span></div>
+        <div class="explore-options"><div id="exploreMarkets" class="chip-row" role="group" aria-label="자산"><button type="button" data-asset="kr">국내주식</button><button type="button" data-asset="us">해외주식</button><button type="button" data-asset="kr_bond">국내채권 ETF</button><button type="button" data-asset="us_bond">해외채권 ETF</button><button type="button" data-asset="gold">금 ETF</button></div><div id="exploreKinds" class="chip-row" role="group" aria-label="순위"><button type="button" data-kind="volume">거래대금</button><button type="button" data-kind="up">급상승</button><button type="button" data-kind="down">급하락</button><button type="button" data-kind="popular">ASTER 인기</button></div></div>
+        <select id="exploreMarket" hidden aria-hidden="true"><option value="kr">국내주식</option><option value="us">해외주식</option><option value="kr_bond">국내채권 ETF</option><option value="us_bond">해외채권 ETF</option><option value="gold">금 ETF</option></select><select id="exploreKind" hidden aria-hidden="true"><option value="volume">거래대금</option><option value="up">급상승</option><option value="down">급하락</option><option value="popular">ASTER 인기</option></select>
+        <form id="discoverySearch" class="search-form"><input id="discoveryQuery" aria-label="종목명이나 코드" placeholder="종목명 또는 코드"><button>검색</button></form>
+        <label class="display-currency">표시 통화 <select id="exploreCurrency"><option value="native">거래 통화</option><option value="KRW">원화 (KRW)</option><option value="USD">달러 (USD)</option></select></label><p id="exploreFxNote" class="field-help"></p>
+        <p id="exploreNotice" class="section-description"></p><p class="field-help">화면은 30초마다 새 데이터를 확인합니다. 공급자 시세와 순위 갱신은 지연될 수 있으며, 실시간 체결 스트림이 아닙니다.</p><div id="exploreRows" class="scroll"></div>
+      </section>
+      <section data-page="transfer" class="panel"><h2>사용자에게 가상자금 보내기</h2><p class="field-help">같은 통화로 이체합니다. 수수료는 보내는 사람에게 부과됩니다.</p><form id="transferForm"><label>받는 사용자 아이디<input id="transferRecipient" required minlength="3" maxlength="32" pattern="[A-Za-z0-9_]+" autocomplete="off"></label><div class="toolbar"><label>보낼 통화<select id="transferCurrency"><option value="USD">달러 USD</option><option value="KRW">원화 KRW</option></select></label><label>받는 사람이 받을 금액<input id="transferAmount" type="number" min="0.0001" step="0.0001" max="1000000000" required></label></div><p id="transferBalance" class="field-help"></p><button id="transferPreview" type="button" class="secondary">수신자 · 수수료 확인</button><div id="transferEstimate" class="quote-info"></div><button id="transferSubmit" class="full-width" disabled>확인한 사용자에게 이체</button></form><h3>이체내역</h3><div id="transferHistory" class="scroll"></div></section>
+      <section data-page="fx" class="panel"><h2>가상 환전</h2><details class="fx-details"><summary>환율 정보</summary><p class="field-help">ECB 일별 기준환율을 사용합니다. 수수료와 스프레드는 환전 견적에 표시합니다.</p></details><div id="fxRate" class="fx-rate" aria-live="polite">환율 확인 중…</div><form id="fxForm"><div class="toolbar"><label>보낼 통화<select id="fxSource"><option value="USD">USD → KRW</option><option value="KRW">KRW → USD</option></select></label><label>보낼 금액 (<span id="fxAmountUnit">USD</span>)<input id="fxAmount" type="number" min="0.0001" step="0.0001" required></label></div><div class="fx-balance"><span id="fxAvailable" aria-live="polite"></span><button id="fxAll" type="button" class="text-button">전액 입력</button></div><button id="fxPreview" type="button" class="secondary">환전 예상 확인</button><div id="fxEstimate" class="quote-info"></div><button class="full-width">모의 환전 실행</button></form><h3>환전내역</h3><div id="fxHistory" class="scroll"></div></section>
+      <section data-page="watchlist" class="panel"><div class="section-heading"><h2>관심종목</h2><span class="unit">종목 상세에서 추가할 수 있습니다.</span></div><div id="watchRows" class="scroll"></div></section>
+      <section data-page="admin" class="panel"><h2>운영 관리</h2><p id="adminHealth"></p><pre id="adminFees"></pre><form id="initialForm" class="toolbar"><label>새 계좌 초기 지급 USD<input id="initialAmount" type="number" min="1" max="1000000000" step="0.0001" required></label><button>설정 저장</button></form><div id="adminUsers" class="scroll"></div>
+<form id="adminManageForm" class="admin-manage"><h3>계좌 운영</h3><label>대상 사용자<select id="adminTarget" required></select></label><label>작업<select id="adminAction"><option value="grant">지원금 지급</option><option value="rebase">보유 자산 유지 · 수익률 기준 재설정</option><option value="clear">투자 기록 전체 초기화</option></select></label><div id="adminGrantFields"><label>통화<select id="adminCurrency"><option value="USD">USD</option><option value="KRW">KRW</option></select></label><label>지원금<input id="adminAmount" type="number" min="0.0001" step="0.0001" max="1000000000"></label></div><p id="adminImpact" class="quote-info"></p><label>작업 사유<input id="adminReason" required minlength="3" maxlength="300"></label><label>대상 확인 문구<input id="adminConfirm" required autocomplete="off"></label><button id="adminExecute">작업 실행</button><p id="adminResult" role="status"></p></form>
+<h3>최근 관리자 작업</h3><div id="adminAudit" class="scroll"></div><p class="order-note">초기화는 이전 잔액·보유 종목을 보관한 뒤 새 시즌 자금을 지급합니다. 거래내역은 삭제하지 않습니다.</p></section>
+      <div data-page="portfolio" class="heading"><div><p class="section-label">내 계좌</p><h1 id="greeting"></h1></div><button id="refresh" class="secondary">새로고침</button></div>
+      <div data-page="portfolio" id="metrics" class="metrics"></div>
+      <p data-page="portfolio" id="realized" class="section-description"></p>
+      <section data-page="ranking" class="panel weekly-panel">
+        <div class="section-heading"><h2>주간 순위</h2><span id="weeklySchedule" class="unit"></span></div>
+        <p id="weeklyStatus" class="section-description"></p>
+        <div id="weeklyReports"></div>
+        <div class="pagination"><button id="weeklyPrevious" class="secondary">이전</button><span id="weeklyPage"></span><button id="weeklyNext" class="secondary">다음</button></div>
+      </section>
+      <section data-page="portfolio" class="panel holdings-panel"><div class="section-heading"><h2>보유 종목</h2><span class="unit">종목별 거래 통화 기준 · 총자산은 KRW</span></div><div id="positions" class="scroll"></div></section>
+        <div data-page="detail" class="detail-grid">
+        <section class="panel chart-panel"><div class="section-heading"><h2 id="detailTitle">종목 상세</h2><button id="watchAdd" class="secondary">관심종목 추가</button></div><label class="display-currency">차트 표시 <select id="detailCurrency"><option value="native">거래 통화</option><option value="KRW">원화 KRW</option><option value="USD">달러 USD</option></select></label><p id="detailPrice" class="detail-price"></p><p id="detailMeta" class="field-help"></p><p id="marketState" class="field-help"></p><div id="periodPerformance" class="period-performance" aria-live="polite"></div><p id="periodDates" class="field-help"></p><canvas id="priceChart" height="300" tabindex="0" aria-label="과거 가격 차트, 화살표 키로 시점 이동"></canvas><p id="chartTooltip" class="chart-tooltip" aria-live="polite"></p><div id="chartRanges" class="range-buttons"><button data-range="1D">1D</button><button data-range="1W">1W</button><button data-range="3M">3M</button><button data-range="1Y">1Y</button><button data-range="5Y">5Y</button><button data-range="ALL">ALL</button></div><p id="chartNotice" class="field-help"></p><p class="field-help">서버 캐시를 통해 30초마다 시세를 확인합니다. 장전·장후 전용 호가는 제공하지 않습니다.</p></section>
+        <section class="panel order-panel">
+          <div class="section-heading"><h2>모의 주문</h2><span class="unit">모의거래</span></div>
+          <label for="category">자산 분류</label><select id="category"><option value="all">전체</option><option value="us">미국 주식 / ETF</option><option value="kr">한국 주식 / ETF</option><option value="us_bond">미국 채권 ETF</option><option value="kr_bond">한국 채권 ETF</option><option value="gold">금 ETF</option></select><p id="marketHelp" class="field-help">채권·금은 ETF로 거래합니다. 개별 채권과 금 현물은 지원하지 않습니다.</p><form id="searchForm" class="search-form"><input id="query" aria-label="종목 검색" placeholder="종목명 또는 코드 검색" maxlength="60"><button class="secondary">검색</button></form>
+          <div id="searchResults"></div>
+          <form id="orderForm">
+            <label for="symbol">종목 코드</label>
+            <div class="symbol-row"><input id="symbol" required pattern="([A-Z][A-Z0-9\-]{0,14}|KR:[0-9]{6})" placeholder="AAPL 또는 KR:005930"><button id="quote" type="button" class="secondary">시세 확인</button></div>
+            <p id="quoteInfo" class="quote-info">종목을 선택하고 현재 시세를 확인하세요.</p>
+            <div class="order-fields"><div><label for="side">매매 구분</label><select id="side"><option value="buy">매수</option><option value="sell">매도</option></select></div><div><label for="quantity">수량 (주)</label><input id="quantity" type="number" min="1" max="1000000" step="1" value="1" required></div></div>
+            <button id="maxQuantity" type="button" class="secondary">최대</button><button id="orderPreview" type="button" class="secondary">주문 비용 확인</button><p class="field-help">주문 비용은 현재 시세 × 수량에 수수료·세금을 반영한 참고값입니다. 실제 체결 시 달라질 수 있습니다. 주문은 종목의 거래 통화로 결제됩니다.</p><div id="orderEstimate" class="quote-info"></div><label>주문 방식<select id="orderType"><option value="market">시장가</option><option value="limit">지정가</option></select></label><label id="limitPriceLabel" hidden>지정가 (거래 통화)<input id="limitPrice" type="number" min="0.0001" step="0.0001"></label><button id="submitOrder" class="full-width">모의 시장가 주문</button>
+          </form>
+          <p class="order-note">국내 종목은 KRW, 미국 종목은 USD 지갑에서 결제합니다. 최대 주문은 체결 시 서버가 수량을 재계산합니다. 미국 시세는 최대 30분 지연을 허용합니다. 더 오래된 가격이면 시장가 주문을 대기시키고 새 시세가 들어왔을 때 체결합니다.</p>
+        </section>
+      </div>
+      <section data-page="detail" class="panel"><h2>회사 · 종목 정보</h2><div id="companyInfo" class="company-info"></div></section>
+      <section data-page="public" class="panel"><a href="#ranking">← 수익률 순위</a><h1 id="publicTitle"></h1><p class="field-help">다른 사용자의 모의 계좌입니다. 총자산·가상 현금·보유 종목을 공개하며 거래내역과 주문 권한은 공개하지 않습니다.</p><div id="publicMetrics" class="metrics"></div><div id="publicPositions" class="scroll"></div><p id="publicNotice" class="field-help"></p></section>
+      <section data-page="history" class="panel"><div class="section-heading"><h2>거래내역</h2><span class="unit">최근 거래부터</span></div><div id="history" class="scroll"></div><h3>대기 주문</h3><div id="limitRows" class="scroll"></div><p class="field-help">시장가 주문은 가격이 오래됐을 때 새 시세를 기다립니다. 지정가 주문과 마찬가지로 자금을 예약하지 않으며, 체결 직전에 잔액·보유량을 다시 검사합니다. 최대 1분 간격으로 확인합니다.</p><div class="pagination"><button id="previous" class="secondary">이전</button><span id="page"></span><button id="next" class="secondary">다음</button></div></section>
+      <section data-page="ranking" class="panel"><div class="section-heading"><h2>수익률 순위</h2><span class="unit">일반 사용자 · 관리자 제외</span></div><p class="section-description">회원끼리 가상 현금과 보유 종목을 열람할 수 있습니다. 사용자 이름을 누르면 공개 포트폴리오가 열립니다. 포트폴리오와 같은 초기 KRW 평가액 대비 수익률이며 외부 입출금은 제외합니다.</p><p id="rankingStatus" class="field-help"></p><div id="ranking" class="scroll"></div></section>
+    </div>
+    <div class="notice"><strong>모의투자 안내</strong><p>모든 자산은 가상이며 실제 돈이나 증권은 거래되지 않습니다. 설정된 모의 수수료가 적용됩니다. 배당·주식 분할은 자동 반영하지 않습니다.</p></div>
+  </main>
+  <footer><span>ASTER</span><span>투자 연습을 위한 모의거래 서비스</span></footer>
+</body>
+</html>

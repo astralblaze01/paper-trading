@@ -1,0 +1,22 @@
+services:
+  browserweb:
+    image: paper-trading-web
+    command: [python, tests/browser_server.py]
+    environment:
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      SESSION_SECRET: browser-tests-only-secret-at-least-32-characters
+      WEEKLY_ENABLED: 'false'
+    depends_on:
+      db: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, python, -c, 'import urllib.request; urllib.request.urlopen("http://localhost:8000/health")']
+      interval: 5s
+      retries: 20
+  browser:
+    build:
+      context: .
+      dockerfile: tests/Dockerfile.browser
+    volumes:
+      - ./artifacts:/artifacts
+    depends_on:
+      browserweb: {condition: service_healthy}

@@ -1,0 +1,41 @@
+# Explicit opt-in: docker compose -f compose.yaml -f compose.https.yaml ...
+services:
+  web:
+    environment:
+      COOKIE_SECURE: 'true'
+  nginx:
+    ports: !override
+      - '${PUBLIC_HTTP_PORT:-80}:80'
+      - '${HTTPS_PORT:-443}:443'
+    environment:
+      DOMAIN: ${DOMAIN:?Set a real DNS domain before enabling HTTPS}
+      NGINX_ENVSUBST_FILTER: '^DOMAIN$'
+    volumes: !override
+      - ./nginx/tls/site.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./nginx/tls/hsts.conf:/etc/nginx/hsts.conf:ro
+      - certificates:/etc/letsencrypt:ro
+      - acme:/var/www/certbot:ro
+    command: ['/bin/sh', '-c', 'while sleep 21600; do nginx -t && nginx -s reload; done & exec /docker-entrypoint.sh nginx -g "daemon off;"']
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, 'http://127.0.0.1:8081/health']
+  certbot:
+    image: certbot/certbot:latest@sha256:f70ad0adbb7e117f0fe42a63c553f28ea451edabc0148757b6efcd9735acaa20
+    profiles: [certificate]
+    volumes:
+      - certificates:/etc/letsencrypt
+      - acme:/var/www/certbot
+  renew:
+    image: certbot/certbot:latest@sha256:f70ad0adbb7e117f0fe42a63c553f28ea451edabc0148757b6efcd9735acaa20
+    entrypoint: /bin/sh
+    command: ['-c', 'while true; do certbot renew --webroot -w /var/www/certbot --quiet && touch /tmp/renew-heartbeat; sleep 43200; done']
+    volumes:
+      - certificates:/etc/letsencrypt
+      - acme:/var/www/certbot
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD, python, -c, 'import os,time; assert time.time()-os.stat("/tmp/renew-heartbeat").st_mtime < 50000']
+      interval: 1m
+      retries: 3
+volumes:
+  certificates:
+  acme:
