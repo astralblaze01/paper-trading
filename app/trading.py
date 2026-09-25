@@ -3,7 +3,7 @@ from contextlib import nullcontext
 from decimal import Decimal
 from sqlalchemy import select
 from fastapi import HTTPException
-from .db import Session, User, Position, Transaction
+from .db import Session, Position, Transaction, lock_user
 from .money import wallets, costs, maximum, native_cost_basis
 from . import quote_policy
 
@@ -48,7 +48,7 @@ def validate_quote(symbol, q, allow_stale=False):
 def preview_order(uid, symbol, side, quantity, market, share=None):
     q, price=checked_quote(symbol,market,allow_stale=True)
     with Session.begin() as db:
-        user=db.scalar(select(User).where(User.id==uid).with_for_update())
+        user=lock_user(db,uid)
         if not user or not user.active: raise HTTPException(403,'계좌를 사용할 수 없습니다.')
         ws=wallets(db,user)
         currency='KRW' if symbol.startswith('KR:') else 'USD'
@@ -118,7 +118,7 @@ def execute_order(user_id, order, market, db=None, requested_at=None):
     # Fetch/validate the external quote before acquiring the account row lock.
     q,price=checked_quote(order.symbol,market)
     with (Session.begin() if db is None else nullcontext(db)) as db:
-        user=db.scalar(select(User).where(User.id==user_id).with_for_update())
+        user=lock_user(db,user_id)
         if not user or not user.active: raise HTTPException(403,'사용할 수 없는 계좌입니다.')
         # Again under the lock: the same request may have filled while this one waited.
         replay=_replay(db,user_id,order)

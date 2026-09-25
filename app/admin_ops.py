@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select, delete, func, text, or_
-from .db import ACCOUNT_LOCK, Session, User, Wallet, Settings, Position, Transaction, FxTransaction, LimitOrder, Watchlist, PopularityEvent, SeasonArchive, WeeklyReport, AdminAudit, WalletTransfer, UserAdminNote
+from .db import ACCOUNT_LOCK, Session, User, Wallet, Settings, Position, Transaction, FxTransaction, LimitOrder, Watchlist, PopularityEvent, SeasonArchive, WeeklyReport, AdminAudit, WalletTransfer, UserAdminNote, lock_user
 from .accounts import delete_account_data
 from .money import wallets, initial_amount, rounded, bps
 from .weekly import assign_ranks, drop_from_baseline
@@ -105,7 +105,7 @@ def set_initial_amount(actor,amount):
 
 def set_account_active(actor,target,active):
     with Session.begin() as db:
-        u=db.scalar(select(User).where(User.id==target).with_for_update())
+        u=lock_user(db,target)
         if not u: raise HTTPException(404,'사용자가 없습니다.')
         add_audit(db,actor,target,'account_status','계정 상태 변경',{'before':u.active,'after':active})
         u.active=active
@@ -114,7 +114,7 @@ def season_reset(actor,target,label,q):
     """Archive the season and restart the account from the initial funding at rate quote q."""
     with Session.begin() as db:
         db.execute(text('SELECT pg_advisory_xact_lock(:k)'),{'k':ACCOUNT_LOCK})
-        u=db.scalar(select(User).where(User.id==target).with_for_update())
+        u=lock_user(db,target)
         if not u: raise HTTPException(404,'사용자가 없습니다.')
         ws=wallets(db,u); ps=list(db.scalars(select(Position).where(Position.user_id==target)))
         snapshot={'wallets':{c:str(w.balance) for c,w in ws.items()},'positions':[{'symbol':p.symbol,'quantity':p.quantity,'average_cost':str(p.average_cost),'native_average_cost':str(p.native_average_cost)} for p in ps],'initial_krw':str(u.initial_krw),'actor':actor}
@@ -174,7 +174,7 @@ def install_admin_ops(app,ctx,admin,csrf):
                 same_target=prior.target_id==target or (prior.action=='account_delete' and prior.data.get('deleted_user_id')==target)
                 if not same_target or prior.data.get('request')!=signature: raise HTTPException(409,'재시도 요청 내용이 다릅니다.')
                 return {'ok':True,'replayed':True}
-            u=db.scalar(select(User).where(User.id==target).with_for_update())
+            u=lock_user(db,target)
             if not u: raise HTTPException(404,'사용자가 없습니다.')
             if data.action=='delete':
                 if target==uid: raise HTTPException(409,'현재 로그인한 관리자 계정은 삭제할 수 없습니다.')

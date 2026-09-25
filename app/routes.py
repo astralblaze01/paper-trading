@@ -7,7 +7,7 @@ from fastapi import Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select, func, delete
 from sqlalchemy.dialects.postgresql import insert
-from .db import Session, User, FxTransaction, Watchlist, PopularityEvent, LimitOrder
+from .db import Session, User, FxTransaction, Watchlist, PopularityEvent, LimitOrder, lock_user
 from .instruments import SYMBOL_PATTERN, valid_symbol, instrument, CATALOG
 from .market import MarketError
 from .fx import preview, exchange
@@ -126,7 +126,7 @@ def install(app,ctx):
     def fx_preview(data:FxInput,uid=Depends(user)):
         q=preview(ctx.fx,data.source,data.amount)
         with Session.begin() as db:
-            u=db.scalar(select(User).where(User.id==uid).with_for_update()); ws=wallets(db,u)
+            u=lock_user(db,uid); ws=wallets(db,u)
             q['balances_after']={c:w.balance for c,w in ws.items()}
             q['balances_after'][data.source]-=data.amount; q['balances_after'][q['target']]+=q['received']
         return q
@@ -135,7 +135,7 @@ def install(app,ctx):
         # The FX fee comes out of the amount sent, so a share of the balance is always exchangeable.
         if percent not in (5,10,25,50,100): raise HTTPException(422,'지원하지 않는 비율입니다.')
         with Session.begin() as db:
-            u=db.scalar(select(User).where(User.id==uid).with_for_update())
+            u=lock_user(db,uid)
             balance=wallets(db,u)[source].balance
         return {'source':source,'percent':percent,'balance':balance,'amount':rounded(balance*Decimal(percent)/100,source)}
     @app.post('/api/fx/exchange',dependencies=[Depends(csrf)])
@@ -206,7 +206,7 @@ def install(app,ctx):
     @app.post('/api/watchlist',dependencies=[Depends(csrf)])
     def watch_add(data:SymbolInput,uid=Depends(user)):
         with Session.begin() as db:
-            db.scalar(select(User).where(User.id==uid).with_for_update())
+            lock_user(db,uid)
             if db.scalar(select(func.count()).select_from(Watchlist).where(Watchlist.user_id==uid))>=50: raise HTTPException(409,'관심종목은 최대 50개입니다.')
             db.execute(insert(Watchlist).values(user_id=uid,symbol=data.symbol,created_at=datetime.now(timezone.utc)).on_conflict_do_nothing())
         event(uid,data.symbol,'watch'); return {'ok':True}

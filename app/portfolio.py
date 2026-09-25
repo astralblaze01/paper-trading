@@ -1,6 +1,6 @@
 from decimal import Decimal
 from sqlalchemy import select, func
-from .db import Session, User, Position, Transaction
+from .db import Session, Position, Transaction, lock_user
 from .money import wallets, native_cost_basis
 from .instruments import instrument
 from .market import MarketError
@@ -39,7 +39,7 @@ def initialize_equity(uid, fx):
     # New accounts: creation-time daily FX. Existing accounts: first verified migration-day rate.
     q=fx.current_rate('USD','KRW')
     with Session.begin() as db:
-        user=db.scalar(select(User).where(User.id==uid).with_for_update())
+        user=lock_user(db,uid)
         ensure_initial_krw(user,q['rate'],q['date'])
     return q
 
@@ -49,7 +49,7 @@ def portfolio(uid, market, fx):
     try: rate=initialize_equity(uid,fx)
     except MarketError as exc: errors.append(str(exc))
     with Session.begin() as db:
-        user=db.scalar(select(User).where(User.id==uid).with_for_update())
+        user=lock_user(db,uid)
         ws=wallets(db,user)
         balances={c:w.balance for c,w in ws.items()}
         positions=list(db.scalars(select(Position).where(Position.user_id==uid)))

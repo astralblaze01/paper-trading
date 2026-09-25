@@ -3,7 +3,7 @@ from decimal import Decimal
 from datetime import datetime, timezone, date
 from sqlalchemy import select
 from fastapi import HTTPException
-from .db import Session, User, FxTransaction
+from .db import Session, FxTransaction, lock_user
 from .market import MarketError
 from .money import wallets, rounded, bps
 
@@ -32,7 +32,7 @@ def preview(fx, source, amount):
 
 def exchange(uid, data, fx):
     with Session.begin() as db:
-        user=db.scalar(select(User).where(User.id==uid).with_for_update())
+        user=lock_user(db,uid)
         if not user or not user.active: raise HTTPException(403,'사용할 수 없는 계좌입니다.')
         previous=db.scalar(select(FxTransaction).where(FxTransaction.user_id==uid,FxTransaction.request_id==str(data.request_id)))
         if previous:

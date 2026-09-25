@@ -25,7 +25,7 @@ from sqlalchemy import select, text, func
 from sqlalchemy.dialects.postgresql import insert
 
 from .db import (Session, engine, User, Position, ReportPrice, PerformanceSnapshot, BenchmarkSnapshot,
-                 SnapshotRun, SNAPSHOT_LOCK)
+                 SnapshotRun, SNAPSHOT_LOCK, lock_user)
 from .instruments import instrument
 from .market import MarketError
 from .money import wallets, native_cost_basis
@@ -98,7 +98,7 @@ def snapshot_user(uid, day, prices, fxq, now, scheduled):
     rate = Decimal(str(fxq['rate']))
     with Session.begin() as db:
         # Same lock as order execution: wallets and positions are read together.
-        user = db.scalar(select(User).where(User.id == uid).with_for_update())
+        user = lock_user(db, uid)
         if db.scalar(select(PerformanceSnapshot.id).where(PerformanceSnapshot.user_id == uid,
                                                           PerformanceSnapshot.snapshot_date == day)):
             return 'exists'

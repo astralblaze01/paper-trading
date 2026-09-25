@@ -6,7 +6,7 @@ from fastapi import Depends, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select, delete, update, or_, text
 from .db import (ACCOUNT_LOCK, Session, PerformanceSnapshot, User, Position, Wallet, Transaction, FxTransaction, LimitOrder, Watchlist, PopularityEvent,
-                 SeasonArchive, WeeklyReport, AdminAudit, WalletTransfer, UserAdminNote, UserProfile, UserProfileImage)
+                 SeasonArchive, WeeklyReport, AdminAudit, WalletTransfer, UserAdminNote, UserProfile, UserProfileImage, lock_user)
 from .weekly import drop_from_baseline
 
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
@@ -169,7 +169,7 @@ def install_accounts(app, ctx):
         with Session.begin() as db:
             # The account-wide lock, so no admin operation or weekly run sees a half-removed account.
             db.execute(text('SELECT pg_advisory_xact_lock(:k)'), {'k': ACCOUNT_LOCK})
-            me = db.scalar(select(User).where(User.id == uid).with_for_update())
+            me = lock_user(db, uid)
             if me.is_admin: raise HTTPException(409, '관리자 계정은 회원 탈퇴할 수 없습니다.')
             try: ctx.hasher.verify(me.password_hash, data.password)
             except (VerificationError, InvalidHashError): raise HTTPException(401, '비밀번호가 올바르지 않습니다.')

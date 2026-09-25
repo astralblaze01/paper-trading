@@ -2,7 +2,7 @@ import os
 from decimal import Decimal
 from datetime import datetime
 from datetime import date
-from sqlalchemy import create_engine, String, Numeric, Integer, ForeignKey, DateTime, Date, Boolean, CheckConstraint, UniqueConstraint, Index, URL, LargeBinary, func
+from sqlalchemy import create_engine, String, Numeric, Integer, ForeignKey, DateTime, Date, Boolean, CheckConstraint, UniqueConstraint, Index, URL, LargeBinary, func, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 url = os.getenv('DATABASE_URL') or URL.create('postgresql+psycopg', username='paper', password=os.environ['DB_PASSWORD'], host=os.getenv('DB_HOST', 'db'), database='paper')
@@ -31,6 +31,11 @@ class User(Base):
     # Sign-up time. Accounts older than this column carry an estimate (migration 9).
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=True)
     __table_args__ = (CheckConstraint('cash >= 0'),)
+
+def lock_user(db, user_id):
+    """The user row FOR UPDATE, or None: the per-account mutex every balance or position change takes first."""
+    return db.scalar(select(User).where(User.id == user_id).with_for_update())
+
 class Position(Base):
     __tablename__ = 'positions'
     user_id: Mapped[int] = mapped_column(ForeignKey('users.id'), primary_key=True)

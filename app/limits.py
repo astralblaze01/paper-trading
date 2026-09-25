@@ -4,14 +4,14 @@ from uuid import uuid5, NAMESPACE_URL, UUID
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
-from .db import Session, User, LimitOrder, Transaction, PopularityEvent
+from .db import Session, LimitOrder, Transaction, PopularityEvent, lock_user
 from .market import MarketError
 from .trading import execute_order, checked_quote
 
 
 def create(uid,data):
     with Session.begin() as db:
-        user=db.scalar(select(User).where(User.id==uid).with_for_update())
+        user=lock_user(db,uid)
         if not user or not user.active: raise HTTPException(403,'정지된 계좌입니다.')
         previous=db.scalar(select(LimitOrder).where(LimitOrder.user_id==uid,LimitOrder.request_id==str(data.request_id)))
         if previous:
@@ -27,7 +27,7 @@ def create(uid,data):
 
 def cancel(uid,order_id):
     with Session.begin() as db:
-        db.scalar(select(User).where(User.id==uid).with_for_update())
+        lock_user(db,uid)
         row=db.scalar(select(LimitOrder).where(LimitOrder.id==order_id,LimitOrder.user_id==uid).with_for_update())
         if not row: raise HTTPException(404,'주문을 찾을 수 없습니다.')
         if row.status=='pending': row.status='cancelled'
@@ -39,7 +39,7 @@ def process(market):
     filled=0
     for order_id,uid in ids:
         with Session.begin() as db:
-            user=db.scalar(select(User).where(User.id==uid).with_for_update())
+            user=lock_user(db,uid)
             row=db.scalar(select(LimitOrder).where(LimitOrder.id==order_id).with_for_update())
             if row.status!='pending': continue
             if not user.active: row.status='cancelled'; row.reason='계좌 정지'; continue
