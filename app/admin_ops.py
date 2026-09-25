@@ -7,10 +7,10 @@ from uuid import UUID
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select, delete, text, or_
-from .db import ACCOUNT_LOCK, Session, User, Position, Transaction, FxTransaction, LimitOrder, Watchlist, PopularityEvent, SeasonArchive, WeeklyState, WeeklyReport, AdminAudit, WalletTransfer, UserAdminNote
+from .db import ACCOUNT_LOCK, Session, User, Position, Transaction, FxTransaction, LimitOrder, Watchlist, PopularityEvent, SeasonArchive, WeeklyReport, AdminAudit, WalletTransfer, UserAdminNote
 from .accounts import delete_account_data
 from .money import wallets, initial_amount, rounded
-from .weekly import assign_ranks
+from .weekly import assign_ranks, drop_from_baseline
 
 class ManagementInput(BaseModel):
     model_config=ConfigDict(extra='forbid')
@@ -124,9 +124,7 @@ def install_admin_ops(app,ctx,admin,csrf):
                 amount=initial_amount(db);ws['USD'].balance=amount;ws['KRW'].balance=0
                 u.initial_usd=amount;u.initial_krw=amount*rate;u.net_contributions_krw=0;u.initial_fx_date=q['date'];u.performance_since=None;u.baseline_note='registration';u.records_since=now
             u.cash=ws['USD'].balance
-            if data.action!='grant':
-                state=db.get(WeeklyState,1)
-                if state: state.baseline={k:v for k,v in state.baseline.items() if k!=str(target)}
+            if data.action!='grant': drop_from_baseline(db,target)
             db.add(AdminAudit(actor_id=uid,target_id=target,request_id=str(data.request_id),action=data.action,reason=reason,data={'request':signature,'before':before,'after':{c:str(w.balance) for c,w in ws.items()},'fx_rate':str(rate),'fx_date':q['date']},created_at=now))
         return {'ok':True,'replayed':False}
 

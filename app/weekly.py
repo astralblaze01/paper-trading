@@ -60,6 +60,13 @@ def assign_ranks(rows):
         previous = row['return_pct']
 
 
+def drop_from_baseline(db, user_id):
+    """Take an account out of the week in progress; it re-enters at the next baseline."""
+    state = db.get(WeeklyState, 1)
+    # A new dict, because the JSONB column does not track in-place changes.
+    if state: state.baseline = {k: v for k, v in state.baseline.items() if k != str(user_id)}
+
+
 def tick(market, now=None, fx=None):
     now = now or datetime.now(timezone.utc)
     with Session.begin() as db:

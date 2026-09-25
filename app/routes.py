@@ -7,12 +7,13 @@ from fastapi import Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select, func, delete, text
 from sqlalchemy.dialects.postgresql import insert
-from .db import ACCOUNT_LOCK, Session, User, Wallet, Position, Transaction, FxTransaction, Watchlist, PopularityEvent, Settings, SeasonArchive, WeeklyState, LimitOrder, AdminAudit, UserAdminNote
+from .db import ACCOUNT_LOCK, Session, User, Wallet, Position, Transaction, FxTransaction, Watchlist, PopularityEvent, Settings, SeasonArchive, LimitOrder, AdminAudit, UserAdminNote
 from .instruments import SYMBOL_PATTERN, valid_symbol, instrument, CATALOG
 from .market import MarketError
 from .fx import preview, exchange
 from .money import wallets, initial_amount, bps, rounded
 from .trading import preview_order
+from .weekly import drop_from_baseline
 from .branding import BRAND_NAME
 
 class Strict(BaseModel):
@@ -255,8 +256,7 @@ def install(app,ctx):
             for p in ps: db.delete(p)
             for o in db.scalars(select(LimitOrder).where(LimitOrder.user_id==target,LimitOrder.status=='pending')): o.status='cancelled'; o.reason='관리자 초기화'
             amount=initial_amount(db); ws['USD'].balance=amount; ws['KRW'].balance=0; u.cash=amount; u.initial_usd=amount; u.initial_krw=amount*q['rate']; u.initial_fx_date=q['date']; u.baseline_note='admin-reset'; u.net_contributions_krw=0; u.performance_since=datetime.now(timezone.utc)
-            state=db.get(WeeklyState,1)
-            if state: state.baseline={k:v for k,v in state.baseline.items() if k!=str(target)}
+            drop_from_baseline(db,target)
         return {'ok':True,'archived':True}
     from .admin_ops import install_admin_ops
     install_admin_ops(app,ctx,admin,csrf)
