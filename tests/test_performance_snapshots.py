@@ -144,6 +144,9 @@ def test_schedule_waits_for_the_hour_and_leaves_missed_days_empty(monkeypatch):
     assert run(Market({}), now=scheduled + timedelta(minutes=1), force=False) == 'partial'
     assert run(Market(BENCH), now=scheduled + timedelta(hours=3), force=False) == 'missed'
     with Session() as db: assert db.get(SnapshotRun, day).outcome == 'missed'
+    # An admin can still capture the day by hand; the run then says what happened.
+    assert run(Market(BENCH | {'TSLA': us('380')})) == 'complete'
+    with Session() as db: assert db.get(SnapshotRun, day).outcome == 'complete'
 
 
 def seed_series(uid, rows):

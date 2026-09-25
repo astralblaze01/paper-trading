@@ -17,6 +17,7 @@ No past days are reconstructed: data starts at the first run.
 import argparse
 import logging
 import os
+import time
 from datetime import date, datetime, time as dtime, timedelta, timezone
 from decimal import Decimal
 from zoneinfo import ZoneInfo
@@ -62,7 +63,7 @@ def _iso(value):
     return value.isoformat() if value else None
 
 
-def price_for(symbol, market, db, now):
+def price_for(symbol, market, db, now, fallback=True):
     """One verified native price with the facts about the quote, or None."""
     max_age = timedelta(days=int(os.getenv('DAILY_SNAPSHOT_MAX_QUOTE_AGE_DAYS', '7')))
     currency = instrument(symbol)['currency']
@@ -81,6 +82,8 @@ def price_for(symbol, market, db, now):
                              'fallback': False}}
     except (MarketError, ValueError, KeyError, TypeError, ArithmeticError):
         pass
+    if not fallback:
+        return None
     stored = db.get(ReportPrice, symbol)
     # report_prices holds the last real quote the weekly job verified.
     native = (stored.native_price if currency == 'KRW' else stored.price) if stored else None
@@ -204,8 +207,20 @@ def snapshot_all_users(market, fx, day, scheduled, now, force=False):
         from .redis_cache import redis_cache
         for symbol in wanted:  # let the market-worker fetch them in one pass
             redis_cache.request_quote(symbol, force=True)
-        prices = {}
-        for symbol in wanted:
+        prices, pending = {}, list(wanted)
+        # A cold cache needs a few KIS round trips (1.1 s apart) per symbol:
+        # keep asking for live quotes before using a stored last price.
+        deadline = time.monotonic() + (int(os.getenv('DAILY_SNAPSHOT_QUOTE_WAIT_SECONDS', '60')) if redis_cache.configured else 0)
+        while True:
+            for symbol in list(pending):
+                price = price_for(symbol, market, db, now, fallback=False)
+                if price:
+                    prices[symbol] = price
+                    pending.remove(symbol)
+            if not pending or time.monotonic() >= deadline:
+                break
+            time.sleep(2)
+        for symbol in pending:
             price = price_for(symbol, market, db, now)
             if price:
                 prices[symbol] = price
@@ -235,6 +250,8 @@ def snapshot_all_users(market, fx, day, scheduled, now, force=False):
         if not errors and all(v == 'stored' for v in bench_status.values()):
             run.finished_at, run.outcome = now, 'complete'
             return 'complete'
+        if force:
+            run.outcome = 'partial'  # a manual run replaces an earlier 'missed'
         return 'partial'
 
 
