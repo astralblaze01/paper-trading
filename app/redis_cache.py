@@ -13,6 +13,26 @@ except ImportError:  # Tests can still import the application before dependencie
     Redis = None
     RedisError = Exception
 
+# Redis names shared by the web, market-worker and market-stream processes.
+QUOTE_UPDATES = 'market:quote:updates'          # pub/sub: a new snapshot version was stored
+SUBSCRIPTIONS_KEY = 'market:subscriptions'      # zset: symbols the market-worker keeps fresh
+STREAM_INTEREST_KEY = 'market:stream:interest'  # zset: symbols competing for trade-stream slots
+STREAM_STATUS_KEY = 'market:stream:status'      # the trade stream's heartbeat and subscriptions
+REFRESH_QUEUE_KEY = 'market:refresh'            # list: symbols without a snapshot, for the worker's next pass
+REFRESH_COALESCE = 10  # seconds during which further refresh requests for a symbol are not queued
+
+
+def price_key(symbol):
+    return f'market:price:{symbol}'
+
+
+def trade_key(symbol):
+    return f'market:trade:{symbol}'
+
+
+def refresh_request_key(symbol):
+    return f'market:refresh-request:{symbol}'
+
 
 def _json_default(value):
     if isinstance(value, Decimal):
@@ -68,7 +88,7 @@ class RedisCache:
         try:
             quote = normalize_quote(symbol, value)
             ttl = max(1, int(ttl))
-            key, meta_key = f'market:price:{symbol}', f'market:quote-version:{symbol}'
+            key, meta_key = price_key(symbol), f'market:quote-version:{symbol}'
             from redis.exceptions import WatchError
             for _ in range(8):
                 try:
@@ -91,7 +111,7 @@ class RedisCache:
                         pipe.multi()
                         pipe.setex(key, ttl, payload)
                         pipe.set(meta_key, metadata)
-                        pipe.publish('market:quote:updates', event)
+                        pipe.publish(QUOTE_UPDATES, event)
                         pipe.execute()
                         return True
                 except WatchError:
@@ -164,11 +184,11 @@ class RedisCache:
             return
         try:
             now = time.time()
-            self.client.zadd('market:subscriptions', {symbol: now})
+            self.client.zadd(SUBSCRIPTIONS_KEY, {symbol: now})
             # Many browser polls can observe the same cache miss. Queue only one
             # immediate refresh per symbol during a short coalescing window.
-            if force and self.client.set(f'market:refresh-request:{symbol}', '1', nx=True, ex=10):
-                self.client.lpush('market:refresh', symbol)
+            if force and self.client.set(refresh_request_key(symbol), '1', nx=True, ex=REFRESH_COALESCE):
+                self.client.lpush(REFRESH_QUEUE_KEY, symbol)
         except RedisError:
             pass
 
@@ -181,7 +201,7 @@ class RedisCache:
         if not self.client:
             return
         try:
-            self.client.zadd('market:stream:interest', {symbol: time.time()})
+            self.client.zadd(STREAM_INTEREST_KEY, {symbol: time.time()})
         except RedisError:
             pass
 
@@ -191,21 +211,21 @@ class RedisCache:
             return []
         try:
             now = time.time()
-            self.client.zremrangebyscore('market:stream:interest', 0, now - active_seconds)
-            return self.client.zrevrangebyscore('market:stream:interest', '+inf', now - active_seconds)
+            self.client.zremrangebyscore(STREAM_INTEREST_KEY, 0, now - active_seconds)
+            return self.client.zrevrangebyscore(STREAM_INTEREST_KEY, '+inf', now - active_seconds)
         except RedisError:
             return []
 
     def stream_status(self):
-        return self.get_json('market:stream:status')
+        return self.get_json(STREAM_STATUS_KEY)
 
     def requested_symbols(self, active_seconds=600):
         if not self.client:
             return []
         try:
             cutoff = time.time() - active_seconds
-            self.client.zremrangebyscore('market:subscriptions', 0, cutoff)
-            return self.client.zrangebyscore('market:subscriptions', cutoff, '+inf')
+            self.client.zremrangebyscore(SUBSCRIPTIONS_KEY, 0, cutoff)
+            return self.client.zrangebyscore(SUBSCRIPTIONS_KEY, cutoff, '+inf')
         except RedisError:
             return []
 
@@ -213,7 +233,7 @@ class RedisCache:
         if not self.client:
             return None
         try:
-            item = self.client.brpop('market:refresh', timeout=timeout)
+            item = self.client.brpop(REFRESH_QUEUE_KEY, timeout=timeout)
             return item[1] if item else None
         except RedisError:
             return None

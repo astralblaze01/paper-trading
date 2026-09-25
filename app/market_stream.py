@@ -19,9 +19,10 @@ from redis.exceptions import RedisError
 from itsdangerous import TimestampSigner, BadSignature
 from .instruments import valid_symbol
 from .quote_data import public_quote
+from .redis_cache import (QUOTE_UPDATES, REFRESH_COALESCE, REFRESH_QUEUE_KEY, STREAM_INTEREST_KEY, SUBSCRIPTIONS_KEY,
+                          price_key, refresh_request_key)
 
 log = logging.getLogger('market-stream')
-CHANNEL = 'market:quote:updates'
 VERSION = re.compile(r'^[a-f0-9]{32}:[1-9][0-9]*$')
 
 
@@ -144,13 +145,14 @@ class QuoteHub:
             queue.put_nowait(item)
 
     async def interest(self, symbol, missing=False):
-        await self.redis.zadd('market:subscriptions', {symbol: time.time()})
-        await self.redis.zadd('market:stream:interest', {symbol: time.time()})
-        if missing and await self.redis.set(f'market:refresh-request:{symbol}', '1', nx=True, ex=10):
-            await self.redis.lpush('market:refresh', symbol)
+        """Async twin of RedisCache.request_quote(symbol, force=missing) plus request_stream."""
+        await self.redis.zadd(SUBSCRIPTIONS_KEY, {symbol: time.time()})
+        await self.redis.zadd(STREAM_INTEREST_KEY, {symbol: time.time()})
+        if missing and await self.redis.set(refresh_request_key(symbol), '1', nx=True, ex=REFRESH_COALESCE):
+            await self.redis.lpush(REFRESH_QUEUE_KEY, symbol)
 
     async def snapshot(self, symbol):
-        raw = await self.redis.get(f'market:price:{symbol}')
+        raw = await self.redis.get(price_key(symbol))
         if not raw:
             return None
         try:
@@ -180,7 +182,7 @@ class QuoteHub:
         while True:
             try:
                 async with self.redis.pubsub() as sub:
-                    await sub.subscribe(CHANNEL)
+                    await sub.subscribe(QUOTE_UPDATES)
                     # Wait for the subscription ACK; sending SUBSCRIBE isn't enough.
                     while True:
                         ack = await sub.get_message(timeout=3)

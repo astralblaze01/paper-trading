@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 import httpx
 from .market import Finnhub, MarketError
 from .instruments import discover, instrument, valid_symbol
-from .redis_cache import redis_cache
+from .redis_cache import price_key, redis_cache
 from .quote_data import normalize_quote
 
 SEOUL = ZoneInfo('Asia/Seoul')
@@ -220,12 +220,12 @@ class MultiMarket:
 
     def quote(self, symbol):
         if os.getenv('MARKET_CACHE_MODE','direct').lower() == 'worker' and os.getenv('MARKET_WORKER_MODE','false').lower() != 'true':
-            cached = redis_cache.get_json(f'market:price:{symbol}')
+            cached = redis_cache.get_json(price_key(symbol))
             redis_cache.request_quote(symbol, force=cached is None)
             deadline = time.monotonic() + (3 if cached is None else 0)
             while cached is None and time.monotonic() < deadline:
                 time.sleep(.1)
-                cached = redis_cache.get_json(f'market:price:{symbol}')
+                cached = redis_cache.get_json(price_key(symbol))
             if cached is None:
                 raise MarketError('시세 수집기가 가격을 준비 중입니다. 잠시 후 다시 시도하세요.')
             try:

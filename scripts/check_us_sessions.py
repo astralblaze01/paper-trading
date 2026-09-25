@@ -27,6 +27,7 @@ from app.market import Finnhub, MarketError  # noqa: E402
 from app.multi_market import KoreaPrices  # noqa: E402
 from app.redis_cache import redis_cache  # noqa: E402
 from app.us_session import NEW_YORK, clock_session, resolve_session  # noqa: E402
+from app.us_symbols import MASTER_KEY  # noqa: E402
 
 SEOUL = ZoneInfo('Asia/Seoul')
 DAY = {'NAS': 'BAQ', 'NYS': 'BAY', 'AMS': 'BAA'}
@@ -35,7 +36,7 @@ FRESH = 120  # seconds; a diagnostic threshold only
 
 
 def exchange_of(symbol):
-    for row in redis_cache.get_json('market:symbols:us') or []:
+    for row in redis_cache.get_json(MASTER_KEY) or []:
         if row.get('symbol') == symbol:
             return row.get('exchange')
     return None

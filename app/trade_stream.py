@@ -34,7 +34,7 @@ from uuid import uuid4
 from .instruments import instrument, valid_symbol
 from .logging_config import configure_logging
 from .market import MarketError
-from .redis_cache import redis_cache
+from .redis_cache import STREAM_STATUS_KEY, price_key, redis_cache, trade_key
 from .us_quotes import DAY_VENUE, PRIMARY_SESSIONS, USQuotes
 from .us_session import NEW_YORK, clock_session
 from . import kr_session
@@ -47,7 +47,6 @@ FIELDS = ('RSYM', 'SYMB', 'ZDIV', 'TYMD', 'XYMD', 'XHMS', 'KYMD', 'KHMS', 'OPEN'
 KR_FIELDS = {'code': 0, 'hour': 1, 'price': 2, 'sign': 3, 'diff': 4, 'rate': 5, 'high': 8, 'low': 9,
              'volume': 12, 'total_volume': 13, 'turnover': 14, 'date': 33}   # H0STCNT0 layout
 HEARTBEAT = Path('/tmp/trade-stream-heartbeat')
-STATUS_KEY = 'market:stream:status'
 LEADER_KEY = 'market:stream:leader'
 MIN_HOLD = 30     # seconds a subscription is kept before another symbol may take the slot
 SILENCE = 150     # KIS sends PINGPONG regularly; a socket silent this long is dead
@@ -225,7 +224,7 @@ class TradeStream:
         return False
 
     def write_status(self, connected):
-        self.cache.set_json(STATUS_KEY, {
+        self.cache.set_json(STREAM_STATUS_KEY, {
             'state': self.state, 'connected': connected, 'conn': self.conn if connected else None,
             'heartbeat': time.time(), 'last_message': self.last_message,
             'subscribed': sorted(self.active.values()), 'limit': self.effective_limit,
@@ -250,7 +249,7 @@ class TradeStream:
             # Same USD conversion as REST Korean quotes (ECB daily reference).
             rate, day = self.fx.krw_to_usd()
             q = q | {'price': (q['native_price'] * rate).quantize(PRICE_STEP), 'fx_rate': rate, 'fx_date': day}
-        self.cache.set_json(f'market:trade:{symbol}', q, TRADE_TTL)
+        self.cache.set_json(trade_key(symbol), q, TRADE_TTL)
         self.latest[symbol] = q
         at, _ = self.published.get(symbol, (0, 0))
         # Busy symbols print many times a second; the snapshot and its SSE
@@ -279,7 +278,7 @@ class TradeStream:
         self.sent[key] = (symbol, 'subscribe' if subscribe else 'unsubscribe', time.monotonic())
 
     def reference(self, symbol):
-        snapshot = self.cache.get_json(f'market:price:{symbol}') or {}
+        snapshot = self.cache.get_json(price_key(symbol)) or {}
         return snapshot.get('native_price')
 
     def exchange(self, symbol):

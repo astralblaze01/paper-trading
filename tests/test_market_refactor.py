@@ -88,6 +88,17 @@ def test_korean_rest_quote_stale_flag_uses_the_korean_age(monkeypatch):
     assert unified_quote(TradedKIS(1000), 'KR:005930')['stale']
 
 
+# Shared Redis names ----------------------------------------------------------------
+
+def test_redis_names_shared_across_processes_are_unchanged():
+    from app import redis_cache as rc
+    assert (rc.QUOTE_UPDATES, rc.SUBSCRIPTIONS_KEY, rc.STREAM_INTEREST_KEY, rc.STREAM_STATUS_KEY, rc.REFRESH_QUEUE_KEY,
+            rc.REFRESH_COALESCE) == ('market:quote:updates', 'market:subscriptions', 'market:stream:interest',
+                                     'market:stream:status', 'market:refresh', 10)
+    assert (rc.price_key('KR:005930'), rc.trade_key('AAPL'), rc.refresh_request_key('AAPL')) == (
+        'market:price:KR:005930', 'market:trade:AAPL', 'market:refresh-request:AAPL')
+
+
 # SSE admission -----------------------------------------------------------------
 
 def sse_request(origin=None, client=('test', 1)):

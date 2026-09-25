@@ -5,7 +5,7 @@ from pathlib import Path
 
 from .instruments import valid_symbol
 from .multi_market import MultiMarket
-from .redis_cache import redis_cache
+from .redis_cache import redis_cache, trade_key
 from .logging_config import configure_logging
 from .kr_symbols import refresh_master
 from .us_symbols import refresh_master as refresh_us_master
@@ -53,7 +53,7 @@ def main():
                     # Publication is monotonic in trade time. When the trade
                     # stream holds a newer print, republish that print so it
                     # stays available, instead of failing on the older bar.
-                    trade = redis_cache.get_json(f'market:trade:{symbol}')
+                    trade = redis_cache.get_json(trade_key(symbol))
                     if trade and float(trade.get('timestamp', 0)) > float(quote['timestamp']):
                         quote = trade
                     # Tradeability is judged at read time (quote_policy), so
