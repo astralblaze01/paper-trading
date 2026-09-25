@@ -13,6 +13,7 @@ from .quote_data import normalize_quote
 from . import kr_session
 
 SEOUL = kr_session.SEOUL  # tests read the Korean zone from here
+NO_REFERENCE_RATE = '유효한 기준환율이 없어 한국 종목을 평가하거나 거래할 수 없습니다.'
 
 class KoreaPrices:
     PATH = '/uapi/domestic-stock/v1/quotations/inquire-time-itemchartprice'
@@ -132,7 +133,7 @@ class ReferenceFX:
                     r.raise_for_status()
                     return r.json()
                 except (httpx.HTTPError, ValueError) as exc:
-                    raise MarketError('유효한 기준환율이 없어 한국 종목을 평가하거나 거래할 수 없습니다.') from exc
+                    raise MarketError(NO_REFERENCE_RATE) from exc
             def parse(data):
                 usd_to_krw = Decimal(str(data['rate']))
                 day = date.fromisoformat(data['date'])
@@ -140,25 +141,26 @@ class ReferenceFX:
                 if data['base'] != 'USD' or data['quote'] != 'KRW' or not usd_to_krw.is_finite() or usd_to_krw <= 0 or not 0 <= age <= 7:
                     raise ValueError('invalid FX rate')
                 return (Decimal(1) / usd_to_krw).quantize(Decimal('.000000000001')), day
+            def parse_or_drop(data):
+                # An invalid shared rate is deleted so no process reads it again.
+                try:
+                    return parse(data)
+                except (KeyError,TypeError,ValueError,InvalidOperation):
+                    redis_cache.delete(cache_key)
+                    raise
             try:
                 data=redis_cache.get_json(cache_key)
                 if data is not None:
                     try:
-                        rate,day=parse(data)
+                        rate,day=parse_or_drop(data)
                     except (KeyError,TypeError,ValueError,InvalidOperation):
-                        redis_cache.delete(cache_key)
                         data=None
                 if data is None:
-                    data=redis_cache.get_or_load(cache_key,1800,load)
-                    try:
-                        rate,day=parse(data)
-                    except (KeyError,TypeError,ValueError,InvalidOperation):
-                        redis_cache.delete(cache_key)
-                        raise
+                    rate,day=parse_or_drop(redis_cache.get_or_load(cache_key,1800,load))
             except (KeyError, TypeError, ValueError, InvalidOperation, MarketError) as exc:
                 self.cooldown = now + 60
                 if isinstance(exc,MarketError): raise
-                raise MarketError('유효한 기준환율이 없어 한국 종목을 평가하거나 거래할 수 없습니다.') from exc
+                raise MarketError(NO_REFERENCE_RATE) from exc
             self.cached = (rate, day.isoformat())
             self.expires = now + 1800
             return self.cached
@@ -190,10 +192,18 @@ class MultiMarket:
         query = query.strip()
         rows = discover(query, category)
         if not query or category in ('us_bond', 'kr_bond', 'gold'): return rows
+
+        def add_unlisted(candidates, as_instrument=False):
+            # In order; a symbol already listed keeps its earlier row.
+            listed = {r['symbol'] for r in rows}
+            for row in candidates:
+                if row['symbol'] not in listed:
+                    listed.add(row['symbol'])
+                    rows.append(instrument(row['symbol']) | {'name': row['name']} if as_instrument else row)
+
         if category in ('all','kr'):
             from .kr_symbols import search_master
-            for row in search_master(query):
-                if row['symbol'] not in {r['symbol'] for r in rows}: rows.append(row)
+            add_unlisted(search_master(query))
         code = query.removeprefix('KR:')
         if re.fullmatch(r'[0-9]{6}', code) and category in ('all', 'kr'):
             symbol = 'KR:' + code
@@ -208,14 +218,10 @@ class MultiMarket:
         if has_hangul(query):
             # Finnhub only matches English names; Korean names of US listings
             # come from the KIS overseas master.
-            for row in search_us_master(query):
-                if row['symbol'] not in {r['symbol'] for r in rows}:
-                    rows.append(instrument(row['symbol']) | {'name': row['name']})
+            add_unlisted(search_us_master(query), as_instrument=True)
             return rows[:30]
         if self.us.key:
-            for row in self.us.search(query):
-                if valid_symbol(row['symbol']) and row['symbol'] not in {r['symbol'] for r in rows}:
-                    rows.append(instrument(row['symbol']) | {'name': row['name']})
+            add_unlisted((row for row in self.us.search(query) if valid_symbol(row['symbol'])), as_instrument=True)
         return rows[:30]
 
     def quote(self, symbol):
