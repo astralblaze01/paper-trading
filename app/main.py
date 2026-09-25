@@ -8,7 +8,6 @@ from datetime import datetime, timedelta, timezone
 from threading import RLock
 from typing import Literal
 from uuid import UUID
-from decimal import Decimal
 from zoneinfo import ZoneInfo
 from pathlib import Path
 from fastapi import FastAPI, Request, HTTPException, Depends, Query
@@ -20,16 +19,16 @@ from argon2 import PasswordHasher
 from argon2.exceptions import VerificationError, InvalidHashError
 from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
-from .db import Base, engine, Session, User, Position, Transaction, LimitOrder
+from .db import Base, engine, Session, User, Transaction, LimitOrder
 from .market import MarketError
 from .multi_market import MultiMarket
-from .instruments import SYMBOL_PATTERN, valid_symbol, instrument, CATEGORIES
+from .instruments import SYMBOL_PATTERN, valid_symbol, CATEGORIES
 from .migrations import migrate
 from .trading import execute_order
 from .money import wallets, initial_amount
 from .fx import FxService
 from .portfolio import portfolio as wallet_portfolio, initialize_equity, RETURN_BASIS
-from .weekly import WeeklyWorker, report_list
+from .weekly import report_list
 from .branding import BRAND_NAME, STORAGE_NAMESPACE
 from .redis_cache import redis_cache
 from .market_stream import QuoteHub, enabled as quote_sse_enabled
@@ -103,15 +102,13 @@ def _ranking_market_state():
 async def lifespan(app):
     Base.metadata.create_all(engine)
     migrate(engine)
-    worker = None  # Scheduled work is driven by the separate worker container.
-    if worker: worker.start()
+    # Scheduled work is driven by the separate worker container (/internal/jobs).
     app.state.quote_hub = QuoteHub(assess=getattr(market, 'assess', None))
     if quote_sse_enabled(): await app.state.quote_hub.start()
     try:
         yield
     finally:
         await app.state.quote_hub.stop()
-        if worker: worker.stop()
         market.client.close()
 
 app = FastAPI(title=BRAND_NAME, lifespan=lifespan, docs_url=None, redoc_url=None)
@@ -304,25 +301,6 @@ def order(data: Order, uid=Depends(current_user)):
     from .routes import event
     event(uid,data.symbol,'order')
     return result
-
-def valuation(user, positions, quotes):
-    rows = []
-    equity = user.cash
-    complete = True
-    for p in positions:
-        q = quotes.get(p.symbol)
-        value = q['price'] * p.quantity if q else None
-        if value is None: complete = False
-        else: equity += value
-        rows.append({**instrument(p.symbol), 'quantity': p.quantity, 'average_cost': p.average_cost, 'quote': q, 'value': value, 'pnl': value - p.average_cost * p.quantity if value is not None else None})
-    return {'username': user.username, 'cash': user.cash, 'positions': rows, 'equity': equity if complete else None, 'pnl': equity - Decimal(100000) if complete else None, 'return_pct': (equity / Decimal(100000) - 1) * 100 if complete else None, 'stale': any(q and q['stale'] for q in quotes.values())}
-
-def get_quotes(symbols):
-    quotes, errors = {}, []
-    for symbol in sorted(symbols):
-        try: quotes[symbol] = market.quote(symbol)
-        except MarketError as exc: errors.append(f'{symbol}: {exc}')
-    return quotes, errors
 
 @app.get('/api/portfolio')
 def portfolio(uid=Depends(current_user)):

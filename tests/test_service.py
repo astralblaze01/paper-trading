@@ -115,9 +115,11 @@ def test_weighted_average_and_realized_return():
         u=db.get(User,uid)
         assert p.quantity==15 and p.average_cost==150
         assert u.cash==98000
-        v=main.valuation(u,[p],{'AAPL':market.quote('AAPL')})
-        assert v['equity']==101000 and v['return_pct']==1
         assert db.scalar(select(func.count()).select_from(Transaction))==3
+    from app.portfolio import portfolio
+    v=portfolio(uid,market,main.fx)  # KRW base at the fixture's 1000 KRW/USD
+    assert v['equity_usd']==101000 and v['equity']==101000000 and v['return_pct']==1
+    assert [(r['quantity'],r['average_cost'],r['value']) for r in v['positions']]==[(15,150,3000)]
 
 def test_concurrent_buys_prevent_overdraft():
     uid=seed()
