@@ -37,6 +37,53 @@ def serial(value): return json.loads(json.dumps(value,default=str))
 def records(db,model,target):
     return [{c.name:getattr(row,c.name) for c in model.__table__.columns} for row in db.scalars(select(model).where(model.user_id==target))]
 
+# Upper bound for a wallet after a grant, kept well inside the Numeric(20,4) users.cash mirror.
+WALLET_CAP=Decimal('1000000000000000')
+
+def _check_grant_amount(data):
+    if data.amount<=0 or rounded(data.amount,data.currency)!=data.amount: raise HTTPException(422,'지원금과 통화별 최소 단위를 확인하세요.')
+
+def _grant(user,ws,data,rate,over_cap):
+    """A grant is outside money: it also raises net contributions, so it never shows up as return."""
+    if ws[data.currency].balance+data.amount>WALLET_CAP: raise HTTPException(409,over_cap)
+    ws[data.currency].balance+=data.amount
+    user.net_contributions_krw+=data.amount*(rate if data.currency=='USD' else 1)
+
+def _rebase(db,u,ws,quotes,market,q,now):
+    """Restart the return from today's equity; cash and holdings stay."""
+    rate=q['rate']
+    equity=ws['KRW'].balance+ws['USD'].balance*rate
+    for p in db.scalars(select(Position).where(Position.user_id==u.id)):
+        quote=quotes.get(p.symbol) or market.quote(p.symbol)
+        equity+=Decimal(str(quote.get('native_price',quote['price'])))*p.quantity*(1 if p.symbol.startswith('KR:') else rate)
+    if equity<=0: raise HTTPException(409,'총자산이 0 이하인 계좌는 기준 재설정이 불가능합니다.')
+    u.initial_krw=equity;u.initial_usd=equity/rate;u.net_contributions_krw=0;u.initial_fx_date=q['date'];u.performance_since=now;u.baseline_note='admin-rebase'
+
+def _clear(db,u,ws,before,actor,reason,q,now):
+    """Back to the state right after registration; everything removed is archived first."""
+    target,rate=u.id,q['rate']
+    # Preserve recovery evidence before removing user-facing records.
+    models=[Position,Transaction,FxTransaction,LimitOrder,Watchlist,PopularityEvent]
+    archive={m.__tablename__:records(db,m,target) for m in models}
+    archive['wallet_transfers']=[{c.name:getattr(row,c.name) for c in WalletTransfer.__table__.columns} for row in db.scalars(select(WalletTransfer).where(or_(WalletTransfer.sender_id==target,WalletTransfer.recipient_id==target)))]
+    archive['wallets']=before;archive['actor']=actor;archive['reason']=reason
+    archive['performance']={'initial_krw':u.initial_krw,'initial_usd':u.initial_usd,'net_contributions_krw':u.net_contributions_krw,'initial_fx_date':u.initial_fx_date,'performance_since':u.performance_since}
+    archive['weekly_rows']=[]
+    for report in db.scalars(select(WeeklyReport)):
+        matches=[r for r in report.rows if r['username']==u.username]
+        if matches:
+            archive['weekly_rows'].append({'report_id':report.id,'rows':matches})
+            rows=[r for r in report.rows if r['username']!=u.username]
+            assign_ranks(rows)
+            report.rows=rows
+    db.add(SeasonArchive(user_id=target,label='전체 초기화',data=serial(archive),created_at=now))
+    for model in models: db.execute(delete(model).where(model.user_id==target))
+    amount=initial_amount(db);ws['USD'].balance=amount;ws['KRW'].balance=0
+    u.initial_usd=amount;u.initial_krw=amount*rate;u.net_contributions_krw=0;u.initial_fx_date=q['date'];u.performance_since=None;u.baseline_note='registration'
+    # Transfers also belong to the counterparty: keep the rows and
+    # hide them from this user's history from now on.
+    u.records_since=now
+
 def install_admin_ops(app,ctx,admin,csrf):
     @app.get('/api/admin/audit')
     def audit(uid=Depends(admin)):
@@ -96,38 +143,10 @@ def install_admin_ops(app,ctx,admin,csrf):
             if u.initial_krw is None:
                 u.initial_krw=u.initial_usd*rate;u.initial_fx_date=q['date']
             if data.action=='grant':
-                if data.amount<=0 or rounded(data.amount,data.currency)!=data.amount: raise HTTPException(422,'지원금과 통화별 최소 단위를 확인하세요.')
-                if ws[data.currency].balance+data.amount>Decimal('1000000000000000'): raise HTTPException(409,'지갑 한도를 초과합니다.')
-                ws[data.currency].balance+=data.amount
-                u.net_contributions_krw+=data.amount*(rate if data.currency=='USD' else 1)
-            elif data.action=='rebase':
-                equity=ws['KRW'].balance+ws['USD'].balance*rate
-                for p in db.scalars(select(Position).where(Position.user_id==target)):
-                    quote=quotes.get(p.symbol) or ctx.market.quote(p.symbol)
-                    equity+=Decimal(str(quote.get('native_price',quote['price'])))*p.quantity*(1 if p.symbol.startswith('KR:') else rate)
-                if equity<=0: raise HTTPException(409,'총자산이 0 이하인 계좌는 기준 재설정이 불가능합니다.')
-                u.initial_krw=equity;u.initial_usd=equity/rate;u.net_contributions_krw=0;u.initial_fx_date=q['date'];u.performance_since=now;u.baseline_note='admin-rebase'
-            else:
-                # Preserve recovery evidence before removing user-facing records.
-                models=[Position,Transaction,FxTransaction,LimitOrder,Watchlist,PopularityEvent]
-                archive={m.__tablename__:records(db,m,target) for m in models}
-                archive['wallet_transfers']=[{c.name:getattr(row,c.name) for c in WalletTransfer.__table__.columns} for row in db.scalars(select(WalletTransfer).where(or_(WalletTransfer.sender_id==target,WalletTransfer.recipient_id==target)))]
-                archive['wallets']=before;archive['actor']=uid;archive['reason']=reason
-                archive['performance']={'initial_krw':u.initial_krw,'initial_usd':u.initial_usd,'net_contributions_krw':u.net_contributions_krw,'initial_fx_date':u.initial_fx_date,'performance_since':u.performance_since}
-                archive['weekly_rows']=[]
-                for report in db.scalars(select(WeeklyReport)):
-                    matches=[r for r in report.rows if r['username']==u.username]
-                    if matches:
-                        archive['weekly_rows'].append({'report_id':report.id,'rows':matches})
-                        rows=[r for r in report.rows if r['username']!=u.username]
-                        assign_ranks(rows)
-                        report.rows=rows
-                db.add(SeasonArchive(user_id=target,label='전체 초기화',data=serial(archive),created_at=now))
-                for model in models: db.execute(delete(model).where(model.user_id==target))
-                # Transfers also belong to the counterparty: keep the rows and
-                # hide them from this user's history from now on.
-                amount=initial_amount(db);ws['USD'].balance=amount;ws['KRW'].balance=0
-                u.initial_usd=amount;u.initial_krw=amount*rate;u.net_contributions_krw=0;u.initial_fx_date=q['date'];u.performance_since=None;u.baseline_note='registration';u.records_since=now
+                _check_grant_amount(data)
+                _grant(u,ws,data,rate,'지갑 한도를 초과합니다.')
+            elif data.action=='rebase': _rebase(db,u,ws,quotes,ctx.market,q,now)
+            else: _clear(db,u,ws,before,uid,reason,q,now)
             u.cash=ws['USD'].balance
             if data.action!='grant': drop_from_baseline(db,target)
             add_audit(db,uid,target,data.action,reason,{'request':signature,'before':before,'after':{c:str(w.balance) for c,w in ws.items()},'fx_rate':str(rate),'fx_date':q['date']},request_id=str(data.request_id),at=now)
@@ -143,14 +162,12 @@ def install_admin_ops(app,ctx,admin,csrf):
             if prior:
                 if prior.data.get('request')!=signature: raise HTTPException(409,'재시도 요청 내용이 다릅니다.')
                 return {'ok':True,'replayed':True,'count':prior.data.get('count',0)}
-            if data.amount<=0 or rounded(data.amount,data.currency)!=data.amount: raise HTTPException(422,'지원금과 통화별 최소 단위를 확인하세요.')
+            _check_grant_amount(data)
             q=ctx.fx.current_rate('USD','KRW');rate=q['rate']
             users=list(db.scalars(select(User).where(User.active.is_(True),User.is_admin.is_(False)).order_by(User.id).with_for_update()))
             for user in users:
                 ws=wallets(db,user)
-                if ws[data.currency].balance+data.amount>Decimal('1000000000000000'): raise HTTPException(409,f'{user.username} 지갑 한도를 초과합니다.')
-                ws[data.currency].balance+=data.amount
-                user.net_contributions_krw+=data.amount*(rate if data.currency=='USD' else 1)
+                _grant(user,ws,data,rate,f'{user.username} 지갑 한도를 초과합니다.')
                 user.cash=ws['USD'].balance
             add_audit(db,uid,uid,'bulk_grant',data.reason.strip() or '전체 지원금 지급',{'request':signature,'count':len(users),'currency':data.currency,'amount':str(data.amount)},request_id=str(data.request_id))
             return {'ok':True,'replayed':False,'count':len(users)}
