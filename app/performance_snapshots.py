@@ -29,7 +29,7 @@ from .db import (Session, engine, User, Position, ReportPrice, PerformanceSnapsh
 from .instruments import instrument
 from .market import MarketError
 from .money import wallets, native_cost_basis
-from .portfolio import performance_return, krw_value, ensure_initial_krw
+from .portfolio import flow_adjusted_return, performance_return, krw_value, ensure_initial_krw
 from .kr_session import SEOUL
 
 METHOD_VERSION = 1
@@ -289,9 +289,9 @@ def _baseline_key(row):
 
 
 def flow_adjusted(end, start):
-    """Same rule as the weekly ranking: (end - external flow) / start - 1."""
+    """Same rule as the weekly ranking, between two stored snapshots."""
     flow = end.net_contributions_krw - start.net_contributions_krw
-    return ((end.equity_krw - flow) / start.equity_krw - 1) * 100 if start.equity_krw > 0 else None
+    return flow_adjusted_return(end.equity_krw, start.equity_krw, flow)
 
 
 def series(uid, start, end):

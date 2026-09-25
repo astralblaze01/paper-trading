@@ -6,7 +6,7 @@ from sqlalchemy import select, text, func
 from sqlalchemy.orm import aliased
 from .db import ACCOUNT_LOCK, Session, User, Position, WeeklyState, WeeklyReport, ReportPrice, Wallet
 from .market import MarketError
-from .portfolio import performance_return, RETURN_BASIS
+from .portfolio import flow_adjusted_return, performance_return, RETURN_BASIS
 from .kr_session import SEOUL
 
 
@@ -36,7 +36,7 @@ def standings(baseline, accounts):
             continue
         end = Decimal(account['equity'])
         flow=Decimal(account.get('contributions','0'))-Decimal(baseline[uid].get('contributions','0'))
-        weekly = (((end-flow) / start - 1) * 100).quantize(Decimal('.000001'))
+        weekly = flow_adjusted_return(end, start, flow).quantize(Decimal('.000001'))
         total = performance_return(end, account.get('initial_equity', 100000), account.get('contributions', '0'))
         rows.append({'username': account['username'], 'start_equity': str(start), 'equity': str(end),
                      'pnl': str(end - start-flow), 'return_pct': str(weekly),

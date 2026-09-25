@@ -9,6 +9,13 @@ from .market import MarketError
 RETURN_BASIS = '초기 KRW 평가액 대비 (외부 입출금 반영)'
 
 
+def flow_adjusted_return(end, start, flow):
+    """Percent return from `start` to `end` with external money `flow` taken out: (end - flow) / start - 1.
+
+    None unless `start` is positive. Callers pass Decimals and keep their own rounding."""
+    return ((end - flow) / start - 1) * 100 if start > 0 else None
+
+
 def performance_return(equity, initial_equity, net_contributions=Decimal(0)):
     """The single return definition shared by portfolio and every ranking."""
     if equity is None or initial_equity is None or Decimal(str(initial_equity)) <= 0:
@@ -16,7 +23,7 @@ def performance_return(equity, initial_equity, net_contributions=Decimal(0)):
     equity = Decimal(str(equity))
     initial_equity = Decimal(str(initial_equity))
     contributions = Decimal(str(net_contributions or 0))
-    return ( (equity - contributions) / initial_equity - 1 ) * 100
+    return flow_adjusted_return(equity, initial_equity, contributions)
 
 
 def krw_value(currency, native_value, usd_krw):
