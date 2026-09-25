@@ -10,6 +10,7 @@ from sqlalchemy import select, delete, text, or_
 from .db import ACCOUNT_LOCK, Session, User, Position, Transaction, FxTransaction, LimitOrder, Watchlist, PopularityEvent, SeasonArchive, WeeklyState, WeeklyReport, AdminAudit, WalletTransfer, UserAdminNote
 from .accounts import delete_account_data
 from .money import wallets, initial_amount, rounded
+from .weekly import assign_ranks
 
 class ManagementInput(BaseModel):
     model_config=ConfigDict(extra='forbid')
@@ -114,10 +115,7 @@ def install_admin_ops(app,ctx,admin,csrf):
                     if matches:
                         archive['weekly_rows'].append({'report_id':report.id,'rows':matches})
                         rows=[r for r in report.rows if r['username']!=u.username]
-                        last=None;rank=0
-                        for i,r in enumerate(rows,1):
-                            if r['return_pct']!=last: rank=i
-                            r['rank']=rank;last=r['return_pct']
+                        assign_ranks(rows)
                         report.rows=rows
                 db.add(SeasonArchive(user_id=target,label='전체 초기화',data=serial(archive),created_at=now))
                 for model in models: db.execute(delete(model).where(model.user_id==target))

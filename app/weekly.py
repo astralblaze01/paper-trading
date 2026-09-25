@@ -47,12 +47,17 @@ def standings(baseline, accounts):
                      'pnl': str(end - start-flow), 'return_pct': str(weekly),
                      'total_return_pct': str(total.quantize(Decimal('.000001')) if total is not None else Decimal(0))})
     rows.sort(key=lambda r: (-Decimal(r['return_pct']), r['username']))
+    assign_ranks(rows)
+    return rows, excluded
+
+
+def assign_ranks(rows):
+    """Competition ranks (1, 1, 3) in list order: equal return_pct strings share a rank."""
     previous, rank = None, 0
     for index, row in enumerate(rows, 1):
         if row['return_pct'] != previous: rank = index
         row['rank'] = rank
         previous = row['return_pct']
-    return rows, excluded
 
 
 def tick(market, now=None, fx=None):
@@ -174,10 +179,7 @@ def report_list(page=1):
         admin_names=set(db.scalars(select(User.username).where(User.is_admin.is_(True))))
         def visible_rows(rows):
             filtered=[dict(row) for row in rows if row['username'] not in admin_names]
-            last=None; rank=0
-            for i,row in enumerate(filtered,1):
-                if row['return_pct']!=last: rank=i
-                row['rank']=rank; last=row['return_pct']
+            assign_ranks(filtered)
             return filtered
         return {'enabled': os.getenv('WEEKLY_ENABLED', 'true').lower() == 'true',
                 'weekday': day, 'hour': hour, 'timezone': 'Asia/Seoul',
