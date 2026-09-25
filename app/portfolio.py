@@ -24,14 +24,19 @@ def krw_value(currency, native_value, usd_krw):
     return native_value if currency == 'KRW' else native_value * usd_krw
 
 
+def ensure_initial_krw(user, usd_krw, fx_date):
+    """Fix the account's KRW starting value once, at the first reference rate it is valued with."""
+    if user.initial_krw is None:
+        user.initial_krw=(user.initial_usd*usd_krw).quantize(Decimal('.0001'))
+        user.initial_fx_date=fx_date
+
+
 def initialize_equity(uid, fx):
     # New accounts: creation-time daily FX. Existing accounts: first verified migration-day rate.
     q=fx.current_rate('USD','KRW')
     with Session.begin() as db:
         user=db.scalar(select(User).where(User.id==uid).with_for_update())
-        if user.initial_krw is None:
-            user.initial_krw=(user.initial_usd*q['rate']).quantize(Decimal('.0001'))
-            user.initial_fx_date=q['date']
+        ensure_initial_krw(user,q['rate'],q['date'])
     return q
 
 

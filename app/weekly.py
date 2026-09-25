@@ -4,14 +4,13 @@ import os
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from threading import Event, Thread
-from zoneinfo import ZoneInfo
 from sqlalchemy import select, text, func
 from sqlalchemy.orm import aliased
 from .db import ACCOUNT_LOCK, Session, User, Position, WeeklyState, WeeklyReport, ReportPrice, Wallet
 from .market import MarketError
 from .portfolio import performance_return, RETURN_BASIS
+from .kr_session import SEOUL
 
-SEOUL = ZoneInfo('Asia/Seoul')
 log = logging.getLogger(__name__)
 
 

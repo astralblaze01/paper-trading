@@ -67,9 +67,12 @@ def curated_market_rows(market, asset, kind, unavailable=None):
             return None
     scores={r['symbol']:score(r) for r in rows}
     priced=[r for r in rows if scores[r['symbol']] is not None]
-    if priced:
-        rows.sort(key=lambda r:(scores[r['symbol']] is None,
-                                -scores[r['symbol']] if kind!='down' and scores[r['symbol']] is not None else scores[r['symbol']] or Decimal(0)))
+    def sort_order(row):
+        # Unpriced rows go last; the rest by value, largest first unless listing fallers.
+        value=scores[row['symbol']]
+        if value is None: return True, Decimal(0)
+        return False, value if kind=='down' else -value
+    if priced: rows.sort(key=sort_order)
     notes=['등록 종목의 실제 공급자 시세입니다. 전체 시장 순위가 아닙니다.']
     measure={'volume':'거래대금','shares':'거래량'}.get(kind)
     if measure and not priced: notes.append(f'이 시세 공급자는 {measure}을 제공하지 않아 {measure}순으로 정렬할 수 없습니다.')

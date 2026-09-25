@@ -20,7 +20,6 @@ import os
 import time
 from datetime import date, datetime, time as dtime, timedelta, timezone
 from decimal import Decimal
-from zoneinfo import ZoneInfo
 
 from sqlalchemy import select, text, func
 from sqlalchemy.dialects.postgresql import insert
@@ -30,9 +29,9 @@ from .db import (Session, engine, User, Position, ReportPrice, PerformanceSnapsh
 from .instruments import instrument
 from .market import MarketError
 from .money import wallets, native_cost_basis
-from .portfolio import performance_return, krw_value
+from .portfolio import performance_return, krw_value, ensure_initial_krw
+from .kr_session import SEOUL
 
-SEOUL = ZoneInfo('Asia/Seoul')
 METHOD_VERSION = 1
 log = logging.getLogger('performance-snapshots')
 
@@ -103,9 +102,7 @@ def snapshot_user(uid, day, prices, fxq, now, scheduled):
         if db.scalar(select(PerformanceSnapshot.id).where(PerformanceSnapshot.user_id == uid,
                                                           PerformanceSnapshot.snapshot_date == day)):
             return 'exists'
-        if user.initial_krw is None:  # same initialisation as portfolio.initialize_equity
-            user.initial_krw = (user.initial_usd * rate).quantize(Decimal('.0001'))
-            user.initial_fx_date = fxq['date']
+        ensure_initial_krw(user, rate, fxq['date'])
         ws = wallets(db, user)
         cash = {c: w.balance for c, w in ws.items()}
         holdings = list(db.scalars(select(Position).where(Position.user_id == uid).order_by(Position.symbol)))
