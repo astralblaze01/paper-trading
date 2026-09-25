@@ -354,6 +354,8 @@ def transactions(page: int = Query(1, ge=1), uid=Depends(current_user)):
                           .offset((page-1)*TRANSACTIONS_PAGE_SIZE).limit(TRANSACTIONS_PAGE_SIZE))
         return [{field: getattr(t, field) for field in TRANSACTION_FIELDS} for t in rows]
 
+RANKING_HOLD = '시세 또는 기준환율을 확인할 수 없어 랭킹을 보류합니다.'
+
 def _ranking_payload(rows, errors, incomplete, updated_at, stale):
     """The cached snapshot: everything but the per-request state."""
     return {'rows': rows, 'errors': errors, 'incomplete': incomplete, 'base_currency': 'USD',
@@ -389,15 +391,21 @@ def ranking(uid=Depends(current_user)):
         # Multiple browsers in the same ten-second window share one calculation.
         if cached and cached['bucket'] == bucket:
             return _ranking_response(cached['payload'], state, next_boundary, False)
+        # A failed calculation is shared the same way until the window ends, so an
+        # outage does not revalue every account on every request.
+        if cached and cached.get('failed_bucket') == bucket:
+            return _ranking_response(cached['payload'], state, next_boundary, False,
+                                     errors=[RANKING_HOLD], incomplete=True, stale=True)
 
         ids=[user_id for user_id,_ in eligible]
         values=[wallet_portfolio(i,market,fx) for i in ids]
         if any(v['return_pct'] is None or v.get('equity_usd') is None for v in values):
-            error='시세 또는 기준환율을 확인할 수 없어 랭킹을 보류합니다.'
             if cached:
+                # Keep serving the last good rows; remember the failure for this window.
+                cached['failed_bucket'] = bucket
                 return _ranking_response(cached['payload'], state, next_boundary, False,
-                                         errors=[error], incomplete=True, stale=True)
-            payload=_ranking_payload([], [error], incomplete=True, updated_at=None, stale=True)
+                                         errors=[RANKING_HOLD], incomplete=True, stale=True)
+            payload=_ranking_payload([], [RANKING_HOLD], incomplete=True, updated_at=None, stale=True)
             _ranking_cache[cache_key] = {'bucket': bucket, 'payload': payload}
             return _ranking_response(payload, state, next_boundary, True)
         # Rank by total value in USD; the cumulative return is display only.

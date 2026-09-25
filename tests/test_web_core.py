@@ -187,20 +187,31 @@ def test_ranking_failure_without_a_cache(client, monkeypatch):
     assert list(again) == RANKING_KEYS and again == r | {'refreshed': False}
 
 
-def test_ranking_failure_with_a_cache_keeps_the_old_bucket(client, monkeypatch):
+def test_ranking_failure_with_a_cache_is_not_revalued_within_its_bucket(client, monkeypatch):
     main._ranking_cache.clear()
     at_bucket(monkeypatch, B1)
     register(client)
     first = client.get('/api/ranking').json()
     boundary = at_bucket(monkeypatch, B2)
-    calls = []
+    calls, real = [], main.wallet_portfolio
     monkeypatch.setattr(main, 'wallet_portfolio', lambda *args: calls.append(args) or {'return_pct': None})
     failed = client.get('/api/ranking').json()
     assert list(failed) == RANKING_KEYS
     assert failed == first | {'errors': [HOLD], 'incomplete': True, 'refreshed': False, 'stale': True, 'next_refresh_at': boundary}
-    assert main._ranking_cache[main.market]['bucket'] == B1
-    client.get('/api/ranking')
-    assert len(calls) == 2  # the failed bucket is not recorded, so it is valued again
+    assert main._ranking_cache[main.market]['bucket'] == B1   # the last good snapshot keeps its own time
+    # Later requests in the failed bucket get the same answer without valuing every account again.
+    for _ in range(3):
+        assert client.get('/api/ranking').json() == failed
+    assert len(calls) == 1
+    # The next bucket tries again; once prices are back it publishes a fresh snapshot.
+    at_bucket(monkeypatch, B2 + timedelta(seconds=10))
+    assert client.get('/api/ranking').json()['incomplete'] is True and len(calls) == 2
+    boundary = at_bucket(monkeypatch, B2 + timedelta(seconds=20))
+    monkeypatch.setattr(main, 'wallet_portfolio', real)
+    recovered = client.get('/api/ranking').json()
+    assert recovered['refreshed'] is True and recovered['errors'] == [] and recovered['incomplete'] is False
+    assert recovered['next_refresh_at'] == boundary and recovered['rows'] == first['rows']
+    assert client.get('/api/ranking').json() == recovered | {'refreshed': False}
 
 
 def test_ranking_closed_market_serves_the_last_snapshot(client, monkeypatch):
