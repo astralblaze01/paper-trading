@@ -25,11 +25,13 @@ def main():
     refreshed = {}
     retry_after = {}
     attempted = {}
-    master_refreshed=0
+    # None until the first download: monotonic() counts from host boot, so a 0
+    # sentinel would skip the startup refresh for a host up less than a day.
+    master_refreshed=None
     try:
         while True:
             HEARTBEAT.touch()
-            if time.monotonic()-master_refreshed>MASTER_REFRESH:
+            if master_refreshed is None or time.monotonic()-master_refreshed>MASTER_REFRESH:
                 try:
                     count=refresh_master();master_refreshed=time.monotonic();log.info(f'Korean symbol master refreshed ({count} symbols)')
                 except Exception as exc:
