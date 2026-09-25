@@ -1,8 +1,8 @@
 """Shared quote validation/freshness; never performs provider or cache I/O."""
-import os
 import time
 from decimal import Decimal, InvalidOperation
 from .instruments import valid_symbol
+from . import quote_policy
 
 DECIMALS = ('price', 'native_price', 'fx_rate', 'change', 'change_pct', 'high', 'low', 'turnover')
 PUBLIC = ('symbol', 'price', 'native_price', 'currency', 'timestamp', 'stale', 'change',
@@ -14,7 +14,7 @@ PUBLIC = ('symbol', 'price', 'native_price', 'currency', 'timestamp', 'stale', '
 
 
 def max_age(symbol):
-    return int(os.getenv('MAX_QUOTE_AGE', '900') if symbol.startswith('KR:') else os.getenv('US_MAX_QUOTE_AGE', '1800'))
+    return quote_policy.max_age('KR' if symbol.startswith('KR:') else 'US')
 
 
 def normalize_quote(symbol, value, now=None):

@@ -28,6 +28,7 @@ from app.multi_market import KoreaPrices  # noqa: E402
 from app.providers import KRProvider  # noqa: E402
 from app.kr_quotes import capability, valid_sessions, PATH  # noqa: E402
 from app.kr_session import SEOUL, clock_session  # noqa: E402
+from app.quote_policy import max_age  # noqa: E402
 
 MARKETS = {'J': 'KRX', 'NX': 'NXT', 'UN': 'UNIFIED'}
 
@@ -67,7 +68,7 @@ def main():
             traded_session = clock_session(stamp)
             age = time.time() - stamp.timestamp()
             usable = (venue == 'UNIFIED' and traded_session == session and session in valid_sessions(cap)
-                      and age <= int(os.getenv('MAX_QUOTE_AGE', '900')))
+                      and age <= max_age('KR'))
             print(f"  {venue:8} price={b['stck_prpr']:>9} vol={b['cntg_vol']:>7} time={stamp.isoformat()} "
                   f"trade_session={traded_session:11} age={age:>9.0f}s usable_now={'yes' if usable else 'no'}")
 

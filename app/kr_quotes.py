@@ -18,6 +18,7 @@ from decimal import Decimal, InvalidOperation
 from .market import MarketError
 from .redis_cache import redis_cache
 from .kr_session import SEOUL
+from . import quote_policy
 
 PATH = '/uapi/domestic-stock/v1/quotations/'
 ETP_WORDS = ('ETF', 'ETN', 'ELW')
@@ -103,7 +104,7 @@ def unified_quote(kis, symbol, now=None):
     except (ValueError, KeyError, TypeError, InvalidOperation) as exc:
         raise MarketError('국내 시세를 확인할 수 없습니다.') from exc
     return {'symbol': symbol, 'price': price, 'timestamp': int(stamp),
-            'stale': not traded or time.time() - stamp > int(os.getenv('MAX_QUOTE_AGE', '900')),
+            'stale': not traded or time.time() - stamp > quote_policy.max_age('KR'),
             'name': info.get('hts_kor_isnm', symbol), 'change': change, 'change_pct': pct,
             'high': info.get('stck_hgpr'), 'low': info.get('stck_lwpr'), 'volume': info.get('acml_vol'),
             'turnover': info.get('acml_tr_pbmn'), 'market': 'KR', 'venue': venue, 'source': 'KIS',

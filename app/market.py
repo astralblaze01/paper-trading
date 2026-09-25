@@ -7,6 +7,7 @@ from threading import RLock
 from typing import Protocol
 import httpx
 from .redis_cache import redis_cache
+from . import quote_policy
 
 class MarketError(Exception): pass
 class MarketData(Protocol):
@@ -72,4 +73,4 @@ class Finnhub:
                 raise ValueError()
         except (KeyError, TypeError, ValueError, InvalidOperation) as exc:
             raise MarketError('유효한 가격이 없는 종목입니다.') from exc
-        return {'symbol': symbol, 'price': price, 'timestamp': timestamp, 'stale': time.time() - timestamp > int(os.getenv('US_MAX_QUOTE_AGE', '1800')), 'change': data.get('d'), 'change_pct': data.get('dp'), 'high': data.get('h'), 'low': data.get('l'), 'volume': None, 'data_status': 'Finnhub 최근 시세 · 요금제별 지연 가능'}
+        return {'symbol': symbol, 'price': price, 'timestamp': timestamp, 'stale': time.time() - timestamp > quote_policy.max_age('US'), 'change': data.get('d'), 'change_pct': data.get('dp'), 'high': data.get('h'), 'low': data.get('l'), 'volume': None, 'data_status': 'Finnhub 최근 시세 · 요금제별 지연 가능'}
