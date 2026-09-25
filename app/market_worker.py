@@ -12,29 +12,33 @@ from .us_symbols import refresh_master as refresh_us_master
 
 configure_logging()
 log=logging.getLogger('market-worker')
+HEARTBEAT = Path('/tmp/market-worker-heartbeat')  # compose healthcheck
+MASTER_REFRESH = 86400  # seconds between symbol-master downloads
+MASTER_RETRY = 3600     # a failed download is tried again after this instead
 
 
 def main():
     os.environ['MARKET_WORKER_MODE'] = 'true'
     market = MultiMarket()
     interval = max(5, int(os.getenv('QUOTE_TTL', '15')))
+    snapshot_ttl, retry_delay = max(120, interval * 8), max(30, interval * 2)
     refreshed = {}
     retry_after = {}
     attempted = {}
     master_refreshed=0
     try:
         while True:
-            Path('/tmp/market-worker-heartbeat').touch()
-            if time.monotonic()-master_refreshed>86400:
+            HEARTBEAT.touch()
+            if time.monotonic()-master_refreshed>MASTER_REFRESH:
                 try:
                     count=refresh_master();master_refreshed=time.monotonic();log.info(f'Korean symbol master refreshed ({count} symbols)')
                 except Exception as exc:
-                    master_refreshed=time.monotonic()-82800
+                    master_refreshed=time.monotonic()-(MASTER_REFRESH-MASTER_RETRY)
                     log.warning('Korean symbol master refresh failed',extra={'status_code':type(exc).__name__})
                 try:
                     count=refresh_us_master();log.info(f'US symbol master refreshed ({count} symbols)')
                 except Exception as exc:
-                    master_refreshed=time.monotonic()-82800
+                    master_refreshed=time.monotonic()-(MASTER_REFRESH-MASTER_RETRY)
                     log.warning('US symbol master refresh failed',extra={'status_code':type(exc).__name__})
             urgent = redis_cache.next_refresh(timeout=1)
             symbols = ([urgent] if urgent else []) + redis_cache.requested_symbols()
@@ -58,14 +62,14 @@ def main():
                         quote = trade
                     # Tradeability is judged at read time (quote_policy), so
                     # the snapshot may outlive a slow provider cycle.
-                    if not redis_cache.store_quote(symbol, quote, max(120, interval * 8)):
+                    if not redis_cache.store_quote(symbol, quote, snapshot_ttl):
                         raise ValueError('quote store rejected')
                     refreshed[symbol] = time.monotonic()
                     retry_after.pop(symbol, None)
                     log.info('quote stored and published; quote_age_seconds=%s', round(time.time()-quote['timestamp'], 2), extra={'path': symbol})
                 except Exception as exc:
                     # Do not leak provider credentials or response bodies.
-                    retry_after[symbol] = time.monotonic() + max(30, interval * 2)
+                    retry_after[symbol] = time.monotonic() + retry_delay
                     log.warning('market refresh failed',extra={'path':symbol,'status_code':type(exc).__name__})
     finally:
         market.close()
