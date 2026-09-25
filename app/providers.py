@@ -1,21 +1,13 @@
-from typing import Protocol
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
-from zoneinfo import ZoneInfo
 import os
 import time
 import httpx
 from .market import MarketError
 from .cache import TTLCache
 from .instruments import valid_symbol
-
-class MarketDataProvider(Protocol):
-    def search(self, query: str) -> list: ...
-    def quote(self, symbol: str) -> dict: ...
-    def candles(self, symbol: str, period: str) -> dict: ...
-    def movers(self, direction: str) -> dict: ...
-    def volume_leaders(self) -> dict: ...
-    def market_status(self) -> dict: ...
+from .us_session import NEW_YORK
+from .kr_session import SEOUL
 
 RANGES={'1D':(1,'5'),'1W':(7,'30'),'3M':(93,'D'),'1Y':(366,'D'),'5Y':(1830,'W'),'ALL':(365*40,'M')}
 
@@ -69,7 +61,7 @@ class USProvider:
                     rows=[]
                     for b in bars:
                         try:
-                            stamp=datetime.strptime(b['xymd']+b['xhms'],'%Y%m%d%H%M%S').replace(tzinfo=ZoneInfo('America/New_York'))
+                            stamp=datetime.strptime(b['xymd']+b['xhms'],'%Y%m%d%H%M%S').replace(tzinfo=NEW_YORK)
                             rows.append(dict(time=int(stamp.timestamp()),open=b['open'],high=b['high'],low=b['low'],close=b['last'],volume=b.get('evol',0)))
                         except (KeyError,ValueError,TypeError): continue
                     result=candle_result(s,period,'5m',rows,'KIS 미국 분봉')
@@ -80,7 +72,7 @@ class USProvider:
                 days,_=RANGES[period]
                 resolution={'1W':'D','3M':'D','1Y':'D','5Y':'W','ALL':'M'}[period]
                 gubn={'D':'0','W':'1','M':'2'}[resolution]
-                today=datetime.now(ZoneInfo('America/New_York')).date()
+                today=datetime.now(NEW_YORK).date()
                 start=today-timedelta(days=days)
                 rows=[]; continuation=''
                 for _ in range(6):
@@ -94,7 +86,7 @@ class USProvider:
                         try:
                             day=date.fromisoformat(f"{b['xymd'][:4]}-{b['xymd'][4:6]}-{b['xymd'][6:8]}")
                             if day<start or day>today: continue
-                            stamp=datetime.combine(day,datetime.min.time()).replace(tzinfo=ZoneInfo('America/New_York'))
+                            stamp=datetime.combine(day,datetime.min.time()).replace(tzinfo=NEW_YORK)
                             valid.append(dict(time=int(stamp.timestamp()),open=b['open'],high=b['high'],low=b['low'],close=b['clos'],volume=b.get('tvol',0)))
                         except (KeyError,ValueError,TypeError): continue
                     rows.extend(valid)
@@ -104,7 +96,7 @@ class USProvider:
                 result=candle_result(s,period,resolution,rows,'KIS 미국 과거 시세')
                 if result['candles']:
                     result['data_status']='KIS 과거 시세 · 공급자 제공 범위, 실시간 아님'
-                    requested_start=int(datetime.combine(start+timedelta(days=7),datetime.min.time()).replace(tzinfo=ZoneInfo('America/New_York')).timestamp())
+                    requested_start=int(datetime.combine(start+timedelta(days=7),datetime.min.time()).replace(tzinfo=NEW_YORK).timestamp())
                     result['partial']=period not in ('1D','1W') and min(r['time'] for r in rows)>requested_start
                     return result
             except MarketError:
@@ -239,7 +231,7 @@ class KRProvider:
         validate(s,period)
         def load():
             rows=[]
-            now=datetime.now(ZoneInfo('Asia/Seoul')); days,res=RANGES[period]
+            now=datetime.now(SEOUL); days,res=RANGES[period]
             if period=='1D':
                 cursor=now.strftime('%H%M%S')
                 for _ in range(14):
@@ -247,10 +239,10 @@ class KRProvider:
                     bars=d.get('output2',[])
                     if not bars: break
                     for b in bars:
-                        stamp=datetime.strptime(b['stck_bsop_date']+b['stck_cntg_hour'],'%Y%m%d%H%M%S').replace(tzinfo=ZoneInfo('Asia/Seoul'))
+                        stamp=datetime.strptime(b['stck_bsop_date']+b['stck_cntg_hour'],'%Y%m%d%H%M%S').replace(tzinfo=SEOUL)
                         rows.append(dict(time=int(stamp.timestamp()),open=b['stck_oprc'],high=b['stck_hgpr'],low=b['stck_lwpr'],close=b['stck_prpr'],volume=b.get('cntg_vol',0)))
                     earliest=min(r['time'] for r in rows)
-                    nxt=datetime.fromtimestamp(earliest,ZoneInfo('Asia/Seoul'))-timedelta(minutes=1)
+                    nxt=datetime.fromtimestamp(earliest,SEOUL)-timedelta(minutes=1)
                     if nxt.date()!=now.date() or nxt.hour<9 or nxt.strftime('%H%M%S')>=cursor: break
                     cursor=nxt.strftime('%H%M%S')
                 return candle_result(s,period,'1m',rows,'KIS KRX 당일 분봉')
@@ -261,7 +253,7 @@ class KRProvider:
                 bars=[b for b in d.get('output2',[]) if b.get('stck_bsop_date')]
                 if not bars: break
                 for b in bars:
-                    stamp=datetime.strptime(b['stck_bsop_date'],'%Y%m%d').replace(tzinfo=ZoneInfo('Asia/Seoul'))
+                    stamp=datetime.strptime(b['stck_bsop_date'],'%Y%m%d').replace(tzinfo=SEOUL)
                     rows.append(dict(time=int(stamp.timestamp()),open=b['stck_oprc'],high=b['stck_hgpr'],low=b['stck_lwpr'],close=b['stck_clpr'],volume=b.get('acml_vol',0)))
                 earliest=datetime.strptime(min(b['stck_bsop_date'] for b in bars),'%Y%m%d').date()
                 if earliest<=start or earliest>end: break
@@ -298,7 +290,7 @@ class KRProvider:
     def volume_leaders(self): return self.movers('volume')
     def trading_day(self,local=None):
         """True/False from the KIS holiday API, None when it cannot be checked."""
-        local=local or datetime.now(ZoneInfo('Asia/Seoul')); day=local.strftime('%Y%m%d')
+        local=local or datetime.now(SEOUL); day=local.strftime('%Y%m%d')
         try:
             data=self.adapter.get('/uapi/domestic-stock/v1/quotations/chk-holiday','CTCA0903R',{'BASS_DT':day,'CTX_AREA_FK':'','CTX_AREA_NK':''},86400)
             return next(r for r in data['output'] if r['bass_dt']==day)['opnd_yn']=='Y'

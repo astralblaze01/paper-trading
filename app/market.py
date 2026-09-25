@@ -4,15 +4,11 @@ import time
 from collections import deque
 from decimal import Decimal, InvalidOperation
 from threading import RLock
-from typing import Protocol
 import httpx
 from .redis_cache import redis_cache
 from . import quote_policy
 
 class MarketError(Exception): pass
-class MarketData(Protocol):
-    def quote(self, symbol: str) -> dict: ...
-    def search(self, query: str) -> list: ...
 
 class Finnhub:
     def __init__(self):

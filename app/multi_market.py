@@ -5,14 +5,14 @@ import time
 from datetime import datetime, timezone, date
 from decimal import Decimal, InvalidOperation
 from threading import RLock
-from zoneinfo import ZoneInfo
 import httpx
 from .market import Finnhub, MarketError
 from .instruments import discover, instrument, valid_symbol
 from .redis_cache import price_key, redis_cache
 from .quote_data import normalize_quote
+from . import kr_session
 
-SEOUL = ZoneInfo('Asia/Seoul')
+SEOUL = kr_session.SEOUL  # tests read the Korean zone from here
 
 class KoreaPrices:
     PATH = '/uapi/domestic-stock/v1/quotations/inquire-time-itemchartprice'

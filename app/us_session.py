@@ -9,7 +9,6 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 NEW_YORK = ZoneInfo('America/New_York')
-SESSIONS = ('overnight', 'pre_market', 'regular', 'after_hours', 'closed', 'unknown')
 LABELS = {'overnight': '데이마켓', 'pre_market': '프리장', 'regular': '정규장',
           'after_hours': '애프터장', 'closed': '장마감', 'unknown': '장 상태 확인 불가'}
 EXTENDED = {'pre_market', 'after_hours'}
