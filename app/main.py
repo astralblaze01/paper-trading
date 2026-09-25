@@ -8,7 +8,6 @@ from datetime import datetime, timedelta, timezone
 from threading import RLock
 from typing import Literal
 from uuid import UUID
-from zoneinfo import ZoneInfo
 from pathlib import Path
 from fastapi import FastAPI, Request, HTTPException, Depends, Query
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -32,6 +31,8 @@ from .weekly import report_list
 from .branding import BRAND_NAME, STORAGE_NAMESPACE
 from .redis_cache import redis_cache
 from .market_stream import QuoteHub, enabled as quote_sse_enabled
+from .quote_policy import max_age as quote_max_age
+from .kr_session import SEOUL
 from .logging_config import configure_logging
 from .security import limiter
 
@@ -44,7 +45,6 @@ market = MultiMarket()
 fx = FxService(market.fx)
 hasher = PasswordHasher(time_cost=2, memory_cost=19456, parallelism=1)
 dummy_hash = hasher.hash(secrets.token_urlsafe(32))
-SEOUL = ZoneInfo('Asia/Seoul')
 RANKING_INTERVAL_SECONDS = 10
 RANKING_INTERVAL = timedelta(seconds=RANKING_INTERVAL_SECONDS)
 _ranking_lock = RLock()
@@ -203,7 +203,14 @@ def session(request: Request):
     if 'csrf' not in request.session: request.session['csrf'] = secrets.token_urlsafe(32)
     with Session() as db:
         user = db.get(User, request.session['uid']) if request.session.get('uid') else None
-        return {'quote_sse_enabled': quote_sse_enabled(), 'active': bool(user and user.active), 'quote_max_age': {'US': int(os.getenv('US_MAX_QUOTE_AGE', '1800')), 'KR': int(os.getenv('MAX_QUOTE_AGE', '900'))}, 'csrf': request.session['csrf'], 'username': user.username if user else None, 'is_admin': bool(user and user.is_admin), 'market_configured': bool(market.key), 'providers': market.status() if hasattr(market, 'status') else {'us': bool(market.key), 'kr': False}}
+        return {'quote_sse_enabled': quote_sse_enabled(),
+                'active': bool(user and user.active),
+                'quote_max_age': {'US': quote_max_age('US'), 'KR': quote_max_age('KR')},
+                'csrf': request.session['csrf'],
+                'username': user.username if user else None,
+                'is_admin': bool(user and user.is_admin),
+                'market_configured': bool(market.key),
+                'providers': market.status() if hasattr(market, 'status') else {'us': bool(market.key), 'kr': False}}
 
 @app.post('/api/register', dependencies=[Depends(csrf)])
 def register(data: Registration, request: Request):
@@ -289,8 +296,8 @@ def order(data: Order, uid=Depends(current_user)):
     with Session() as db:
         queued=db.scalar(select(LimitOrder).where(LimitOrder.user_id==uid,LimitOrder.request_id==str(data.request_id)))
         if queued:
-            if queued.order_type!='market' or (queued.symbol,queued.side,queued.quantity,queued.use_max)!=(data.symbol,data.side,data.quantity,data.use_max):
-                raise HTTPException(409,'동일 주문 ID에 다른 요청을 사용할 수 없습니다.')
+            same_request=queued.order_type=='market' and (queued.symbol,queued.side,queued.quantity,queued.use_max)==(data.symbol,data.side,data.quantity,data.use_max)
+            if not same_request: raise HTTPException(409,'동일 주문 ID에 다른 요청을 사용할 수 없습니다.')
             return {'id':queued.id,'pending':queued.status=='pending','status':queued.status,'replayed':True}
     closed=closed_market_message(data.symbol)
     if closed: raise HTTPException(409, closed)
@@ -306,26 +313,40 @@ def order(data: Order, uid=Depends(current_user)):
 def portfolio(uid=Depends(current_user)):
     return wallet_portfolio(uid, market, fx)
 
+def _public_user(db, username):
+    """The account behind a public portfolio or performance page: active and not an admin."""
+    return db.scalar(select(User).where(User.username == username, User.active.is_(True), User.is_admin.is_(False)))
+
+# Explicit read-only projection. No internal IDs, credentials, admin memo,
+# transactions or order IDs.
+PUBLIC_PORTFOLIO_FIELDS = ('username', 'wallets', 'positions', 'equity', 'equity_usd', 'base_currency', 'pnl',
+                           'return_pct', 'return_basis', 'fx', 'errors', 'stale')
+
 @app.get('/api/portfolios/{username}')
 def public_portfolio(username: str, uid=Depends(current_user)):
     with Session() as db:
-        target=db.scalar(select(User).where(User.username==username,User.active.is_(True),User.is_admin.is_(False)))
+        target=_public_user(db,username)
         if not target: raise HTTPException(404,'공개 포트폴리오를 찾을 수 없습니다.')
         target_id=target.id
         from .accounts import profile_of, membership_days
         profile=profile_of(db,target_id)
         member={'member_since':target.created_at,'member_days':membership_days(target.created_at)}
     p=wallet_portfolio(target_id,market,fx)
-    # Explicit read-only projection. No internal IDs, credentials, admin memo,
-    # transactions or order IDs.
-    return {k:p[k] for k in ('username','wallets','positions','equity','equity_usd','base_currency','pnl','return_pct','return_basis','fx','errors','stale')}|{'profile':profile}|member
+    return {k:p[k] for k in PUBLIC_PORTFOLIO_FIELDS}|{'profile':profile}|member
 
+
+TRANSACTION_FIELDS = ('id', 'symbol', 'side', 'quantity', 'price', 'currency', 'native_price', 'fx_rate', 'fx_date',
+                      'quote_time', 'created_at', 'gross_amount', 'fee', 'tax', 'net_amount', 'realized_pnl',
+                      'accounting_version', 'order_requested_at', 'market_session', 'venue', 'quote_source',
+                      'price_mode', 'quote_stale')
+TRANSACTIONS_PAGE_SIZE = 50
 
 @app.get('/api/transactions')
 def transactions(page: int = Query(1, ge=1), uid=Depends(current_user)):
     with Session() as db:
-        rows = db.scalars(select(Transaction).where(Transaction.user_id == uid).order_by(Transaction.id.desc()).offset((page-1)*50).limit(50))
-        return [{'id': t.id, 'symbol': t.symbol, 'side': t.side, 'quantity': t.quantity, 'price': t.price, 'currency': t.currency, 'native_price': t.native_price, 'fx_rate': t.fx_rate, 'fx_date': t.fx_date, 'quote_time': t.quote_time, 'created_at': t.created_at, 'gross_amount': t.gross_amount, 'fee': t.fee, 'tax': t.tax, 'net_amount': t.net_amount, 'realized_pnl': t.realized_pnl, 'accounting_version': t.accounting_version, 'order_requested_at': t.order_requested_at, 'market_session': t.market_session, 'venue': t.venue, 'quote_source': t.quote_source, 'price_mode': t.price_mode, 'quote_stale': t.quote_stale} for t in rows]
+        rows = db.scalars(select(Transaction).where(Transaction.user_id == uid).order_by(Transaction.id.desc())
+                          .offset((page-1)*TRANSACTIONS_PAGE_SIZE).limit(TRANSACTIONS_PAGE_SIZE))
+        return [{field: getattr(t, field) for field in TRANSACTION_FIELDS} for t in rows]
 
 def _ranking_payload(rows, errors, incomplete, updated_at, stale):
     """The cached snapshot: everything but the per-request state."""
@@ -391,7 +412,11 @@ def performance_view(target_id, username, period, start, end):
     from datetime import date as day_type
     today = datetime.now(timezone.utc).astimezone(SNAPSHOT_ZONE).date()
     try:
-        first, last = (day_type.fromisoformat(start) if start else day_type.min, day_type.fromisoformat(end) if end else today) if start or end else period_range(period, today)
+        if start or end:
+            first = day_type.fromisoformat(start) if start else day_type.min
+            last = day_type.fromisoformat(end) if end else today
+        else:
+            first, last = period_range(period, today)
     except ValueError: raise HTTPException(422, '기간은 1W, 1M, 3M, 1Y, YTD, ALL 또는 YYYY-MM-DD 형식입니다.')
     if first > last: raise HTTPException(422, '시작일이 종료일보다 늦습니다.')
     return {'username': username, 'period': None if start or end else period, 'from': first if first != day_type.min else None,
@@ -406,9 +431,8 @@ def my_performance(period: PerformancePeriod = '1M', start: str | None = Query(N
 
 @app.get('/api/performance/{username}')
 def public_performance(username: str, period: PerformancePeriod = '1M', start: str | None = Query(None, alias='from'), end: str | None = Query(None, alias='to'), uid=Depends(current_user)):
-    # Same visibility as the public portfolio: active, non-admin accounts.
     with Session() as db:
-        target = db.scalar(select(User).where(User.username == username, User.active.is_(True), User.is_admin.is_(False)))
+        target = _public_user(db, username)
         if not target: raise HTTPException(404, '공개 성과 기록을 찾을 수 없습니다.')
         target_id = target.id
     return performance_view(target_id, username, period, start, end)
