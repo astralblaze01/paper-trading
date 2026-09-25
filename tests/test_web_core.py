@@ -9,10 +9,10 @@ from decimal import Decimal as D
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
 from test_service import database, client, register, FakeMarket, order
 from app import main, security
-from app.db import Session, User, LimitOrder
+from app.db import Session, User, LimitOrder, Transaction
 from app.market import MarketError
 from app.portfolio import RETURN_BASIS
 from app.trading import execute_order
@@ -465,6 +465,37 @@ def test_order_replays_a_queued_market_order_only_for_the_same_request(client):
     assert r.status_code == 409 and r.json() == {'detail': '동일 주문 ID에 다른 요청을 사용할 수 없습니다.'}
     r = client.post('/api/orders', headers=headers, json=body | {'request_id': str(uuid4())})
     assert r.status_code == 409 and r.json() == {'detail': holiday('미국')}
+
+
+def test_filled_orders_replay_after_the_market_closes(client):
+    headers = {'x-csrf-token': register(client)}
+    post = lambda body: client.post('/api/orders', headers=headers, json=body)
+    main.market.providers = {'US': Provider({'label': '정규장', 'session': 'regular', 'open': True, 'tradable': True})}
+    buy = {'symbol': 'AAPL', 'side': 'buy', 'quantity': 3, 'request_id': str(uuid4())}
+    sell = {'symbol': 'AAPL', 'side': 'sell', 'quantity': 1, 'request_id': str(uuid4())}
+    sell_max = {'symbol': 'AAPL', 'side': 'sell', 'quantity': 1, 'use_max': True, 'request_id': str(uuid4())}
+    filled = {}
+    for body in (buy, sell, sell_max):
+        r = post(body)
+        assert r.status_code == 200 and r.json()['replayed'] is False
+        filled[body['request_id']] = r.json()
+    assert filled[sell_max['request_id']]['quantity'] == 2
+    main.market.providers = {'US': Provider({'label': '장마감', 'session': 'closed', 'open': False})}
+    for body in (buy, sell, sell_max):
+        first = filled[body['request_id']]
+        r = post(body)
+        assert r.status_code == 200 and r.json() == {'id': first['id'], 'replayed': True, 'quantity': first['quantity']}
+    # use_max replays whatever quantity the retry carries, exactly as while the market is open.
+    assert post(sell_max | {'quantity': 7}).json()['replayed'] is True
+    # The idempotency guard still refuses a different order under a used id.
+    for change in ({'side': 'sell'}, {'quantity': 4}, {'symbol': 'MSFT'}):
+        r = post(buy | change)
+        assert r.status_code == 409 and r.json()['detail'] == '동일 주문 ID에 다른 주문을 사용할 수 없습니다.'
+    # A new request id is a new order and still needs an open market.
+    r = post(buy | {'request_id': str(uuid4())})
+    assert r.status_code == 409 and r.json()['detail'].startswith('현재 미국 주식시장이 휴장 중(장마감)')
+    with Session() as db:
+        assert db.scalar(select(func.count()).select_from(Transaction)) == 3
 
 
 def test_internal_jobs_accept_the_worker_token(client, monkeypatch, caplog):

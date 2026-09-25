@@ -86,7 +86,7 @@ def market_session(symbol, q, market):
         return None
 
 
-def _replay(db, user_id, order):
+def filled_replay(db, user_id, order):
     """The answer for an already filled request id, or None; a different order under that id is refused."""
     previous=db.scalar(select(Transaction).where(Transaction.user_id==user_id,Transaction.request_id==str(order.request_id)))
     if not previous: return None
@@ -114,7 +114,7 @@ def execute_order(user_id, order, market, db=None, requested_at=None):
     if db is None:
         # Answer a replay before quoting, so a retry never costs a provider call.
         with Session() as check:
-            replay=_replay(check,user_id,order)
+            replay=filled_replay(check,user_id,order)
             if replay: return replay
     # Fetch/validate the external quote before acquiring the account row lock.
     q,price=checked_quote(order.symbol,market)
@@ -122,7 +122,7 @@ def execute_order(user_id, order, market, db=None, requested_at=None):
         user=lock_user(db,user_id)
         if not user or not user.active: raise HTTPException(403,'사용할 수 없는 계좌입니다.')
         # Again under the lock: the same request may have filled while this one waited.
-        replay=_replay(db,user_id,order)
+        replay=filled_replay(db,user_id,order)
         if replay: return replay
         # Recheck age after the account lock wait, without external I/O.
         validate_quote(order.symbol, q)

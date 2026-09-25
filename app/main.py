@@ -23,7 +23,7 @@ from .market import MarketError
 from .multi_market import MultiMarket
 from .instruments import SYMBOL_PATTERN, valid_symbol, CATEGORIES, market_of
 from .migrations import migrate
-from .trading import execute_order
+from .trading import execute_order, filled_replay
 from .money import wallets, initial_amount
 from .fx import FxService
 from .portfolio import portfolio as wallet_portfolio, initialize_equity, RETURN_BASIS
@@ -303,6 +303,10 @@ def order(data: Order, uid=Depends(current_user)):
             same_request=queued.order_type=='market' and (queued.symbol,queued.side,queued.quantity,queued.use_max)==(data.symbol,data.side,data.quantity,data.use_max)
             if not same_request: raise HTTPException(409,'동일 주문 ID에 다른 요청을 사용할 수 없습니다.')
             return {'id':queued.id,'pending':queued.status=='pending','status':queued.status,'replayed':True}
+        # A request that already filled is answered before the market checks: the
+        # replay trades nothing, so it must not depend on the market being open now.
+        filled=filled_replay(db,uid,data)
+    if filled: return filled
     closed=closed_market_message(data.symbol)
     if closed: raise HTTPException(409, closed)
     redis_cache.request_stream(data.symbol)
