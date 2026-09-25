@@ -25,7 +25,11 @@ def krw_value(currency, native_value, usd_krw):
 
 
 def ensure_initial_krw(user, usd_krw, fx_date):
-    """Fix the account's KRW starting value once, at the first reference rate it is valued with."""
+    """Fix the account's KRW starting value once, at the first reference rate it is valued with.
+
+    Admin reset/rebase and the weekly SQL backfill set initial_krw without this
+    rounding; they are left separate because routing them here would change
+    the values they store."""
     if user.initial_krw is None:
         user.initial_krw=(user.initial_usd*usd_krw).quantize(Decimal('.0001'))
         user.initial_fx_date=fx_date

@@ -284,8 +284,8 @@ $('chartRetry').addEventListener('click',()=>loadChart());
 $('chartRanges').addEventListener('click',e=>{if(e.target.dataset.range){currentRange=e.target.dataset.range;document.querySelectorAll('[data-range]').forEach(b=>b.setAttribute('aria-pressed',String(b===e.target)));loadChart();}});
 function chartNativeCurrency(){return currentSymbol.startsWith('KR:')?'KRW':'USD';}
 // Shared by drawing and pointer mapping; the left side holds the price labels.
-function chartPlotX(width){return {left:Math.min(100,width*.25),right:width-15};}
-// Canvas cannot read the CSS .gain/.loss/--muted colours, so both charts repeat them here.
+function chartPlotBounds(width){return {left:Math.min(100,width*.25),right:width-15};}
+// The canvas charts do not read the CSS .gain/.loss/--muted colours, so both repeat them here.
 function trendColor(value){return value>0?'#d94b57':value<0?'#367ae7':'#697580';}
 function drawChart(){
  const canvas=$('priceChart'),rect=canvas.getBoundingClientRect(),dpr=window.devicePixelRatio||1,w=Math.max(250,rect.width),h=320;canvas.width=w*dpr;canvas.height=h*dpr;const ctx=canvas.getContext('2d');ctx.scale(dpr,dpr);ctx.clearRect(0,0,w,h);
@@ -298,7 +298,7 @@ function drawChart(){
  $('periodPerformance').append(title,node('span',`${nativeMoney(first,currency)} → ${nativeMoney(last,currency)}`));
  const date=x=>new Date(x.time*1000).toLocaleString('ko-KR');
  $('periodDates').textContent=`표시 구간 첫 종가 대비 · ${date(chartRows[0])} ~ ${date(chartRows.at(-1))}${currency!==nativeCurrency?' · 전 구간을 현재 기준환율로 환산 (과거 환율 수익률 아님)':''}`;
- const lo=Math.min(...vals),hi=Math.max(...vals),span=hi-lo||Math.max(1,hi*.02),{left,right}=chartPlotX(w),top=20,bottom=275;
+ const lo=Math.min(...vals),hi=Math.max(...vals),span=hi-lo||Math.max(1,hi*.02),{left,right}=chartPlotBounds(w),top=20,bottom=275;
  const x=i=>left+i*(right-left)/Math.max(1,vals.length-1),y=v=>bottom-(v-lo)/span*(bottom-top);
  ctx.font='12px sans-serif';for(let n=0;n<5;n++){const v=lo+span*n/4,yy=y(v);ctx.strokeStyle='#e7ebef';ctx.beginPath();ctx.moveTo(left,yy);ctx.lineTo(right,yy);ctx.stroke();ctx.fillStyle='#697580';ctx.fillText(v.toLocaleString('ko-KR',{maximumFractionDigits:viewCurrency(currency)==='KRW'?0:2}),2,yy+4);}
  ctx.strokeStyle=trendColor(change);ctx.lineWidth=2.5;ctx.beginPath();vals.forEach((v,i)=>i?ctx.lineTo(x(i),y(v)):ctx.moveTo(x(i),y(v)));ctx.stroke();ctx.fillStyle='#697580';ctx.fillText(new Date(chartRows[0].time*1000).toLocaleDateString(),left,306);ctx.fillText(new Date(chartRows.at(-1).time*1000).toLocaleDateString(),Math.max(left,right-85),306);
@@ -306,7 +306,7 @@ function drawChart(){
  if(chartIndex!==null){ctx.strokeStyle='#748191';ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(x(i),top);ctx.lineTo(x(i),bottom);ctx.stroke();ctx.setLineDash([]);}
  $('chartTooltip').replaceChildren(node('span',`${date(r)} · 종가 ${nativeMoney(convert(Number(r.close)),currency)} `),signed(delta,`구간 시작 대비 ${delta>0?'+':''}${nativeMoney(delta,currency)} (${delta>0?'+':''}${pct(delta/first*100)})`),node('span',` · 고가 ${nativeMoney(convert(Number(r.high)),currency)} · 저가 ${nativeMoney(convert(Number(r.low)),currency)} · 거래량 ${Number(r.volume).toLocaleString()}`));
 }
-function chartPointer(e){const rect=$('priceChart').getBoundingClientRect(),{left,right}=chartPlotX(rect.width);chartIndex=Math.round((e.clientX-rect.left-left)/(right-left)*Math.max(1,chartRows.length-1));drawChart();}
+function chartPointer(e){const rect=$('priceChart').getBoundingClientRect(),{left,right}=chartPlotBounds(rect.width);chartIndex=Math.round((e.clientX-rect.left-left)/(right-left)*Math.max(1,chartRows.length-1));drawChart();}
 $('priceChart').addEventListener('pointermove',chartPointer);$('priceChart').addEventListener('pointerdown',chartPointer);
 $('priceChart').addEventListener('pointerleave',()=>{chartIndex=null;drawChart();});
 $('priceChart').addEventListener('keydown',e=>{if(['ArrowLeft','ArrowRight'].includes(e.key)){e.preventDefault();chartIndex=Math.max(0,Math.min(chartRows.length-1,(chartIndex??0)+(e.key==='ArrowRight'?1:-1)));drawChart();}});

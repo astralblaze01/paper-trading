@@ -145,8 +145,8 @@ def install_admin_ops(app,ctx,admin,csrf):
             if data.action=='grant':
                 _check_grant_amount(data)
                 _grant(u,ws,data,rate,'지갑 한도를 초과합니다.')
-            elif data.action=='rebase': _rebase(db,u,ws,quotes,ctx.market,q,now)
-            else: _clear(db,u,ws,before,uid,reason,q,now)
+            elif data.action=='rebase': _rebase(db,u,ws,quotes=quotes,market=ctx.market,q=q,now=now)
+            else: _clear(db,u,ws,before=before,actor=uid,reason=reason,q=q,now=now)
             u.cash=ws['USD'].balance
             if data.action!='grant': drop_from_baseline(db,target)
             add_audit(db,uid,target,data.action,reason,{'request':signature,'before':before,'after':{c:str(w.balance) for c,w in ws.items()},'fx_rate':str(rate),'fx_date':q['date']},request_id=str(data.request_id),at=now)

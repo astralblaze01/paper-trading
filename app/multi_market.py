@@ -199,7 +199,7 @@ class MultiMarket:
             for row in candidates:
                 if row['symbol'] not in listed:
                     listed.add(row['symbol'])
-                    rows.append(instrument(row['symbol']) | {'name': row['name']} if as_instrument else row)
+                    rows.append((instrument(row['symbol']) | {'name': row['name']}) if as_instrument else row)
 
         if category in ('all','kr'):
             from .kr_symbols import search_master
