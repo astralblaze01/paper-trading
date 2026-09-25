@@ -1,11 +1,11 @@
 from datetime import datetime, timezone
-import os
 from contextlib import nullcontext
 from decimal import Decimal
 from sqlalchemy import select
 from fastapi import HTTPException
 from .db import Session, User, Position, Transaction
 from .money import wallets, costs, maximum, native_cost_basis
+from . import quote_policy
 
 
 def checked_quote(symbol, market, allow_stale=False):
@@ -27,7 +27,7 @@ def validate_quote_freshness(symbol, q, allow_stale=False):
         raise HTTPException(409,'오래된 시세로는 주문할 수 없습니다.')
     stamp=datetime.fromtimestamp(q['timestamp'],timezone.utc)
     age=(datetime.now(timezone.utc)-stamp).total_seconds()
-    max_age = int(os.getenv('MAX_QUOTE_AGE','900') if symbol.startswith('KR:') else os.getenv('US_MAX_QUOTE_AGE','1800'))
+    max_age = quote_policy.max_age('KR' if symbol.startswith('KR:') else 'US')
     # A live stream's last trade stays current however quiet the symbol is.
     if q.get('realtime') and not allow_stale:
         max_age = 86400
@@ -63,7 +63,7 @@ def preview_order(uid, symbol, side, quantity, market, share=None):
                     'balance_after':available-c['net_amount'] if side=='buy' else available+c['net_amount'],
                     'quote_timestamp':q['timestamp'],'session':q.get('session'),'price_mode':q.get('price_mode'),
                     'session_tradeable':q.get('session_tradeable',True),
-                    'indicative_only':q.get('stale',False) or not q.get('session_tradeable',True) or datetime.now(timezone.utc).timestamp()-q['timestamp']>int(os.getenv('MAX_QUOTE_AGE','900') if symbol.startswith('KR:') else os.getenv('US_MAX_QUOTE_AGE','1800')),
+                    'indicative_only':q.get('stale',False) or not q.get('session_tradeable',True) or datetime.now(timezone.utc).timestamp()-q['timestamp']>quote_policy.max_age('KR' if symbol.startswith('KR:') else 'US'),
                     'holding':p.quantity if p else 0,
                     'holding_after':(p.quantity if p else 0)+(quantity if side=='buy' else -quantity),
                     'can_submit':0<quantity<=maximum_quantity,
@@ -85,24 +85,44 @@ def market_session(symbol, q, market):
         return None
 
 
+def _replay(db, user_id, order):
+    """The answer for an already filled request id, or None; a different order under that id is refused."""
+    previous=db.scalar(select(Transaction).where(Transaction.user_id==user_id,Transaction.request_id==str(order.request_id)))
+    if not previous: return None
+    if (previous.symbol,previous.side)!=(order.symbol,order.side) or (not getattr(order,'use_max',False) and previous.quantity!=order.quantity):
+        raise HTTPException(409,'동일 주문 ID에 다른 주문을 사용할 수 없습니다.')
+    return {'id':previous.id,'replayed':True,'quantity':previous.quantity}
+
+
+def _buy_into(position, quantity, net_amount, usd_price):
+    """Weighted averages: the native cost includes fees; the legacy USD average uses the quoted USD price."""
+    native_cost=native_cost_basis(position)
+    position.native_average_cost=(native_cost*position.quantity+net_amount)/(position.quantity+quantity)
+    position.average_cost=(position.average_cost*position.quantity+usd_price*quantity)/(position.quantity+quantity)
+    position.quantity+=quantity
+
+
+def _sell_from(position, quantity, net_amount):
+    """Reduce the holding; returns the realized P&L against the native cost basis."""
+    realized=net_amount-native_cost_basis(position)*quantity
+    position.quantity-=quantity
+    return realized
+
+
 def execute_order(user_id, order, market, db=None, requested_at=None):
     if db is None:
+        # Answer a replay before quoting, so a retry never costs a provider call.
         with Session() as check:
-            previous=check.scalar(select(Transaction).where(Transaction.user_id==user_id,Transaction.request_id==str(order.request_id)))
-            if previous:
-                if (previous.symbol,previous.side)!=(order.symbol,order.side) or (not getattr(order,'use_max',False) and previous.quantity!=order.quantity):
-                    raise HTTPException(409,'동일 주문 ID에 다른 주문을 사용할 수 없습니다.')
-                return {'id':previous.id,'replayed':True,'quantity':previous.quantity}
+            replay=_replay(check,user_id,order)
+            if replay: return replay
     # Fetch/validate the external quote before acquiring the account row lock.
     q,price=checked_quote(order.symbol,market)
     with (Session.begin() if db is None else nullcontext(db)) as db:
         user=db.scalar(select(User).where(User.id==user_id).with_for_update())
         if not user or not user.active: raise HTTPException(403,'사용할 수 없는 계좌입니다.')
-        previous=db.scalar(select(Transaction).where(Transaction.user_id==user_id,Transaction.request_id==str(order.request_id)))
-        if previous:
-            if (previous.symbol,previous.side)!=(order.symbol,order.side) or (not getattr(order,'use_max',False) and previous.quantity!=order.quantity):
-                raise HTTPException(409,'동일 주문 ID에 다른 주문을 사용할 수 없습니다.')
-            return {'id':previous.id,'replayed':True,'quantity':previous.quantity}
+        # Again under the lock: the same request may have filled while this one waited.
+        replay=_replay(db,user_id,order)
+        if replay: return replay
         # Recheck age after the account lock wait, without external I/O.
         validate_quote(order.symbol, q)
         ws=wallets(db,user)
@@ -119,16 +139,11 @@ def execute_order(user_id, order, market, db=None, requested_at=None):
             if position is None:
                 position=Position(user_id=user_id,symbol=order.symbol,quantity=0,average_cost=Decimal(0),native_average_cost=Decimal(0))
                 db.add(position)
-            native_cost=native_cost_basis(position)
-            position.native_average_cost=(native_cost*position.quantity+c['net_amount'])/(position.quantity+quantity)
-            position.average_cost=(position.average_cost*position.quantity+q['price']*quantity)/(position.quantity+quantity)
-            position.quantity+=quantity
+            _buy_into(position,quantity,c['net_amount'],q['price'])
             ws[currency].balance-=c['net_amount']
         else:
             if position is None or position.quantity<quantity: raise HTTPException(409,'보유 수량이 부족합니다.')
-            native_cost=native_cost_basis(position)
-            realized=c['net_amount']-native_cost*quantity
-            position.quantity-=quantity
+            realized=_sell_from(position,quantity,c['net_amount'])
             ws[currency].balance+=c['net_amount']
             if position.quantity==0: db.delete(position)
         user.cash=ws['USD'].balance  # Legacy compatibility mirror; wallets are authoritative.
