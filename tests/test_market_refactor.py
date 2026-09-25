@@ -1,6 +1,8 @@
 """Characterization tests for market data and streaming: quote age, SSE admission
-and version gate, trade-stream frames and control messages, search merging, FX."""
+and version gate, trade-stream frames and control messages, search merging, FX
+and the KIS chart paging."""
 import asyncio
+import itertools
 import json
 import time
 from datetime import datetime, timedelta, timezone
@@ -650,3 +652,212 @@ def test_reference_fx_shared_cache_repair_and_cooldown(monkeypatch):
     finally:
         for f in made:
             f.client.close()
+
+
+# KIS charts ------------------------------------------------------------------------------
+
+def freeze_providers_clock(monkeypatch, moment):
+    """providers.datetime.now() returns `moment`; every other datetime call is real."""
+    import app.providers
+
+    class Frozen(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return moment.astimezone(tz) if tz else moment
+    monkeypatch.setattr(app.providers, 'datetime', Frozen)
+
+
+class ChartKIS:
+    """Answers every request with answer(path, params, tr_cont) and records the call."""
+    configured = True
+    PATH = '/uapi/domestic-stock/v1/quotations/inquire-time-itemchartprice'
+
+    def __init__(self, answer, cooldown=0):
+        self.answer, self.cooldown, self.calls = answer, cooldown, []
+
+    def get(self, path, tr_id, params, ttl=15, tr_cont=''):
+        self.calls.append({'path': path, 'tr_id': tr_id, 'params': dict(params), 'ttl': ttl, 'tr_cont': tr_cont})
+        return self.answer(path, params, tr_cont)
+
+
+def in_turn(*answers):
+    """An answer function giving `answers` one call after another."""
+    count = itertools.count()
+    return lambda path, params, tr_cont: answers[next(count)]
+
+
+def always(answer):
+    return lambda path, params, tr_cont: answer
+
+
+def kr_bar(day, hhmm=None, price=100):
+    stamp = {'stck_bsop_date': day.strftime('%Y%m%d')} | ({'stck_cntg_hour': hhmm + '00'} if hhmm else {})
+    close = 'stck_prpr' if hhmm else 'stck_clpr'
+    return stamp | {'stck_oprc': price, 'stck_hgpr': price + 1, 'stck_lwpr': price - 1, close: price, 'cntg_vol': 5, 'acml_vol': 50}
+
+
+def yesterday_at(zone, hour):
+    return (datetime.now(zone) - timedelta(days=1)).replace(hour=hour, minute=0, second=0, microsecond=0)
+
+
+def test_korean_minute_chart_pages_back_until_a_stop(monkeypatch):
+    from app.providers import KRProvider
+    now = yesterday_at(SEOUL, 14)
+    freeze_providers_clock(monkeypatch, now)
+    day = now.date()
+    pages = {'140000': [kr_bar(day, '1359'), kr_bar(day, '1358'), kr_bar(day, '1357')],
+             '135600': [kr_bar(day, '1356'), kr_bar(day, '1355'), kr_bar(day, '1354')],
+             '135300': [kr_bar(day, '1356'), kr_bar(day, '1355'), kr_bar(day, '1354', 101)]}
+    kis = ChartKIS(lambda path, params, tr_cont: {'output2': pages[params['FID_INPUT_HOUR_1']]})
+    provider = KRProvider(kis)
+    result = provider.candles('KR:005930', '1D')
+    # The third page reaches no further back, so paging stops there.
+    assert [c['params']['FID_INPUT_HOUR_1'] for c in kis.calls] == ['140000', '135600', '135300']
+    assert {(c['path'], c['tr_id'], c['ttl'], c['tr_cont']) for c in kis.calls} == {(ChartKIS.PATH, 'FHKST03010200', 60, '')}
+    assert kis.calls[0]['params'] == {'FID_COND_MRKT_DIV_CODE': 'J', 'FID_INPUT_ISCD': '005930', 'FID_INPUT_HOUR_1': '140000',
+                                      'FID_PW_DATA_INCU_YN': 'Y', 'FID_ETC_CLS_CODE': ''}
+    assert [c['close'] for c in result['candles']] == [101, 100, 100, 100, 100, 100]  # the later row wins a repeated minute
+    assert (result['resolution'], result['source'], result['range'], result['partial']) == ('1m', 'KIS KRX 당일 분봉', '1D', False)
+    assert provider.candles('KR:005930', '1D') == result and len(kis.calls) == 3  # cached
+
+    def chart(moment, answer):
+        freeze_providers_clock(monkeypatch, moment)
+        kis = ChartKIS(answer)
+        return KRProvider(kis).candles('KR:005930', '1D'), kis.calls
+    result, sent = chart(now.replace(hour=9, minute=2), always({'output2': [kr_bar(day, '0901'), kr_bar(day, '0900')]}))
+    assert len(sent) == 1 and len(result['candles']) == 2          # the next minute is before 09:00
+    result, sent = chart(now, always({'output2': [kr_bar(day - timedelta(days=1), '1530')]}))
+    assert len(sent) == 1 and len(result['candles']) == 1          # the bars are from another day
+    result, sent = chart(now, always({'output2': []}))
+    assert len(sent) == 1 and result['candles'] == [] and result['stale']
+
+    def one_minute_earlier(path, params, tr_cont):
+        cursor = datetime.combine(day, datetime.strptime(params['FID_INPUT_HOUR_1'], '%H%M%S').time())
+        return {'output2': [kr_bar(day, (cursor - timedelta(minutes=1)).strftime('%H%M'))]}
+    result, sent = chart(now, one_minute_earlier)
+    assert len(sent) == 14 and len(result['candles']) == 14         # page cap
+    broken = kr_bar(day, '1359')
+    del broken['stck_oprc']
+    for bars in ([broken], [kr_bar(day, '1359') | {'stck_cntg_hour': 'x'}]):
+        with pytest.raises(MarketError, match='^국내 차트 데이터 형식 오류입니다.$'):
+            chart(now, always({'output2': bars}))
+
+
+def test_korean_daily_chart_pages_back_by_end_date(monkeypatch):
+    from app.providers import KRProvider
+    now = yesterday_at(SEOUL, 14)
+    freeze_providers_clock(monkeypatch, now)
+    end, start = now.date(), now.date() - timedelta(days=93)
+
+    def ymd(day):
+        return day.strftime('%Y%m%d')
+
+    def back(days):
+        return end - timedelta(days=days)
+    pages = {ymd(end): [kr_bar(end), kr_bar(back(1)), {'stck_bsop_date': ''}, kr_bar(back(2))],
+             ymd(back(3)): [kr_bar(back(3)), kr_bar(start + timedelta(days=1))],
+             ymd(start): [kr_bar(start), kr_bar(start - timedelta(days=5))]}
+    kis = ChartKIS(lambda path, params, tr_cont: {'output2': pages[params['FID_INPUT_DATE_2']]})
+    result = KRProvider(kis).candles('KR:005930', '3M')
+    assert [c['params']['FID_INPUT_DATE_2'] for c in kis.calls] == [ymd(end), ymd(back(3)), ymd(start)]
+    assert {(c['path'], c['tr_id'], c['ttl']) for c in kis.calls} == {
+        ('/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice', 'FHKST03010100', 900)}
+    assert kis.calls[0]['params'] == {'FID_COND_MRKT_DIV_CODE': 'J', 'FID_INPUT_ISCD': '005930', 'FID_INPUT_DATE_1': ymd(start),
+                                      'FID_INPUT_DATE_2': ymd(end), 'FID_PERIOD_DIV_CODE': 'D', 'FID_ORG_ADJ_PRC': '0'}
+    assert len(result['candles']) == 7 and result['candles'][0]['close'] == 100
+    assert (result['resolution'], result['source'], result['partial']) == ('D', 'KIS KRX 수정주가 · 1W는 일봉으로 제공', False)
+
+    def chart(period, answer):
+        kis = ChartKIS(answer)
+        return KRProvider(kis).candles('KR:005930', period), kis.calls
+    result, sent = chart('1Y', always({'output2': [kr_bar(end + timedelta(days=1))]}))
+    assert len(sent) == 1 and len(result['candles']) == 1           # a bar after the requested end stops paging
+
+    def at_end(path, params, tr_cont):
+        return {'output2': [kr_bar(datetime.strptime(params['FID_INPUT_DATE_2'], '%Y%m%d').date())]}
+    result, sent = chart('1Y', at_end)
+    assert len(sent) == 10 and len(result['candles']) == 10          # page cap
+    for period, code, partial in (('1W', 'D', False), ('5Y', 'W', False), ('ALL', 'M', True)):
+        result, sent = chart(period, always({'output2': []}))
+        assert (sent[0]['params']['FID_PERIOD_DIV_CODE'], result['resolution'], result['partial']) == (code, code, partial)
+
+
+class DeniedFinnhub:
+    def get(self, *args): raise MarketError('Finnhub candle 403')
+
+
+def us_bar(day, hms=None, price=100):
+    close = 'last' if hms else 'clos'
+    return {'xymd': day.strftime('%Y%m%d'), 'open': price, 'high': price + 1, 'low': price - 1, close: price, 'evol': 5,
+            'tvol': 50} | ({'xhms': hms} if hms else {})
+
+
+def test_us_kis_chart_fallback_pages_and_exchanges(monkeypatch):
+    from app.providers import USProvider
+    now = yesterday_at(NEW_YORK, 12)
+    freeze_providers_clock(monkeypatch, now)
+    today = now.date()
+    path = '/uapi/overseas-price/v1/quotations/'
+
+    def chart(period, answer, cooldown=0):
+        kis = ChartKIS(answer, cooldown)
+        return USProvider(DeniedFinnhub(), kis).candles('AAPL', period), kis.calls
+
+    def days(first, count):
+        return [us_bar(today - timedelta(days=first + n)) for n in range(count)]
+
+    # 1D: an exchange without bars passes to the next one; malformed bars are skipped.
+    minute = {'NAS': [], 'NYS': [us_bar(today, '100500', 101), {'xymd': 'bad'}, us_bar(today, '100000')]}
+    result, sent = chart('1D', lambda p, params, c: {'output2': minute[params['EXCD']]})
+    assert [(c['path'], c['tr_id'], c['params']['EXCD'], c['ttl']) for c in sent] == [
+        (path + 'inquire-time-itemchartprice', 'HHDFS76950200', 'NAS', 60), (path + 'inquire-time-itemchartprice', 'HHDFS76950200', 'NYS', 60)]
+    assert sent[0]['params'] == {'AUTH': '', 'EXCD': 'NAS', 'SYMB': 'AAPL', 'NMIN': '5', 'PINC': '1', 'NEXT': '', 'NREC': '120',
+                                 'FILL': '', 'KEYB': ''}
+    assert [c['close'] for c in result['candles']] == [100, 101]
+    assert (result['resolution'], result['source'], result['data_status']) == ('5m', 'KIS 미국 분봉', 'KIS 제공 분봉 · 실시간 체결 스트림 아님')
+
+    # Daily: continuation pages until one reaches the start; rows outside the range are dropped.
+    start = today - timedelta(days=366)
+    result, sent = chart('1Y', in_turn({'output2': days(0, 3) + [us_bar(today + timedelta(days=1))], '_tr_cont': 'M'},
+                                       {'output2': days(3, 3), '_tr_cont': 'F'},
+                                       {'output2': [us_bar(start - timedelta(days=1))], '_tr_cont': 'M'}))
+    assert [(c['ttl'], c['tr_cont']) for c in sent] == [(900, ''), (0, 'N'), (0, 'N')]
+    assert {(c['path'], c['tr_id']) for c in sent} == {(path + 'dailyprice', 'HHDFS76240000')}
+    assert all(c['params'] == {'AUTH': '', 'EXCD': 'NAS', 'SYMB': 'AAPL', 'GUBN': '0', 'BYMD': '', 'MODP': '1'} for c in sent)
+    assert len(result['candles']) == 6 and result['partial'] is True  # nothing near the requested start
+    assert (result['resolution'], result['source'], result['data_status']) == ('D', 'KIS 미국 과거 시세', 'KIS 과거 시세 · 공급자 제공 범위, 실시간 아님')
+    for marker in ('', 'X'):                                          # no continuation marker: one page
+        result, sent = chart('1Y', always({'output2': days(0, 2), '_tr_cont': marker}))
+        assert len(sent) == 1 and len(result['candles']) == 2
+    count = itertools.count()
+    result, sent = chart('1Y', lambda p, params, c: {'output2': days(next(count), 1), '_tr_cont': 'M'})
+    assert len(sent) == 6 and len(result['candles']) == 6            # page cap
+    result, sent = chart('1Y', always({'output2': [us_bar(start + timedelta(days=7))], '_tr_cont': ''}))
+    assert result['partial'] is False                                  # reaches a week after the start
+    for period, gubn, resolution, partial in (('1W', '0', 'D', False), ('5Y', '1', 'W', True), ('ALL', '2', 'M', True)):
+        result, sent = chart(period, always({'output2': days(0, 1), '_tr_cont': ''}))
+        assert (sent[0]['params']['GUBN'], result['resolution'], result['partial']) == (gubn, resolution, partial)
+
+    # An exchange with nothing usable passes to the next one; after the last one the chart fails.
+    outside = {'NAS': [us_bar(today + timedelta(days=2))], 'NYS': days(0, 2)}
+    result, sent = chart('3M', lambda p, params, c: {'output2': outside[params['EXCD']], '_tr_cont': ''})
+    assert [c['params']['EXCD'] for c in sent] == ['NAS', 'NYS'] and len(result['candles']) == 2
+    undated = ChartKIS(always({'output2': [{'open': 1}], '_tr_cont': 'M'}))
+    with pytest.raises(MarketError) as failure:
+        USProvider(DeniedFinnhub(), undated).candles('AAPL', '1Y')
+    assert [c['params']['EXCD'] for c in undated.calls] == ['NAS', 'NYS', 'AMS']  # no dated bar: one page each
+    assert str(failure.value) == '미국 과거 차트를 불러오지 못했습니다. Finnhub 과거 시세 권한과 KIS 해외 시세 권한을 확인하세요.'
+    with pytest.raises(MarketError, match='^미국 과거 차트를 불러오지 못했습니다.'):
+        chart('1D', always({'output2': []}))
+
+    # A provider error moves on, unless KIS is cooling down.
+    def failing(p, params, c):
+        if params['EXCD'] == 'NAS':
+            raise MarketError('KIS down')
+        return {'output2': days(0, 1), '_tr_cont': ''}
+    result, sent = chart('3M', failing)
+    assert [c['params']['EXCD'] for c in sent] == ['NAS', 'NYS'] and len(result['candles']) == 1
+    cooling = ChartKIS(failing, cooldown=time.monotonic() + 60)
+    with pytest.raises(MarketError, match='^미국 과거 차트를 불러오지 못했습니다.'):
+        USProvider(DeniedFinnhub(), cooling).candles('AAPL', '3M')
+    assert [c['params']['EXCD'] for c in cooling.calls] == ['NAS']
