@@ -251,7 +251,34 @@ function renderDetailQuote(){
   const range=`고가 ${viewMoney(q.high,q.currency)} / 저가 ${viewMoney(q.low,q.currency)} · 거래량 ${q.volume==null?'미제공':Number(q.volume).toLocaleString()}`;
   $('detailMeta').textContent=window.isAdmin?`${q.data_status||q.source||'공급자 시세'} · ${new Date(q.timestamp*1000).toLocaleString()}${q.stale?' · 오래된 시세':''} · ${range}`:range+(q.stale?' · 오래된 시세':'');
 }
-async function loadCompany(symbol){$('companyInfo').textContent='회사 정보를 불러오는 중입니다.';try{const r=await api('company/'+encodeURIComponent(symbol));if(symbol!==currentSymbol)return;detailCompany=r;$('detailTitle').textContent=r.name+(window.isAdmin?' · '+symbol:'');const target=$('companyInfo');target.replaceChildren();const fields=[['회사 / 상품명',r.name],['업종',r.industry],['거래소',r.exchange],['국가',r.country],['상장일',r.ipo],['자산 종류',categories[r.category]]];for(const [label,value] of fields){if(!value)continue;const d=node('div');d.append(node('small',label),node('strong',value));target.append(d);}const dividend=r.dividend||{status:'unavailable'};const div=node('div',null,'dividend-field');div.append(node('small','배당률'),node('strong',dividend.status==='paid'?`연 ${Number(dividend.yield).toFixed(2)}%`:dividend.status==='none'?'없음':'정보 없음'));if(dividend.basis)div.append(node('span',dividend.basis,'field-help'));target.append(div);if(r.website){try{const u=new URL(r.website);if(['http:','https:'].includes(u.protocol)){const a=node('a','공식 홈페이지 ↗');a.href=u.href;a.target='_blank';a.rel='noopener noreferrer';target.append(a);}}catch{}}target.append(node('p',[r.source,r.notice].filter(Boolean).join(' · '),'field-help'));}catch(e){if(symbol===currentSymbol)$('companyInfo').textContent=e.message;}}
+async function loadCompany(symbol){
+  $('companyInfo').textContent='회사 정보를 불러오는 중입니다.';
+  try{
+    const r=await api('company/'+encodeURIComponent(symbol));
+    if(symbol!==currentSymbol)return;
+    detailCompany=r;
+    $('detailTitle').textContent=r.name+(window.isAdmin?' · '+symbol:'');
+    const target=$('companyInfo');target.replaceChildren();
+    const fields=[['회사 / 상품명',r.name],['업종',r.industry],['거래소',r.exchange],['국가',r.country],['상장일',r.ipo],['자산 종류',categories[r.category]]];
+    for(const [label,value] of fields){
+      if(!value)continue;
+      const d=node('div');d.append(node('small',label),node('strong',value));target.append(d);
+    }
+    const dividend=r.dividend||{status:'unavailable'};
+    const div=node('div',null,'dividend-field');
+    div.append(node('small','배당률'),node('strong',dividend.status==='paid'?`연 ${Number(dividend.yield).toFixed(2)}%`:dividend.status==='none'?'없음':'정보 없음'));
+    if(dividend.basis)div.append(node('span',dividend.basis,'field-help'));
+    target.append(div);
+    // Provider data: only an http(s) URL becomes a link, never javascript: or data:.
+    if(r.website){
+      try{
+        const u=new URL(r.website);
+        if(['http:','https:'].includes(u.protocol)){const a=node('a','공식 홈페이지 ↗');a.href=u.href;a.target='_blank';a.rel='noopener noreferrer';target.append(a);}
+      }catch{}
+    }
+    target.append(node('p',[r.source,r.notice].filter(Boolean).join(' · '),'field-help'));
+  }catch(e){if(symbol===currentSymbol)$('companyInfo').textContent=e.message;}
+}
 async function loadChart(){const symbol=currentSymbol,range=currentRange;chartRows=[];chartIndex=null;drawChart();$('chartNotice').textContent='차트 조회 중…';$('chartRetry').hidden=true;try{const r=await api('candles/'+encodeURIComponent(symbol)+'?range='+range);if(symbol!==currentSymbol||range!==currentRange)return;chartRows=r.candles;chartIndex=null;$('chartRetry').hidden=!!r.candles.length;const technical=window.isAdmin?`${r.source} · ${r.resolution} · ${r.data_status}`:'과거 가격 데이터';const partial=!window.isAdmin&&r.partial?' · 공급자가 제공한 범위만 표시합니다.':'';$('chartNotice').textContent=`${technical}${partial}${r.stale?' · 마지막 데이터가 오래되었습니다':''}${!r.candles.length?' · 데이터 없음':''}`;drawChart();}catch(e){if(symbol===currentSymbol&&range===currentRange){$('chartNotice').textContent=e.message+' 잠시 후 다시 불러오세요.';$('chartRetry').hidden=false;chartRows=[];drawChart();}}}
 $('chartRetry').addEventListener('click',()=>loadChart());
 $('chartRanges').addEventListener('click',e=>{if(e.target.dataset.range){currentRange=e.target.dataset.range;document.querySelectorAll('[data-range]').forEach(b=>b.setAttribute('aria-pressed',String(b===e.target)));loadChart();}});
@@ -351,20 +378,50 @@ function renderWatchlist(){
   if(!watchCache.length)$('watchRows').append(node('p','종목 상세나 시장 탐색의 별 버튼으로 관심종목을 추가하세요.','empty-state'));
 }
 async function removeWatch(symbol){const r=await fetch('/api/watchlist/'+encodeURIComponent(symbol),{method:'DELETE',headers:{'X-CSRF-Token':csrf}});if(!r.ok)throw Error('관심종목을 삭제하지 못했습니다.');}
-async function fxEstimate(){const r=await api('fx/preview',{source:$('fxSource').value,amount:$('fxAmount').value});$('fxEstimate').textContent=`${r.date} 기준환율 ${r.rate} · 스프레드 ${r.spread_bps} bps · 수수료 ${nativeMoney(r.fee,r.source)}\n최종 수령 ${nativeMoney(r.received,r.target)}\n예상 잔액 ${money(r.balances_after.USD)} / ${nativeMoney(r.balances_after.KRW,'KRW')}`;}
+async function fxEstimate(){
+  const r=await api('fx/preview',{source:$('fxSource').value,amount:$('fxAmount').value});
+  $('fxEstimate').textContent=`${r.date} 기준환율 ${r.rate} · 스프레드 ${r.spread_bps} bps · 수수료 ${nativeMoney(r.fee,r.source)}\n최종 수령 ${nativeMoney(r.received,r.target)}\n예상 잔액 ${money(r.balances_after.USD)} / ${nativeMoney(r.balances_after.KRW,'KRW')}`;
+}
 handle('fxPreview','click',fxEstimate);
 // Keep in step with '30분마다 확인' in #fxRate.
 const FX_REFRESH_MS=30*60*1000;
-async function loadFxRate(){try{const r=await api('fx');const usd=Number(r.rate),next=new Date(Date.now()+FX_REFRESH_MS).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});$('fxRate').textContent=`1 USD = ${usd.toLocaleString('ko-KR',{maximumFractionDigits:2})} KRW  ·  1,000 KRW = ${(1000/usd).toLocaleString('ko-KR',{maximumFractionDigits:4})} USD  ·  ${r.date} 기준 · 30분마다 확인 (다음 ${next})`;}catch(e){$('fxRate').textContent='환율을 불러오지 못했습니다. '+e.message;}}
+async function loadFxRate(){
+  try{
+    const r=await api('fx');
+    const usd=Number(r.rate),next=new Date(Date.now()+FX_REFRESH_MS).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});
+    $('fxRate').textContent=`1 USD = ${usd.toLocaleString('ko-KR',{maximumFractionDigits:2})} KRW  ·  1,000 KRW = ${(1000/usd).toLocaleString('ko-KR',{maximumFractionDigits:4})} USD  ·  ${r.date} 기준 · 30분마다 확인 (다음 ${next})`;
+  }catch(e){$('fxRate').textContent='환율을 불러오지 못했습니다. '+e.message;}
+}
 setInterval(()=>{if(!document.hidden&&location.hash==='#fx'&&window.sessionUsername&&!window.isAdmin)loadFxRate();},FX_REFRESH_MS);
-window.updateFxBalance=function(){const source=$('fxSource').value,balance=window.walletBalances?.[source];$('fxAvailable').textContent=source==='USD'?`보유 달러 ${nativeMoney(balance,'USD')}`:`보유 원화 ${nativeMoney(balance,'KRW')}`;$('fxAmountUnit').textContent=source;$('fxAmount').step=source==='USD'?'0.0001':'1';$('fxAmount').min=source==='USD'?'0.0001':'1';};
+window.updateFxBalance=function(){
+  const source=$('fxSource').value,balance=window.walletBalances?.[source];
+  $('fxAvailable').textContent=source==='USD'?`보유 달러 ${nativeMoney(balance,'USD')}`:`보유 원화 ${nativeMoney(balance,'KRW')}`;
+  $('fxAmountUnit').textContent=source;
+  $('fxAmount').step=source==='USD'?'0.0001':'1';$('fxAmount').min=source==='USD'?'0.0001':'1';
+};
 $('fxSource').addEventListener('change',()=>{exchangePending=null;$('fxAmount').value='';$('fxEstimate').textContent='';updateFxBalance();});
 $('fxAmount').addEventListener('input',()=>{$('fxEstimate').textContent='';});
 // Quick amounts as a share of the balance; the server rounds to the currency unit.
-document.querySelectorAll('[data-fx-share]').forEach(b=>b.addEventListener('click',async()=>{try{const r=await api('fx/share?'+new URLSearchParams({source:$('fxSource').value,percent:b.dataset.fxShare}));exchangePending=null;$('fxAmount').value=String(r.amount);if(Number(r.amount)<=0){$('fxEstimate').textContent=`${r.source} 보유 금액이 없어 환전할 수 있는 금액이 없습니다.`;return;}await fxEstimate();}catch(e){$('fxEstimate').textContent=e.message;}}));
+document.querySelectorAll('[data-fx-share]').forEach(b=>b.addEventListener('click',async()=>{
+  try{
+    const r=await api('fx/share?'+new URLSearchParams({source:$('fxSource').value,percent:b.dataset.fxShare}));
+    exchangePending=null;$('fxAmount').value=String(r.amount);
+    if(Number(r.amount)<=0){$('fxEstimate').textContent=`${r.source} 보유 금액이 없어 환전할 수 있는 금액이 없습니다.`;return;}
+    await fxEstimate();
+  }catch(e){$('fxEstimate').textContent=e.message;}
+}));
 updateFxBalance();
-handle('fxForm','submit',async()=>{const data={source:$('fxSource').value,amount:$('fxAmount').value},sig=JSON.stringify(data);exchangePending=reuseRequestId(exchangePending,sig);await api('fx/exchange',{...data,request_id:exchangePending.id});exchangePending=null;toast('모의 환전이 완료되었습니다.','success');await refresh();await fxHistory();});
-async function fxHistory(){const rows=await api('fx/history');table($('fxHistory'),['시각','보낸 금액','받은 금액','수수료','환율 기준일'],rows.map(r=>[new Date(r.created_at).toLocaleString(),nativeMoney(r.amount,r.source),nativeMoney(r.received,r.target),nativeMoney(r.fee,r.source),r.rate_date]));}
+handle('fxForm','submit',async()=>{
+  const data={source:$('fxSource').value,amount:$('fxAmount').value},sig=JSON.stringify(data);
+  exchangePending=reuseRequestId(exchangePending,sig);
+  await api('fx/exchange',{...data,request_id:exchangePending.id});
+  exchangePending=null;toast('모의 환전이 완료되었습니다.','success');
+  await refresh();await fxHistory();
+});
+async function fxHistory(){
+  const rows=await api('fx/history');
+  table($('fxHistory'),['시각','보낸 금액','받은 금액','수수료','환율 기준일'],rows.map(r=>[new Date(r.created_at).toLocaleString(),nativeMoney(r.amount,r.source),nativeMoney(r.received,r.target),nativeMoney(r.fee,r.source),r.rate_date]));
+}
 let adminUsers=[],adminSelectedId=null,adminPending=null,adminSearchTimer=null,adminSearchVersion=0;
 const adminLabel=u=>u.note?`${u.username} - ${u.note}`:u.username;
 function adminSelected(){return adminUsers.find(u=>u.id===adminSelectedId)||null;}
