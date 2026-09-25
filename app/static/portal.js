@@ -335,11 +335,41 @@ async function fxHistory(){const rows=await api('fx/history');table($('fxHistory
 let adminUsers=[],adminSelectedId=null,adminPending=null,adminSearchTimer=null,adminSearchVersion=0;
 const adminLabel=u=>u.note?`${u.username} - ${u.note}`:u.username;
 function adminSelected(){return adminUsers.find(u=>u.id===adminSelectedId)||null;}
-async function admin(){const r=await api('admin');adminUsers=r.users;$('adminHealth').textContent=`DB ${r.health.database} · Redis ${r.health.redis} · 국내 시세 ${r.providers.kr?'설정됨':'미설정'} · 미국 시세 ${r.providers.us?'설정됨':'미설정'}`;const market=(name,m)=>{if(!m)return '';const st=m.stream,rest=Object.entries(m.rest).map(([k,v])=>`${k} ${v?(v.ok?'ok':'fail '+(v.error||'')):'no data'}`).join(', ');return `${name} Session: ${m.session} (${m.label}) · open ${m.open} · tradable ${m.tradable} · venue ${m.venue||'—'}${m.venues_open?.length?' ['+m.venues_open.join('+')+']':''} · Price mode: ${m.price_mode} · Stream: ${st.state}${st.healthy?' (healthy)':''} · Last message: ${st.last_message_age==null?'—':st.last_message_age+'s ago'} · Subscribed: ${st.subscribed.join(' ')||'—'} (전체 ${st.all_subscribed.length} / ${st.limit??'—'}) · REST: ${rest}`;};$('adminMarket').textContent=[market('KR',r.kr_market),market('US',r.us_market),r.us_market?`Queued: ${r.us_market.stream.queued.join(' ')||'—'} · Reconnects: ${r.us_market.stream.reconnects}${r.us_market.stream.last_error?' · Last error: '+r.us_market.stream.last_error:''} · Redis ${r.health.redis}`:''].filter(Boolean).join('\n');$('adminFees').textContent=Object.entries(r.fees).map(([k,v])=>k+': '+v+' bps').join(' · ');$('initialAmount').value=r.initial_usd;noticeTemplates=r.notice_templates||noticeTemplates;renderNoticeAdmin(r.notice);
- $('adminOverview').replaceChildren();for(const [label,value] of [['사용자',r.counts.users],['체결',r.counts.transactions],['보유 종목',r.counts.positions],['대기 주문',r.counts.pending_orders]]){const box=node('div',null,'metric');box.append(node('small',label),node('strong',value));$('adminOverview').append(box);}
- $('adminUsers').replaceChildren();for(const u of r.users){const row=node('div',null,'watch-row'),status=node('button',u.active?'계정 정지':'계정 활성화','secondary');row.append(node('strong',`${adminLabel(u)} · ${u.admin?'관리자':'일반'} · ${u.active?'활성':'정지'}`),node('span',nativeMoney(u.wallets.USD,'USD')+' / '+nativeMoney(u.wallets.KRW,'KRW')),status);status.addEventListener('click',async()=>{try{await api(`admin/users/${u.id}/active`,{active:!u.active});await admin();}catch(e){toast(e.message,'error');}});$('adminUsers').append(row);}
+function adminMarketText(name,m){
+ if(!m)return '';
+ const st=m.stream,rest=Object.entries(m.rest).map(([k,v])=>`${k} ${v?(v.ok?'ok':'fail '+(v.error||'')):'no data'}`).join(', ');
+ return `${name} Session: ${m.session} (${m.label}) · open ${m.open} · tradable ${m.tradable} · venue ${m.venue||'—'}${m.venues_open?.length?' ['+m.venues_open.join('+')+']':''} · Price mode: ${m.price_mode} · Stream: ${st.state}${st.healthy?' (healthy)':''} · Last message: ${st.last_message_age==null?'—':st.last_message_age+'s ago'} · Subscribed: ${st.subscribed.join(' ')||'—'} (전체 ${st.all_subscribed.length} / ${st.limit??'—'}) · REST: ${rest}`;
+}
+function renderAdminStatus(r){
+ $('adminHealth').textContent=`DB ${r.health.database} · Redis ${r.health.redis} · 국내 시세 ${r.providers.kr?'설정됨':'미설정'} · 미국 시세 ${r.providers.us?'설정됨':'미설정'}`;
+ $('adminMarket').textContent=[adminMarketText('KR',r.kr_market),adminMarketText('US',r.us_market),r.us_market?`Queued: ${r.us_market.stream.queued.join(' ')||'—'} · Reconnects: ${r.us_market.stream.reconnects}${r.us_market.stream.last_error?' · Last error: '+r.us_market.stream.last_error:''} · Redis ${r.health.redis}`:''].filter(Boolean).join('\n');
+ $('adminFees').textContent=Object.entries(r.fees).map(([k,v])=>k+': '+v+' bps').join(' · ');
+ $('initialAmount').value=r.initial_usd;
+}
+function renderAdminOverview(r){
+ $('adminOverview').replaceChildren();
+ for(const [label,value] of [['사용자',r.counts.users],['체결',r.counts.transactions],['보유 종목',r.counts.positions],['대기 주문',r.counts.pending_orders]]){const box=node('div',null,'metric');box.append(node('small',label),node('strong',value));$('adminOverview').append(box);}
+}
+function renderAdminUsers(r){
+ $('adminUsers').replaceChildren();
+ for(const u of r.users){
+  const row=node('div',null,'watch-row'),status=node('button',u.active?'계정 정지':'계정 활성화','secondary');
+  row.append(node('strong',`${adminLabel(u)} · ${u.admin?'관리자':'일반'} · ${u.active?'활성':'정지'}`),node('span',nativeMoney(u.wallets.USD,'USD')+' / '+nativeMoney(u.wallets.KRW,'KRW')),status);
+  status.addEventListener('click',async()=>{try{await api(`admin/users/${u.id}/active`,{active:!u.active});await admin();}catch(e){toast(e.message,'error');}});
+  $('adminUsers').append(row);
+ }
+}
+async function admin(){
+ const r=await api('admin');adminUsers=r.users;
+ renderAdminStatus(r);
+ noticeTemplates=r.notice_templates||noticeTemplates;renderNoticeAdmin(r.notice);
+ renderAdminOverview(r);
+ renderAdminUsers(r);
  if(adminSelectedId!==null&&!adminSelected())adminSelectedId=null;
- await searchAdminUsers();renderAdminSelected();const rows=await api('admin/audit');table($('adminAudit'),['시각','운영자','대상','작업','사유'],rows.map(r=>[new Date(r.created_at).toLocaleString(),r.actor||'삭제된 계정',r.target||'삭제된 계정',r.action,r.reason]));}
+ await searchAdminUsers();renderAdminSelected();
+ const rows=await api('admin/audit');
+ table($('adminAudit'),['시각','운영자','대상','작업','사유'],rows.map(r=>[new Date(r.created_at).toLocaleString(),r.actor||'삭제된 계정',r.target||'삭제된 계정',r.action,r.reason]));
+}
 // Searches the server by ID or administrator memo.
 async function searchAdminUsers(){
  const version=++adminSearchVersion,q=$('adminTargetSearch').value.trim();
