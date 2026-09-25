@@ -115,7 +115,10 @@ async def lifespan(app):
         await app.state.quote_hub.stop()
         market.client.close()
 
-app = FastAPI(title=BRAND_NAME, lifespan=lifespan, docs_url=None, redoc_url=None)
+# The docs UIs are always off; the schema document is only served when a
+# development setup asks for it, so production does not list every route.
+openapi_url = '/openapi.json' if os.getenv('OPENAPI_ENABLED', 'false').lower() == 'true' else None
+app = FastAPI(title=BRAND_NAME, lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=openapi_url)
 app.add_middleware(SessionMiddleware, secret_key=secret, session_cookie=SESSION_COOKIE, max_age=SESSION_MAX_AGE, same_site='strict', https_only=os.getenv('COOKIE_SECURE', 'false').lower() == 'true')
 app.mount('/static', StaticFiles(directory='app/static'), name='static')
 

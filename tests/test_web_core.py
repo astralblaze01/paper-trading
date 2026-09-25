@@ -551,3 +551,25 @@ def test_worker_token_is_the_jobs_credential(client, monkeypatch):
     assert client.post('/internal/jobs', headers={security.WORKER_TOKEN_HEADER: token}).status_code == 200
     other = security.worker_token(main.secret + 'x')
     assert client.post('/internal/jobs', headers={security.WORKER_TOKEN_HEADER: other}).status_code == 403
+
+
+# OpenAPI 노출 ---------------------------------------------------------------
+
+def test_openapi_document_is_not_served_by_default(client):
+    assert main.app.openapi_url is None
+    for path in ('/openapi.json', '/docs', '/redoc'):
+        assert client.get(path).status_code == 404, path
+    # The schema itself is still built in-process, with its operation ids.
+    ids = {op['operationId'] for item in main.app.openapi()['paths'].values() for op in item.values()}
+    assert 'admin_info_api_admin_get' in ids and 'order_api_orders_post' in ids
+
+
+def test_openapi_document_can_be_enabled_for_development():
+    import os, subprocess, sys
+    probe = ("from fastapi.testclient import TestClient\n"
+             "from app import main\n"
+             "r = TestClient(main.app).get('/openapi.json')\n"
+             "print(main.app.openapi_url, r.status_code, '/api/admin' in r.json()['paths'])\n")
+    result = subprocess.run([sys.executable, '-c', probe], env=os.environ | {'OPENAPI_ENABLED': 'true'},
+                            capture_output=True, text=True, check=True)
+    assert result.stdout.split() == ['/openapi.json', '200', 'True']
