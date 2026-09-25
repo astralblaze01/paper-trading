@@ -4,7 +4,7 @@ import secrets
 import logging
 import time
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from threading import RLock
 from typing import Literal
 from uuid import UUID
@@ -27,7 +27,11 @@ from .trading import execute_order
 from .money import wallets, initial_amount
 from .fx import FxService
 from .portfolio import portfolio as wallet_portfolio, initialize_equity, RETURN_BASIS
-from .weekly import report_list
+from .weekly import report_list, tick
+from .limits import process as process_limit_orders
+from .accounts import membership_days, profile_of, profile_versions
+from .performance_snapshots import capture_daily_snapshots, period_range, series, SEOUL as SNAPSHOT_ZONE
+from .routes import event
 from .branding import BRAND_NAME, STORAGE_NAMESPACE
 from .redis_cache import redis_cache
 from .market_stream import QuoteHub, enabled as quote_sse_enabled
@@ -305,7 +309,6 @@ def order(data: Order, uid=Depends(current_user)):
     # New market orders either settle immediately against a current provider
     # quote or fail clearly. They are never silently converted into a queue.
     result=execute_order(uid, data, market, requested_at=requested_at)
-    from .routes import event
     event(uid,data.symbol,'order')
     return result
 
@@ -328,7 +331,6 @@ def public_portfolio(username: str, uid=Depends(current_user)):
         target=_public_user(db,username)
         if not target: raise HTTPException(404,'공개 포트폴리오를 찾을 수 없습니다.')
         target_id=target.id
-        from .accounts import profile_of, membership_days
         profile=profile_of(db,target_id)
         member={'member_since':target.created_at,'member_days':membership_days(target.created_at)}
     p=wallet_portfolio(target_id,market,fx)
@@ -396,7 +398,6 @@ def ranking(uid=Depends(current_user)):
             return _ranking_response(payload, state, next_boundary, True)
         # Rank by total value in USD; the cumulative return is display only.
         ranked=sorted(zip(ids,values),key=lambda pair:(-pair[1]['equity_usd'],pair[1]['username']))
-        from .accounts import profile_versions
         with Session() as db: versions=profile_versions(db,ids)
         rows=[{'rank':i+1,'username':v['username'],'equity':v['equity'],'equity_usd':v['equity_usd'],
                'return_pct':v['return_pct'],'stale':v['stale'],'fx':v['fx'],
@@ -408,18 +409,16 @@ def ranking(uid=Depends(current_user)):
 
 
 def performance_view(target_id, username, period, start, end):
-    from .performance_snapshots import period_range, series, SEOUL as SNAPSHOT_ZONE
-    from datetime import date as day_type
     today = datetime.now(timezone.utc).astimezone(SNAPSHOT_ZONE).date()
     try:
         if start or end:
-            first = day_type.fromisoformat(start) if start else day_type.min
-            last = day_type.fromisoformat(end) if end else today
+            first = date.fromisoformat(start) if start else date.min
+            last = date.fromisoformat(end) if end else today
         else:
             first, last = period_range(period, today)
     except ValueError: raise HTTPException(422, '기간은 1W, 1M, 3M, 1Y, YTD, ALL 또는 YYYY-MM-DD 형식입니다.')
     if first > last: raise HTTPException(422, '시작일이 종료일보다 늦습니다.')
-    return {'username': username, 'period': None if start or end else period, 'from': first if first != day_type.min else None,
+    return {'username': username, 'period': None if start or end else period, 'from': first if first != date.min else None,
             'to': last, 'timezone': 'Asia/Seoul', 'return_basis': 'KRW 평가액 · 외부 입출금 보정'} | series(target_id, first, last)
 
 PerformancePeriod = Literal['1W', '1M', '3M', '1Y', 'YTD', 'ALL']
@@ -452,11 +451,8 @@ install_accounts(app, sys.modules[__name__])
 @app.post('/internal/jobs')
 def internal_jobs(request: Request):
     if not secrets.compare_digest(request.headers.get(WORKER_TOKEN_HEADER,''),worker_token(secret)): raise HTTPException(403,'Forbidden')
-    from .limits import process
-    from .weekly import tick
-    filled=process(market)
+    filled=process_limit_orders(market)
     weekly_result=tick(market,fx=fx) if os.getenv('WEEKLY_ENABLED','true').lower()=='true' else 'disabled'
-    from .performance_snapshots import capture_daily_snapshots
     try: snapshots=capture_daily_snapshots(market,fx)
     except Exception:
         request_log.exception('daily snapshot failed'); snapshots='error'
