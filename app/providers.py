@@ -27,6 +27,24 @@ def candle_result(symbol, period, resolution, rows, source):
             'data_status':'과거 시세 · 공급자 제공 범위','last_timestamp':clean[-1]['time'] if clean else None,
             'stale':not clean or time.time()-clean[-1]['time']>86400*4,'partial':period=='ALL'}
 
+KIS_OVERSEAS_QUOTES='/uapi/overseas-price/v1/quotations/'
+
+def _us_minute_bar(b):
+    stamp=datetime.strptime(b['xymd']+b['xhms'],'%Y%m%d%H%M%S').replace(tzinfo=NEW_YORK)
+    return dict(time=int(stamp.timestamp()),open=b['open'],high=b['high'],low=b['low'],close=b['last'],volume=b.get('evol',0))
+
+def _us_daily_bar(b,day):
+    stamp=datetime.combine(day,datetime.min.time()).replace(tzinfo=NEW_YORK)
+    return dict(time=int(stamp.timestamp()),open=b['open'],high=b['high'],low=b['low'],close=b['clos'],volume=b.get('tvol',0))
+
+def _kr_minute_bar(b):
+    stamp=datetime.strptime(b['stck_bsop_date']+b['stck_cntg_hour'],'%Y%m%d%H%M%S').replace(tzinfo=SEOUL)
+    return dict(time=int(stamp.timestamp()),open=b['stck_oprc'],high=b['stck_hgpr'],low=b['stck_lwpr'],close=b['stck_prpr'],volume=b.get('cntg_vol',0))
+
+def _kr_daily_bar(b):
+    stamp=datetime.strptime(b['stck_bsop_date'],'%Y%m%d').replace(tzinfo=SEOUL)
+    return dict(time=int(stamp.timestamp()),open=b['stck_oprc'],high=b['stck_hgpr'],low=b['stck_lwpr'],close=b['stck_clpr'],volume=b.get('acml_vol',0))
+
 class USProvider:
     def __init__(self, adapter, kis=None): self.adapter=adapter; self.kis=kis; self.cache=TTLCache()
     def search(self,q): return self.adapter.search(q)
@@ -50,58 +68,54 @@ class USProvider:
     def _kis_candles(self,s,period):
         # KIS quotation APIs are read-only. The exchange is selected from actual
         # responses, never from a guessed price, and the result is marked as KIS.
-        exchanges=('NAS','NYS','AMS')
-        path='/uapi/overseas-price/v1/quotations/'
-        for exchange in exchanges:
+        for exchange in ('NAS','NYS','AMS'):
             try:
-                if period=='1D':
-                    data=self.kis.get(path+'inquire-time-itemchartprice','HHDFS76950200',
-                        {'AUTH':'','EXCD':exchange,'SYMB':s,'NMIN':'5','PINC':'1','NEXT':'','NREC':'120','FILL':'','KEYB':''},60)
-                    bars=data.get('output2') or []
-                    rows=[]
-                    for b in bars:
-                        try:
-                            stamp=datetime.strptime(b['xymd']+b['xhms'],'%Y%m%d%H%M%S').replace(tzinfo=NEW_YORK)
-                            rows.append(dict(time=int(stamp.timestamp()),open=b['open'],high=b['high'],low=b['low'],close=b['last'],volume=b.get('evol',0)))
-                        except (KeyError,ValueError,TypeError): continue
-                    result=candle_result(s,period,'5m',rows,'KIS 미국 분봉')
-                    if result['candles']:
-                        result['data_status']='KIS 제공 분봉 · 실시간 체결 스트림 아님'
-                        return result
-                    continue
-                days,_=RANGES[period]
-                resolution={'1W':'D','3M':'D','1Y':'D','5Y':'W','ALL':'M'}[period]
-                gubn={'D':'0','W':'1','M':'2'}[resolution]
-                today=datetime.now(NEW_YORK).date()
-                start=today-timedelta(days=days)
-                rows=[]; continuation=''
-                for _ in range(6):
-                    data=self.kis.get(path+'dailyprice','HHDFS76240000',
-                        {'AUTH':'','EXCD':exchange,'SYMB':s,'GUBN':gubn,'BYMD':'','MODP':'1'},900 if not continuation else 0,
-                        tr_cont=continuation)
-                    bars=data.get('output2') or []
-                    if not isinstance(bars,list) or not bars: break
-                    valid=[]
-                    for b in bars:
-                        try:
-                            day=date.fromisoformat(f"{b['xymd'][:4]}-{b['xymd'][4:6]}-{b['xymd'][6:8]}")
-                            if day<start or day>today: continue
-                            stamp=datetime.combine(day,datetime.min.time()).replace(tzinfo=NEW_YORK)
-                            valid.append(dict(time=int(stamp.timestamp()),open=b['open'],high=b['high'],low=b['low'],close=b['clos'],volume=b.get('tvol',0)))
-                        except (KeyError,ValueError,TypeError): continue
-                    rows.extend(valid)
-                    oldest=min((b.get('xymd','99999999') for b in bars),default='99999999')
-                    if oldest=='99999999' or oldest<=start.strftime('%Y%m%d') or data.get('_tr_cont') not in ('M','F'): break
-                    continuation='N'
-                result=candle_result(s,period,resolution,rows,'KIS 미국 과거 시세')
-                if result['candles']:
-                    result['data_status']='KIS 과거 시세 · 공급자 제공 범위, 실시간 아님'
-                    requested_start=int(datetime.combine(start+timedelta(days=7),datetime.min.time()).replace(tzinfo=NEW_YORK).timestamp())
-                    result['partial']=period not in ('1D','1W') and min(r['time'] for r in rows)>requested_start
-                    return result
+                result=self._kis_minute_chart(s,exchange) if period=='1D' else self._kis_daily_chart(s,period,exchange)
+                if result: return result
             except MarketError:
                 if getattr(self.kis,'cooldown',0)>time.monotonic(): break
         raise MarketError('미국 과거 차트를 불러오지 못했습니다. Finnhub 과거 시세 권한과 KIS 해외 시세 권한을 확인하세요.')
+    def _kis_minute_chart(self,s,exchange):
+        """Today's 5-minute bars on one exchange, or None when it has none for the symbol."""
+        data=self.kis.get(KIS_OVERSEAS_QUOTES+'inquire-time-itemchartprice','HHDFS76950200',
+            {'AUTH':'','EXCD':exchange,'SYMB':s,'NMIN':'5','PINC':'1','NEXT':'','NREC':'120','FILL':'','KEYB':''},60)
+        rows=[]
+        for b in data.get('output2') or []:
+            try: rows.append(_us_minute_bar(b))
+            except (KeyError,ValueError,TypeError): continue
+        result=candle_result(s,'1D','5m',rows,'KIS 미국 분봉')
+        if not result['candles']: return None
+        result['data_status']='KIS 제공 분봉 · 실시간 체결 스트림 아님'
+        return result
+    def _kis_daily_chart(self,s,period,exchange):
+        """Daily/weekly/monthly bars on one exchange, paging back at most 6 times, or None when it has none."""
+        days,_=RANGES[period]
+        resolution={'1W':'D','3M':'D','1Y':'D','5Y':'W','ALL':'M'}[period]
+        gubn={'D':'0','W':'1','M':'2'}[resolution]
+        today=datetime.now(NEW_YORK).date()
+        start=today-timedelta(days=days)
+        rows=[]; continuation=''
+        for _ in range(6):
+            data=self.kis.get(KIS_OVERSEAS_QUOTES+'dailyprice','HHDFS76240000',
+                {'AUTH':'','EXCD':exchange,'SYMB':s,'GUBN':gubn,'BYMD':'','MODP':'1'},900 if not continuation else 0,
+                tr_cont=continuation)
+            bars=data.get('output2') or []
+            if not isinstance(bars,list) or not bars: break
+            for b in bars:
+                try:
+                    day=date.fromisoformat(f"{b['xymd'][:4]}-{b['xymd'][4:6]}-{b['xymd'][6:8]}")
+                    if start<=day<=today: rows.append(_us_daily_bar(b,day))
+                except (KeyError,ValueError,TypeError): continue
+            # Stop at the range start, or when KIS reports no further page.
+            oldest=min((b.get('xymd','99999999') for b in bars),default='99999999')
+            if oldest=='99999999' or oldest<=start.strftime('%Y%m%d') or data.get('_tr_cont') not in ('M','F'): break
+            continuation='N'
+        result=candle_result(s,period,resolution,rows,'KIS 미국 과거 시세')
+        if not result['candles']: return None
+        result['data_status']='KIS 과거 시세 · 공급자 제공 범위, 실시간 아님'
+        requested_start=int(datetime.combine(start+timedelta(days=7),datetime.min.time()).replace(tzinfo=NEW_YORK).timestamp())
+        result['partial']=period not in ('1D','1W') and min(r['time'] for r in rows)>requested_start
+        return result
     def _leaders(self):
         key=os.getenv('ALPHAVANTAGE_API_KEY','')
         if not key: raise MarketError('미국 전체 시장 순위는 별도 공급자 설정이 필요합니다. ALPHAVANTAGE_API_KEY를 설정하세요.')
@@ -230,37 +244,37 @@ class KRProvider:
     def candles(self,s,period):
         validate(s,period)
         def load():
-            rows=[]
             now=datetime.now(SEOUL); days,res=RANGES[period]
-            if period=='1D':
-                cursor=now.strftime('%H%M%S')
-                for _ in range(14):
-                    d=self.adapter.get(self.adapter.PATH,'FHKST03010200',{'FID_COND_MRKT_DIV_CODE':'J','FID_INPUT_ISCD':s[3:],'FID_INPUT_HOUR_1':cursor,'FID_PW_DATA_INCU_YN':'Y','FID_ETC_CLS_CODE':''},60)
-                    bars=d.get('output2',[])
-                    if not bars: break
-                    for b in bars:
-                        stamp=datetime.strptime(b['stck_bsop_date']+b['stck_cntg_hour'],'%Y%m%d%H%M%S').replace(tzinfo=SEOUL)
-                        rows.append(dict(time=int(stamp.timestamp()),open=b['stck_oprc'],high=b['stck_hgpr'],low=b['stck_lwpr'],close=b['stck_prpr'],volume=b.get('cntg_vol',0)))
-                    earliest=min(r['time'] for r in rows)
-                    nxt=datetime.fromtimestamp(earliest,SEOUL)-timedelta(minutes=1)
-                    if nxt.date()!=now.date() or nxt.hour<9 or nxt.strftime('%H%M%S')>=cursor: break
-                    cursor=nxt.strftime('%H%M%S')
-                return candle_result(s,period,'1m',rows,'KIS KRX 당일 분봉')
+            if period=='1D': return candle_result(s,period,'1m',self._minute_rows(s,now),'KIS KRX 당일 분봉')
             res='D' if period=='1W' else res
-            end=now.date(); start=end-timedelta(days=days)
-            for _ in range(10):
-                d=self.adapter.get('/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice','FHKST03010100',{'FID_COND_MRKT_DIV_CODE':'J','FID_INPUT_ISCD':s[3:],'FID_INPUT_DATE_1':start.strftime('%Y%m%d'),'FID_INPUT_DATE_2':end.strftime('%Y%m%d'),'FID_PERIOD_DIV_CODE':res,'FID_ORG_ADJ_PRC':'0'},900)
-                bars=[b for b in d.get('output2',[]) if b.get('stck_bsop_date')]
-                if not bars: break
-                for b in bars:
-                    stamp=datetime.strptime(b['stck_bsop_date'],'%Y%m%d').replace(tzinfo=SEOUL)
-                    rows.append(dict(time=int(stamp.timestamp()),open=b['stck_oprc'],high=b['stck_hgpr'],low=b['stck_lwpr'],close=b['stck_clpr'],volume=b.get('acml_vol',0)))
-                earliest=datetime.strptime(min(b['stck_bsop_date'] for b in bars),'%Y%m%d').date()
-                if earliest<=start or earliest>end: break
-                end=earliest-timedelta(days=1)
-            return candle_result(s,period,res,rows,'KIS KRX 수정주가 · 1W는 일봉으로 제공')
+            return candle_result(s,period,res,self._daily_rows(s,res,now.date(),days),'KIS KRX 수정주가 · 1W는 일봉으로 제공')
         try: return self.cache.get(('candles',s,period),30 if period=='1D' else 900,load)
         except (KeyError,TypeError,ValueError): raise MarketError('국내 차트 데이터 형식 오류입니다.')
+    def _minute_rows(self,s,now):
+        """Today's 1-minute bars, paging back from now (at most 14 pages) until 09:00 or no older bar."""
+        rows=[]; cursor=now.strftime('%H%M%S')
+        for _ in range(14):
+            d=self.adapter.get(self.adapter.PATH,'FHKST03010200',{'FID_COND_MRKT_DIV_CODE':'J','FID_INPUT_ISCD':s[3:],'FID_INPUT_HOUR_1':cursor,'FID_PW_DATA_INCU_YN':'Y','FID_ETC_CLS_CODE':''},60)
+            bars=d.get('output2',[])
+            if not bars: break
+            rows.extend(_kr_minute_bar(b) for b in bars)
+            earliest=min(r['time'] for r in rows)
+            before=datetime.fromtimestamp(earliest,SEOUL)-timedelta(minutes=1)
+            if before.date()!=now.date() or before.hour<9 or before.strftime('%H%M%S')>=cursor: break
+            cursor=before.strftime('%H%M%S')
+        return rows
+    def _daily_rows(self,s,res,end,days):
+        """Bars of resolution res covering `days` up to `end`, paging back by end date (at most 10 pages)."""
+        rows=[]; start=end-timedelta(days=days)
+        for _ in range(10):
+            d=self.adapter.get('/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice','FHKST03010100',{'FID_COND_MRKT_DIV_CODE':'J','FID_INPUT_ISCD':s[3:],'FID_INPUT_DATE_1':start.strftime('%Y%m%d'),'FID_INPUT_DATE_2':end.strftime('%Y%m%d'),'FID_PERIOD_DIV_CODE':res,'FID_ORG_ADJ_PRC':'0'},900)
+            bars=[b for b in d.get('output2',[]) if b.get('stck_bsop_date')]
+            if not bars: break
+            rows.extend(_kr_daily_bar(b) for b in bars)
+            earliest=datetime.strptime(min(b['stck_bsop_date'] for b in bars),'%Y%m%d').date()
+            if earliest<=start or earliest>end: break
+            end=earliest-timedelta(days=1)
+        return rows
     def movers(self,direction):
         def load():
             common={'FID_COND_MRKT_DIV_CODE':'J','FID_INPUT_ISCD':'0000','FID_DIV_CLS_CODE':'0','FID_TRGT_CLS_CODE':'0','FID_TRGT_EXLS_CLS_CODE':'0','FID_INPUT_PRICE_1':'','FID_INPUT_PRICE_2':'','FID_VOL_CNT':''}
