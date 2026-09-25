@@ -71,7 +71,21 @@ def preview_order(uid, symbol, side, quantity, market, share=None):
                     'unrealized_pnl':(price-(p.native_average_cost if p.native_average_cost is not None else p.average_cost))*p.quantity if p else Decimal(0)}
 
 
-def execute_order(user_id, order, market, db=None):
+KR_SESSIONS = {'정규장': 'regular', '장전': 'pre_market', '장후': 'after_hours', '장마감': 'closed', '휴장': 'closed'}
+
+
+def market_session(symbol, q, market):
+    """Session in force at the fill, for research. US quotes carry it; Korea asks the provider."""
+    if q.get('session'):
+        return q['session']
+    provider = (getattr(market, 'providers', None) or {}).get('KR' if symbol.startswith('KR:') else 'US')
+    try:
+        return KR_SESSIONS.get((provider.market_status() or {}).get('label')) if provider else None
+    except Exception:
+        return None
+
+
+def execute_order(user_id, order, market, db=None, requested_at=None):
     if db is None:
         with Session() as check:
             previous=check.scalar(select(Transaction).where(Transaction.user_id==user_id,Transaction.request_id==str(order.request_id)))
@@ -121,6 +135,8 @@ def execute_order(user_id, order, market, db=None):
         trade=Transaction(user_id=user_id,request_id=str(order.request_id),symbol=order.symbol,side=order.side,quantity=quantity,
                           price=q['price'],native_price=price,fx_rate=q.get('fx_rate',Decimal(1)),fx_date=q.get('fx_date'),
                           quote_time=datetime.fromtimestamp(q['timestamp'],timezone.utc),created_at=datetime.now(timezone.utc),
-                          realized_pnl=realized,accounting_version=2,**c)
+                          realized_pnl=realized,accounting_version=2,
+                          order_requested_at=requested_at,market_session=market_session(order.symbol,q,market),
+                          quote_source=q.get('source'),price_mode=q.get('price_mode'),quote_stale=bool(q.get('stale',False)),**c)
         db.add(trade); db.flush()
         return {'id':trade.id,'replayed':False,'quantity':quantity,'currency':currency,'net_amount':c['net_amount']}

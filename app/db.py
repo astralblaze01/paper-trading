@@ -1,7 +1,8 @@
 import os
 from decimal import Decimal
 from datetime import datetime
-from sqlalchemy import create_engine, String, Numeric, Integer, ForeignKey, DateTime, Boolean, CheckConstraint, UniqueConstraint, URL, LargeBinary, func
+from datetime import date
+from sqlalchemy import create_engine, String, Numeric, Integer, ForeignKey, DateTime, Date, Boolean, CheckConstraint, UniqueConstraint, Index, URL, LargeBinary, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 url = os.getenv('DATABASE_URL') or URL.create('postgresql+psycopg', username='paper', password=os.environ['DB_PASSWORD'], host=os.getenv('DB_HOST', 'db'), database='paper')
@@ -57,6 +58,14 @@ class Transaction(Base):
     tax_bps: Mapped[Decimal] = mapped_column(Numeric(10,4), default=Decimal(0), server_default='0')
     realized_pnl: Mapped[Decimal] = mapped_column(Numeric(24,4), default=Decimal(0), server_default='0')
     accounting_version: Mapped[int] = mapped_column(Integer, default=2, server_default='2')
+    # Research metadata (migration 10). created_at is the fill time; the
+    # request time is kept separately so request-to-fill latency is measurable.
+    # NULL on trades recorded before these columns existed.
+    order_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    market_session: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    quote_source: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    price_mode: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    quote_stale: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     __table_args__ = (UniqueConstraint('user_id', 'request_id'), CheckConstraint('quantity > 0'), CheckConstraint('price > 0'), CheckConstraint("side IN ('buy', 'sell')"))
 
 # Weekly results and scheduler checkpoints survive application restarts.
@@ -223,3 +232,69 @@ class SiteNotice(Base):
     posted_by: Mapped[int | None] = mapped_column(ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
     posted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     cleared_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class PerformanceSnapshot(Base):
+    """One valuation per account per Korean calendar day: research raw data.
+
+    Enough is stored to recompute the valuation without today's prices or FX:
+    holdings, the prices and quote facts used, the reference rate and the
+    return baseline. The cumulative return uses portfolio.performance_return."""
+    __tablename__ = 'performance_snapshots'
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey('users.id'))
+    snapshot_date: Mapped[date] = mapped_column(Date)            # Asia/Seoul
+    snapshot_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))    # valuation time (UTC)
+    scheduled_for: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    equity_krw: Mapped[Decimal] = mapped_column(Numeric(24,4))
+    equity_usd: Mapped[Decimal] = mapped_column(Numeric(24,4))
+    cash_krw: Mapped[Decimal] = mapped_column(Numeric(24,4))
+    cash_usd: Mapped[Decimal] = mapped_column(Numeric(24,4))
+    net_contributions_krw: Mapped[Decimal] = mapped_column(Numeric(24,4))
+    initial_equity_krw: Mapped[Decimal] = mapped_column(Numeric(24,4))
+    cumulative_return_pct: Mapped[Decimal] = mapped_column(Numeric(20,8))
+    fx_rate: Mapped[Decimal] = mapped_column(Numeric(24,12))      # KRW per USD (ECB reference)
+    fx_date: Mapped[str] = mapped_column(String(10))
+    positions: Mapped[dict] = mapped_column(JSONB)
+    quote_metadata: Mapped[dict] = mapped_column(JSONB)
+    quality: Mapped[dict] = mapped_column(JSONB)
+    stale: Mapped[bool] = mapped_column(Boolean)
+    oldest_quote_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    baseline: Mapped[dict] = mapped_column(JSONB)                 # return baseline in force that day
+    method_version: Mapped[int] = mapped_column(Integer, default=1, server_default='1')
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (UniqueConstraint('user_id', 'snapshot_date'), Index('idx_performance_snapshots_date', 'snapshot_date'))
+
+class BenchmarkSnapshot(Base):
+    """Daily benchmark price captured in the same run as the account snapshots."""
+    __tablename__ = 'benchmark_snapshots'
+    id: Mapped[int] = mapped_column(primary_key=True)
+    symbol: Mapped[str] = mapped_column(String(16))
+    snapshot_date: Mapped[date] = mapped_column(Date)
+    price: Mapped[Decimal] = mapped_column(Numeric(20,4))          # native currency
+    currency: Mapped[str] = mapped_column(String(3))
+    quote_time: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    source: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    price_mode: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    market_session: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    stale: Mapped[bool] = mapped_column(Boolean)
+    fx_rate: Mapped[Decimal] = mapped_column(Numeric(24,12))      # KRW per USD used that day
+    fx_date: Mapped[str] = mapped_column(String(10))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (UniqueConstraint('symbol', 'snapshot_date'),)
+
+class SnapshotRun(Base):
+    """Per-day run log: whether the day completed, and why accounts were skipped."""
+    __tablename__ = 'snapshot_runs'
+    snapshot_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    scheduled_for: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    last_attempt: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    eligible: Mapped[int] = mapped_column(Integer, default=0)
+    succeeded: Mapped[int] = mapped_column(Integer, default=0)
+    failed: Mapped[int] = mapped_column(Integer, default=0)
+    errors: Mapped[dict] = mapped_column(JSONB, default=dict)
+    benchmarks: Mapped[dict] = mapped_column(JSONB, default=dict)
+    outcome: Mapped[str | None] = mapped_column(String(16), nullable=True)

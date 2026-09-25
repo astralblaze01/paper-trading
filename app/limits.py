@@ -69,10 +69,10 @@ def process(market):
             try:
                 q,price=checked_quote(row.symbol,market)
                 if row.order_type=='limit' and ((row.side=='buy' and price>row.limit_price) or (row.side=='sell' and price<row.limit_price)): continue
-                fixed=SimpleNamespace(quote=lambda symbol:q)
+                fixed=SimpleNamespace(quote=lambda symbol:q,providers=getattr(market,'providers',{}))
                 request_id=UUID(row.request_id) if row.order_type=='market' else uuid5(NAMESPACE_URL,f'paper-limit:{uid}:{order_id}')
                 order=SimpleNamespace(symbol=row.symbol,side=row.side,quantity=row.quantity,use_max=row.use_max,request_id=request_id)
-                execute_order(uid,order,fixed,db=db)
+                execute_order(uid,order,fixed,db=db,requested_at=row.created_at)
                 row.status='filled'; row.reason=None; filled+=1
                 db.execute(insert(PopularityEvent).values(user_id=uid,symbol=row.symbol,kind='order',bucket=int(datetime.now(timezone.utc).timestamp())//3600,created_at=datetime.now(timezone.utc)).on_conflict_do_nothing())
             except MarketError: row.reason='시세 조회 대기'

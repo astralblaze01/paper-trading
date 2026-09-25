@@ -30,6 +30,7 @@
 - **표시 통화 선택**: 거래 통화 / 원화 / 달러. 금액 표시는 이 설정을 따르고, 현금 지갑은 원래 통화로 표시합니다.
 - **랭킹**: 일반 사용자의 총 자산을 USD로 환산해 10초 단위로 갱신합니다(관리자 제외). 사용자를 누르면 공개 프로필과 투자 현황이 열립니다.
 - **주간 순위**: 매주 정해진 시각(기본 토요일 09:00, 한국 시간)에 주간 수익률 순위를 사이트에 게시합니다.
+- **성과 기록**: 매일 한 번 모든 계좌의 평가액·보유 종목·사용 시세를 저장하고, 공개 프로필에 누적 수익률 그래프(1W–ALL)를 보여줍니다.
 - **프로필**: 자기소개(160자), 프로필 사진(JPG/PNG/WEBP, 최대 5MB, 원형 영역 자르기), 가입 일수 표시
 - **거래내역·환전내역** 조회
 - **사이트 공지**: 새로고침 없이 10초 주기로 표시됩니다.
@@ -132,6 +133,11 @@ docker compose exec web python -m app.admin_cli <아이디>
 | `MARKET_CALLS_PER_MINUTE` | `50` | Finnhub 분당 호출 한도 |
 | `WEEKLY_ENABLED` | `true` | 주간 순위 게시 사용 여부 |
 | `WEEKLY_DAY` / `WEEKLY_HOUR` | `5` / `9` | 게시 요일(월=0 … 일=6)과 시각, 한국 시간 |
+| `DAILY_SNAPSHOT_ENABLED` | `true` | 일별 성과 스냅샷 수집 |
+| `DAILY_SNAPSHOT_HOUR` | `7` | 스냅샷 시각(한국 시간) |
+| `DAILY_SNAPSHOT_RETRY_MINUTES` | `120` | 예정 시각 이후 재시도 창. 지나면 그날은 비워 둠 |
+| `DAILY_SNAPSHOT_MAX_QUOTE_AGE_DAYS` | `7` | 스냅샷 평가에 허용하는 최대 시세 나이(일) |
+| `BENCHMARK_SYMBOLS` | `SPY,QQQ,KR:069500` | 매일 함께 저장할 벤치마크 |
 | `DOMAIN` / `LETSENCRYPT_EMAIL` | | HTTPS 배포용 도메인과 인증서 연락처 |
 | `PUBLIC_HTTP_PORT` / `HTTPS_PORT` | `80` / `443` | HTTPS 배포 시 공개 포트 |
 
@@ -184,6 +190,7 @@ app/
   fx.py, money.py    환전, 수수료·세금 계산
   portfolio.py       평가금액과 수익률
   weekly.py          주간 순위 게시
+  performance_snapshots.py  일별 성과·벤치마크 스냅샷, 기간 수익률
   market.py          Finnhub 어댑터
   multi_market.py    시장별 공급자 통합, KIS·환율 어댑터
   providers.py       차트·순위·장 상태
@@ -208,6 +215,67 @@ tests/               pytest 테스트, 브라우저 스모크 테스트
 - 환율은 실시간이 아닌 ECB 일별 기준환율입니다.
 - 배당과 주식 분할은 계좌에 자동 반영되지 않습니다.
 - 한국 장 상태는 KIS 휴장일 정보와 표준 시간표로 판단하며, 특별 개장 시간은 반영하지 않습니다.
+
+## 일별 성과 스냅샷 (연구용 원자료)
+
+`WeeklyReport`는 사용자에게 보여주는 주간 순위입니다. `performance_snapshots`는 장기 분석용 원자료입니다.
+두 기능은 따로 동작합니다.
+
+### 수집
+- `worker`의 1분 주기 작업이 매일 `DAILY_SNAPSHOT_HOUR`(기본 07:00, `Asia/Seoul`)에 모든 활성 일반 계좌를 평가해 저장합니다. 관리자 계정은 제외합니다.
+- 기본값을 07:00으로 정한 이유:
+  - 한국장은 닫혀 있어 전일 종가가 그대로 유지됩니다.
+  - 미국은 서머타임과 무관하게 정규장이 끝난 뒤(애프터장)입니다.
+  - 따라서 평일 스냅샷은 매일 같은 시장 상태에서 찍힙니다.
+- 모든 계좌를 **같은 가격 한 세트와 같은 기준환율 하나**로 평가합니다.
+- 가격은 공급자에서 받은 실제 시세를 씁니다. 받지 못했으면 주간 집계가 검증해 둔 마지막 가격(`report_prices`, 최대 7일)을 씁니다.
+  - 추정가·평균매수가·임의 가격은 쓰지 않습니다.
+  - 오래된 가격을 썼다면 `stale`, `oldest_quote_at`, `quote_metadata.*.stale`, `quality.fallback_symbols`에 표시합니다.
+- 보유 종목 중 하나라도 평가할 수 없는 계좌는 그날 저장하지 않습니다. 사유는 `snapshot_runs.errors`에 남기고, 5분마다 재시도합니다.
+- `DAILY_SNAPSHOT_RETRY_MINUTES`(120분)가 지나면 그날은 비워 둡니다. 다른 시장 상태의 값으로 채우지 않습니다.
+- 사용자당 하루 1건입니다(`UNIQUE(user_id, snapshot_date)` + advisory lock). 다시 실행하면 이미 저장된 계좌와 벤치마크는 건너뜁니다.
+- 기능 배포 이전 날짜는 만들지 않습니다. 수집 시작일은 첫 스냅샷 날짜이며 관리자 상태에 표시됩니다.
+
+### 저장 내용
+- 평가액: `equity_krw`, `equity_usd`
+- 현금: `cash_krw`, `cash_usd`
+- 수익률 계산 재료: `net_contributions_krw`, `initial_equity_krw`, `cumulative_return_pct`
+- 평가에 쓴 환율: `fx_rate`(KRW/USD), `fx_date`
+- `positions`: 종목별 수량·가격·통화·평가액·평균단가
+- `quote_metadata`: 종목별 시세 시각·source·stale·price_mode·세션
+- `baseline`: 그날 적용된 수익률 기준(초기 평가액, 기준 재설정 시각, 메모)
+
+벤치마크(`SPY`, `QQQ`, 국내 대표 `KR:069500` KODEX 200)는 같은 실행에서 `benchmark_snapshots`에 저장합니다.
+배당은 포함하지 않은 가격 수익률입니다.
+
+### 수익률
+- **누적 수익률**: `portfolio.performance_return()`을 그대로 씁니다. 포트폴리오·랭킹·주간 순위와 같은 식입니다.
+- **기간/일간 수익률**: 주간 순위와 같은 규칙인 `(기말 평가액 − 기간 중 순자금유입) / 기초 평가액 − 1`로 계산합니다. 지원금은 수익으로 잡히지 않습니다.
+- 기간 중 리셋이나 기준 재설정이 있으면, 마지막 재설정 이후 구간만 계산하고 `baseline_changed`로 알립니다.
+- 벤치마크 비교(`return_krw_pct`, `excess_return_pct`)는 계좌와 같은 KRW 기준으로 계산합니다.
+
+### 거래 메타데이터
+- 체결 기록(`transactions`)에 다음 값을 추가로 저장합니다: `market_session`, `quote_source`, `price_mode`, `quote_stale`, `order_requested_at`.
+- `created_at`은 체결 시각입니다. 지정가/대기 주문의 `order_requested_at`은 주문 등록 시각입니다.
+- 이전 거래의 새 컬럼은 `NULL`입니다.
+
+### API와 확인
+- `GET /api/performance/me?period=1W|1M|3M|1Y|YTD|ALL` (또는 `from=YYYY-MM-DD&to=YYYY-MM-DD`)
+- `GET /api/performance/{username}`: 공개 포트폴리오와 같은 대상
+- 관리자:
+  - `GET /api/admin/performance-snapshots`: 오늘 실행 결과, 성공/실패 수, 벤치마크, 수집 시작일
+  - `POST /api/admin/performance-snapshots/run`: 수동 실행
+  - 관리자 화면에도 표시됩니다.
+
+```bash
+docker compose exec web python -m app.performance_snapshots --run-now   # 중복 실행해도 안전
+docker compose exec db psql -U paper -d paper -c \
+  "SELECT snapshot_date, count(*), bool_or(stale) FROM performance_snapshots GROUP BY 1 ORDER BY 1 DESC LIMIT 7"
+```
+
+계정을 탈퇴하면 그 계정의 스냅샷도 삭제됩니다.
+실제 사용자 데이터를 연구에 쓰려면 익명화, 참가자 동의, 연구윤리(IRB) 절차를 따로 검토해야 합니다.
+이 기능은 개인정보를 추가로 수집하지 않습니다.
 
 ## 미국 세션과 시세
 

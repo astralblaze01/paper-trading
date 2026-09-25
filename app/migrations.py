@@ -112,3 +112,11 @@ def migrate(engine):
             ), now()) WHERE created_at IS NULL"""))
             db.execute(text('ALTER TABLE users ALTER COLUMN created_at SET DEFAULT now()'))
             db.execute(text('INSERT INTO schema_migrations(version) VALUES (9)'))
+
+        if not db.scalar(text('SELECT 1 FROM schema_migrations WHERE version=10')):
+            # Research metadata on fills; snapshot tables come from create_all.
+            for column in ('order_requested_at TIMESTAMPTZ', 'market_session VARCHAR(16)', 'quote_source VARCHAR(40)',
+                           'price_mode VARCHAR(24)', 'quote_stale BOOLEAN'):
+                db.execute(text(f'ALTER TABLE transactions ADD COLUMN IF NOT EXISTS {column}'))
+            db.execute(text('CREATE INDEX IF NOT EXISTS idx_performance_snapshots_date ON performance_snapshots(snapshot_date)'))
+            db.execute(text('INSERT INTO schema_migrations(version) VALUES (10)'))

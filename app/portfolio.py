@@ -19,6 +19,11 @@ def performance_return(equity, initial_equity, net_contributions=Decimal(0)):
     return ( (equity - contributions) / initial_equity - 1 ) * 100
 
 
+def krw_value(currency, native_value, usd_krw):
+    """A native amount in KRW at the reference rate: the one conversion every valuation uses."""
+    return native_value if currency == 'KRW' else native_value * usd_krw
+
+
 def initialize_equity(uid, fx):
     # New accounts: creation-time daily FX. Existing accounts: first verified migration-day rate.
     q=fx.current_rate('USD','KRW')
@@ -51,8 +56,7 @@ def portfolio(uid, market, fx):
         average=p.native_average_cost if p.native_average_cost is not None else p.average_cost
         pnl=value-average*p.quantity if value is not None else None
         if value is None: complete=False
-        elif info['currency']=='KRW': equity+=value
-        elif rate: equity+=value*rate['rate']
+        elif info['currency']=='KRW' or rate: equity+=krw_value(info['currency'],value,rate['rate'] if rate else None)
         rows.append(info | {'quantity':p.quantity,'average_cost':average,'quote':q,'value':value,'pnl':pnl,
                             'return_pct':pnl/(average*p.quantity)*100 if pnl is not None and average else None})
     initial=user.initial_krw

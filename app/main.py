@@ -114,7 +114,7 @@ async def no_cache(request, call_next):
     request_id=supplied if re.fullmatch(r'[A-Za-z0-9._-]{1,80}',supplied) else secrets.token_hex(12)
     # Only executions spend the 'trade' budget; previews and reads (the
     # portfolio refresh lists limit orders) must not starve real orders.
-    category = 'auth' if path in ('/api/login','/api/register','/api/account/delete') else 'profile' if path.startswith('/api/profile') else 'trade' if request.method=='POST' and path in ('/api/orders','/api/fx/exchange','/api/limit-orders') else 'market' if path.startswith(('/api/search','/api/quote','/api/candles','/api/explore','/api/order-preview','/api/fx/preview','/api/fx/share','/api/market-status','/api/company','/api/portfolios')) else 'event' if path=='/api/popularity' else None
+    category = 'auth' if path in ('/api/login','/api/register','/api/account/delete') else 'profile' if path.startswith('/api/profile') else 'trade' if request.method=='POST' and path in ('/api/orders','/api/fx/exchange','/api/limit-orders') else 'market' if path.startswith(('/api/search','/api/quote','/api/candles','/api/explore','/api/order-preview','/api/fx/preview','/api/fx/share','/api/market-status','/api/company','/api/portfolios','/api/performance')) else 'event' if path=='/api/popularity' else None
     if category:
         identity=request.headers.get('x-real-ip') or (request.client.host if request.client else 'unknown')
         limit={'auth':20,'trade':30,'market':120,'event':60,'profile':30}[category]
@@ -263,6 +263,7 @@ def closed_market_message(symbol):
 
 @app.post('/api/orders', dependencies=[Depends(csrf)])
 def order(data: Order, uid=Depends(current_user)):
+    requested_at=datetime.now(timezone.utc)
     with Session() as db:
         queued=db.scalar(select(LimitOrder).where(LimitOrder.user_id==uid,LimitOrder.request_id==str(data.request_id)))
         if queued:
@@ -274,7 +275,7 @@ def order(data: Order, uid=Depends(current_user)):
     redis_cache.request_stream(data.symbol)
     # New market orders either settle immediately against a current provider
     # quote or fail clearly. They are never silently converted into a queue.
-    result=execute_order(uid, data, market)
+    result=execute_order(uid, data, market, requested_at=requested_at)
     from .routes import event
     event(uid,data.symbol,'order')
     return result
@@ -321,7 +322,7 @@ def public_portfolio(username: str, uid=Depends(current_user)):
 def transactions(page: int = Query(1, ge=1), uid=Depends(current_user)):
     with Session() as db:
         rows = db.scalars(select(Transaction).where(Transaction.user_id == uid).order_by(Transaction.id.desc()).offset((page-1)*50).limit(50))
-        return [{'id': t.id, 'symbol': t.symbol, 'side': t.side, 'quantity': t.quantity, 'price': t.price, 'currency': t.currency, 'native_price': t.native_price, 'fx_rate': t.fx_rate, 'fx_date': t.fx_date, 'quote_time': t.quote_time, 'created_at': t.created_at, 'gross_amount': t.gross_amount, 'fee': t.fee, 'tax': t.tax, 'net_amount': t.net_amount, 'realized_pnl': t.realized_pnl, 'accounting_version': t.accounting_version} for t in rows]
+        return [{'id': t.id, 'symbol': t.symbol, 'side': t.side, 'quantity': t.quantity, 'price': t.price, 'currency': t.currency, 'native_price': t.native_price, 'fx_rate': t.fx_rate, 'fx_date': t.fx_date, 'quote_time': t.quote_time, 'created_at': t.created_at, 'gross_amount': t.gross_amount, 'fee': t.fee, 'tax': t.tax, 'net_amount': t.net_amount, 'realized_pnl': t.realized_pnl, 'accounting_version': t.accounting_version, 'order_requested_at': t.order_requested_at, 'market_session': t.market_session, 'quote_source': t.quote_source, 'price_mode': t.price_mode, 'quote_stale': t.quote_stale} for t in rows]
 
 @app.get('/api/ranking')
 def ranking(uid=Depends(current_user)):
@@ -393,6 +394,33 @@ def ranking(uid=Depends(current_user)):
                           'next_refresh_at': next_boundary.isoformat()}
 
 
+def performance_view(target_id, username, period, start, end):
+    from .performance_snapshots import period_range, series, SEOUL as SNAPSHOT_ZONE
+    from datetime import date as day_type
+    today = datetime.now(timezone.utc).astimezone(SNAPSHOT_ZONE).date()
+    try:
+        first, last = (day_type.fromisoformat(start) if start else day_type.min, day_type.fromisoformat(end) if end else today) if start or end else period_range(period, today)
+    except ValueError: raise HTTPException(422, '기간은 1W, 1M, 3M, 1Y, YTD, ALL 또는 YYYY-MM-DD 형식입니다.')
+    if first > last: raise HTTPException(422, '시작일이 종료일보다 늦습니다.')
+    return {'username': username, 'period': None if start or end else period, 'from': first if first != day_type.min else None,
+            'to': last, 'timezone': 'Asia/Seoul', 'return_basis': 'KRW 평가액 · 외부 입출금 보정'} | series(target_id, first, last)
+
+PerformancePeriod = Literal['1W', '1M', '3M', '1Y', 'YTD', 'ALL']
+
+@app.get('/api/performance/me')
+def my_performance(period: PerformancePeriod = '1M', start: str | None = Query(None, alias='from'), end: str | None = Query(None, alias='to'), uid=Depends(current_user)):
+    with Session() as db: username = db.get(User, uid).username
+    return performance_view(uid, username, period, start, end)
+
+@app.get('/api/performance/{username}')
+def public_performance(username: str, period: PerformancePeriod = '1M', start: str | None = Query(None, alias='from'), end: str | None = Query(None, alias='to'), uid=Depends(current_user)):
+    # Same visibility as the public portfolio: active, non-admin accounts.
+    with Session() as db:
+        target = db.scalar(select(User).where(User.username == username, User.active.is_(True), User.is_admin.is_(False)))
+        if not target: raise HTTPException(404, '공개 성과 기록을 찾을 수 없습니다.')
+        target_id = target.id
+    return performance_view(target_id, username, period, start, end)
+
 @app.get('/api/weekly')
 def weekly(page: int = Query(1, ge=1), uid=Depends(current_user)):
     return report_list(page)
@@ -414,4 +442,8 @@ def internal_jobs(request: Request):
     from .weekly import tick
     filled=process(market)
     weekly_result=tick(market,fx=fx) if os.getenv('WEEKLY_ENABLED','true').lower()=='true' else 'disabled'
-    return {'filled':filled,'weekly':weekly_result}
+    from .performance_snapshots import capture_daily_snapshots
+    try: snapshots=capture_daily_snapshots(market,fx)
+    except Exception:
+        request_log.exception('daily snapshot failed'); snapshots='error'
+    return {'filled':filled,'weekly':weekly_result,'snapshots':snapshots}

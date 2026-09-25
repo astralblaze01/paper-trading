@@ -32,7 +32,7 @@ window.routePage = async function() {
   message('');
   try {
     if(selected==='explore')await explore();
-    if(selected==='public' && symbol){publicCache=null;$('publicTitle').textContent='투자 현황 조회 중…';for(const id of ['publicPositions','publicMetrics','publicProfile','publicAllocation'])$(id).replaceChildren();const name=decodeURIComponent(symbol);const [p]=await Promise.all([api('portfolios/'+encodeURIComponent(name)),rankingCache?null:refreshRankingOnly().catch(()=>null)]);publicCache=p;renderPublic();
+    if(selected==='public' && symbol){publicCache=null;loadPerformance(decodeURIComponent(symbol));$('publicTitle').textContent='투자 현황 조회 중…';for(const id of ['publicPositions','publicMetrics','publicProfile','publicAllocation'])$(id).replaceChildren();const name=decodeURIComponent(symbol);const [p]=await Promise.all([api('portfolios/'+encodeURIComponent(name)),rankingCache?null:refreshRankingOnly().catch(()=>null)]);publicCache=p;renderPublic();
       if(p.positions.some(x=>x.value==null))retryMissingPrices(async()=>{if(location.hash.split('/')[1]!==symbol)return null;const next=await api('portfolios/'+encodeURIComponent(name));publicCache=next;renderPublic();return next;});}
     if(selected==='detail' && symbol) { currentSymbol=decodeURIComponent(symbol);chartRows=[];drawChart();detailCompany=null;detailQuote=null;orderPreview=null;$('symbol').value=currentSymbol;maxMode=false;loadCompany(currentSymbol);await loadStock(true);await api('popularity',{symbol:currentSymbol,kind:'view'}); }
     if(selected==='fx'){await Promise.all([fxHistory(),loadFxRate()]);}
@@ -335,7 +335,7 @@ async function fxHistory(){const rows=await api('fx/history');table($('fxHistory
 let adminUsers=[],adminSelectedId=null,adminPending=null,adminSearchTimer=null,adminSearchVersion=0;
 const adminLabel=u=>u.note?`${u.username} - ${u.note}`:u.username;
 function adminSelected(){return adminUsers.find(u=>u.id===adminSelectedId)||null;}
-async function admin(){const r=await api('admin');adminUsers=r.users;$('adminHealth').textContent=`DB ${r.health.database} · Redis ${r.health.redis} · 국내 시세 ${r.providers.kr?'설정됨':'미설정'} · 미국 시세 ${r.providers.us?'설정됨':'미설정'}`;const m=r.us_market;if(m){const st=m.stream,rest=Object.entries(m.rest).map(([k,v])=>`${k} ${v?(v.ok?'ok':'fail '+(v.error||'')):'no data'}`).join(', ');$('adminMarket').textContent=`US Session: ${m.session} (${m.label}) · Price mode: ${m.price_mode} · US Stream: ${st.state}${st.healthy?' (healthy)':''} · Last message: ${st.last_message_age==null?'—':st.last_message_age+'s ago'} · Subscribed: ${st.subscribed.length} / ${st.limit??'—'} ${st.subscribed.join(' ')}${st.queued.length?' · Queued: '+st.queued.join(' '):''} · Reconnects: ${st.reconnects}${st.last_error?' · Last error: '+st.last_error:''} · REST: ${rest}`;}$('adminFees').textContent=Object.entries(r.fees).map(([k,v])=>k+': '+v+' bps').join(' · ');$('initialAmount').value=r.initial_usd;noticeTemplates=r.notice_templates||noticeTemplates;renderNoticeAdmin(r.notice);
+async function admin(){const r=await api('admin');adminUsers=r.users;$('adminHealth').textContent=`DB ${r.health.database} · Redis ${r.health.redis} · 국내 시세 ${r.providers.kr?'설정됨':'미설정'} · 미국 시세 ${r.providers.us?'설정됨':'미설정'}`;const m=r.us_market;if(m){const st=m.stream,rest=Object.entries(m.rest).map(([k,v])=>`${k} ${v?(v.ok?'ok':'fail '+(v.error||'')):'no data'}`).join(', ');$('adminMarket').textContent=`US Session: ${m.session} (${m.label}) · Price mode: ${m.price_mode} · US Stream: ${st.state}${st.healthy?' (healthy)':''} · Last message: ${st.last_message_age==null?'—':st.last_message_age+'s ago'} · Subscribed: ${st.subscribed.length} / ${st.limit??'—'} ${st.subscribed.join(' ')}${st.queued.length?' · Queued: '+st.queued.join(' '):''} · Reconnects: ${st.reconnects}${st.last_error?' · Last error: '+st.last_error:''} · REST: ${rest}`;}api('admin/performance-snapshots').then(p=>{const t=p.today_run;$('adminSnapshots').textContent=`성과 스냅샷: ${p.enabled?'사용':'중지'} · 오늘(${p.today}) ${t?`${t.outcome||'진행 중'} · 성공 ${t.succeeded}/${t.eligible} · 실패 ${t.failed}${t.failed?' ('+Object.entries(t.errors).map(([k,v])=>k+': '+v).join(', ')+')':''} · 벤치마크 ${Object.entries(t.benchmarks).map(([k,v])=>k+' '+v).join(', ')}`:'아직 실행 전 ('+new Date(p.scheduled_for).toLocaleString()+')'} · 마지막 스냅샷 ${p.last_snapshot_at?new Date(p.last_snapshot_at).toLocaleString():'없음'} · 수집 시작일 ${p.collection_started||'—'} · 총 ${p.total_snapshots}건`;}).catch(()=>{$('adminSnapshots').textContent='성과 스냅샷 상태를 불러오지 못했습니다.';});$('adminFees').textContent=Object.entries(r.fees).map(([k,v])=>k+': '+v+' bps').join(' · ');$('initialAmount').value=r.initial_usd;noticeTemplates=r.notice_templates||noticeTemplates;renderNoticeAdmin(r.notice);
  $('adminOverview').replaceChildren();for(const [label,value] of [['사용자',r.counts.users],['체결',r.counts.transactions],['보유 종목',r.counts.positions],['대기 주문',r.counts.pending_orders]]){const box=node('div',null,'metric');box.append(node('small',label),node('strong',value));$('adminOverview').append(box);}
  $('adminUsers').replaceChildren();for(const u of r.users){const row=node('div',null,'watch-row'),status=node('button',u.active?'계정 정지':'계정 활성화','secondary');row.append(node('strong',`${adminLabel(u)} · ${u.admin?'관리자':'일반'} · ${u.active?'활성':'정지'}`),node('span',nativeMoney(u.wallets.USD,'USD')+' / '+nativeMoney(u.wallets.KRW,'KRW')),status);status.addEventListener('click',async()=>{try{await api(`admin/users/${u.id}/active`,{active:!u.active});await admin();}catch(e){toast(e.message,'error');}});$('adminUsers').append(row);}
  if(adminSelectedId!==null&&!adminSelected())adminSelectedId=null;
@@ -410,3 +410,26 @@ window.loadLimits=async function(){
   }
 };
 
+
+// Daily snapshots begin when collection starts; no earlier days are invented.
+let performanceUser=null,performancePeriod='1M',performanceVersion=0;
+async function loadPerformance(username,period=performancePeriod){
+  performanceUser=username;performancePeriod=period;const version=++performanceVersion;
+  document.querySelectorAll('#performanceRanges button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.period===period)));
+  $('performanceNotice').textContent='성과 기록 조회 중…';
+  try{const r=await api('performance/'+encodeURIComponent(username)+'?period='+period);if(version!==performanceVersion)return;drawPerformance(r);}
+  catch(e){if(version===performanceVersion){drawPerformance({snapshots:[]});$('performanceNotice').textContent=e.message;}}
+}
+function drawPerformance(r){
+  const canvas=$('performanceChart'),ctx=canvas.getContext('2d'),rows=r.snapshots||[];
+  canvas.width=canvas.clientWidth||600;ctx.clearRect(0,0,canvas.width,canvas.height);
+  if(rows.length<2){$('performanceNotice').textContent=rows.length?'기록이 하루치뿐입니다. 매일 한 번 쌓입니다.':'아직 성과 기록이 없습니다. 매일 한 번 쌓입니다.';return;}
+  const vals=rows.map(x=>Number(x.cumulative_return_pct)),min=Math.min(...vals,0),max=Math.max(...vals,0),span=max-min||1;
+  const left=8,right=canvas.width-8,top=12,bottom=canvas.height-24,x=i=>left+(right-left)*i/(rows.length-1),y=v=>bottom-(bottom-top)*(v-min)/span;
+  ctx.strokeStyle='#d0d5db';ctx.beginPath();ctx.moveTo(left,y(0));ctx.lineTo(right,y(0));ctx.stroke();
+  const last=vals.at(-1);ctx.strokeStyle=last>0?'#d94b57':last<0?'#367ae7':'#697580';ctx.lineWidth=2.5;ctx.beginPath();vals.forEach((v,i)=>i?ctx.lineTo(x(i),y(v)):ctx.moveTo(x(i),y(v)));ctx.stroke();ctx.lineWidth=1;
+  ctx.fillStyle='#697580';ctx.fillText(rows[0].date,left,canvas.height-6);ctx.fillText(rows.at(-1).date,Math.max(left,right-70),canvas.height-6);
+  const period=r.period_return_pct==null?'':` · 기간 수익률 ${pct(r.period_return_pct)}`;
+  $('performanceNotice').textContent=`누적 수익률 ${pct(last)}${period}${r.baseline_changed?' · 기간 중 수익률 기준 재설정 있음':''}${rows.some(x=>x.stale)?' · 일부 날짜는 마지막 확인 시세 기준':''}`;
+}
+document.querySelectorAll('#performanceRanges button').forEach(b=>b.addEventListener('click',()=>{if(performanceUser)loadPerformance(performanceUser,b.dataset.period);}));

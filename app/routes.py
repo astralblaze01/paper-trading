@@ -263,6 +263,15 @@ def install(app,ctx):
     from .admin_ops import install_admin_ops
     install_admin_ops(app,ctx,admin,csrf)
 
+    @app.get('/api/admin/performance-snapshots')
+    def snapshot_status(uid=Depends(admin)):
+        from .performance_snapshots import status
+        return status()
+    @app.post('/api/admin/performance-snapshots/run',dependencies=[Depends(csrf)])
+    def snapshot_run(uid=Depends(admin)):
+        # Idempotent: accounts and benchmarks already stored today are skipped.
+        from .performance_snapshots import capture_daily_snapshots, status
+        return {'result':capture_daily_snapshots(ctx.market,ctx.fx,force=True)}|status()
     @app.get('/api/admin/archives')
     def archives(uid=Depends(admin)):
         with Session() as db: return [{'id':a.id,'user_id':a.user_id,'label':a.label,'data':a.data,'created_at':a.created_at} for a in db.scalars(select(SeasonArchive).order_by(SeasonArchive.id.desc()).limit(100))]
