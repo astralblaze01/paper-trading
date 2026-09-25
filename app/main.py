@@ -46,7 +46,8 @@ fx = FxService(market.fx)
 hasher = PasswordHasher(time_cost=2, memory_cost=19456, parallelism=1)
 dummy_hash = hasher.hash(secrets.token_urlsafe(32))
 SEOUL = ZoneInfo('Asia/Seoul')
-RANKING_INTERVAL = timedelta(seconds=10)
+RANKING_INTERVAL_SECONDS = 10
+RANKING_INTERVAL = timedelta(seconds=RANKING_INTERVAL_SECONDS)
 _ranking_lock = RLock()
 # Ranking is deliberately process-local. The response is a view of the
 # database, and the ten-second boundary keeps browser polling from turning
@@ -56,7 +57,7 @@ _ranking_cache = {}
 
 def _ranking_bucket(now=None):
     local = (now or datetime.now(timezone.utc)).astimezone(SEOUL)
-    return local.replace(second=(local.second // 10) * 10, microsecond=0)
+    return local.replace(second=(local.second // RANKING_INTERVAL_SECONDS) * RANKING_INTERVAL_SECONDS, microsecond=0)
 
 
 def _next_ranking_boundary(now=None):
@@ -347,74 +348,63 @@ def transactions(page: int = Query(1, ge=1), uid=Depends(current_user)):
         rows = db.scalars(select(Transaction).where(Transaction.user_id == uid).order_by(Transaction.id.desc()).offset((page-1)*50).limit(50))
         return [{'id': t.id, 'symbol': t.symbol, 'side': t.side, 'quantity': t.quantity, 'price': t.price, 'currency': t.currency, 'native_price': t.native_price, 'fx_rate': t.fx_rate, 'fx_date': t.fx_date, 'quote_time': t.quote_time, 'created_at': t.created_at, 'gross_amount': t.gross_amount, 'fee': t.fee, 'tax': t.tax, 'net_amount': t.net_amount, 'realized_pnl': t.realized_pnl, 'accounting_version': t.accounting_version, 'order_requested_at': t.order_requested_at, 'market_session': t.market_session, 'venue': t.venue, 'quote_source': t.quote_source, 'price_mode': t.price_mode, 'quote_stale': t.quote_stale} for t in rows]
 
+def _ranking_payload(rows, errors, incomplete, updated_at, stale):
+    """The cached snapshot: everything but the per-request state."""
+    return {'rows': rows, 'errors': errors, 'incomplete': incomplete, 'base_currency': 'USD',
+            'updated_at': updated_at, 'return_basis': RETURN_BASIS, 'stale': stale,
+            'refresh_interval_seconds': RANKING_INTERVAL_SECONDS}
+
+def _ranking_response(payload, state, next_boundary, refreshed, **overrides):
+    return payload | overrides | {'refreshed': refreshed, 'market_open': state['open'],
+                                  'market_status': state['labels'], 'next_refresh_at': next_boundary.isoformat()}
+
+def _drop_ineligible(payload, names):
+    """Remove suspended, promoted or deleted accounts from a snapshot in place and renumber the rest."""
+    payload['rows'] = [row | {'rank': i + 1} for i, row in enumerate(row for row in payload['rows'] if row['username'] in names)]
+
 @app.get('/api/ranking')
 def ranking(uid=Depends(current_user)):
     now = datetime.now(timezone.utc)
     bucket = _ranking_bucket(now)
     next_boundary = _next_ranking_boundary(now)
     state = _ranking_market_state()
+    # Keyed by the market object, so a replaced main.market (tests, the browser
+    # fixture) never serves a snapshot valued by another market.
     cache_key = market
     with _ranking_lock:
         cached = _ranking_cache.get(cache_key)
         with Session() as db:
             eligible=list(db.execute(select(User.id,User.username).where(User.active.is_(True),User.is_admin.is_(False))))
-        if cached:
-            names={name for _,name in eligible}
-            cached['payload']['rows']=[row|{'rank':i+1} for i,row in enumerate(row for row in cached['payload']['rows'] if row['username'] in names)]
+        if cached: _drop_ineligible(cached['payload'], {name for _,name in eligible})
         # A closed holiday/weekend must not create a new ranking snapshot.  We
         # still return the last valid rows with their original as-of time.
         if cached and cached['payload'].get('updated_at') and state['open'] is False:
-            return cached['payload'] | {
-                'refreshed': False,
-                'market_open': False,
-                'market_status': state['labels'],
-                'next_refresh_at': next_boundary.isoformat(),
-            }
+            return _ranking_response(cached['payload'], state, next_boundary, False)
         # Multiple browsers in the same ten-second window share one calculation.
         if cached and cached['bucket'] == bucket:
-            return cached['payload'] | {
-                'refreshed': False,
-                'market_open': state['open'],
-                'market_status': state['labels'],
-                'next_refresh_at': next_boundary.isoformat(),
-            }
+            return _ranking_response(cached['payload'], state, next_boundary, False)
 
-        ids=[uid for uid,_ in eligible]
+        ids=[user_id for user_id,_ in eligible]
         values=[wallet_portfolio(i,market,fx) for i in ids]
         if any(v['return_pct'] is None or v.get('equity_usd') is None for v in values):
             error='시세 또는 기준환율을 확인할 수 없어 랭킹을 보류합니다.'
             if cached:
-                return cached['payload'] | {
-                    'errors': [error], 'incomplete': True, 'refreshed': False, 'stale': True,
-                    'market_open': state['open'], 'market_status': state['labels'],
-                    'next_refresh_at': next_boundary.isoformat(),
-                }
-            payload={'rows': [], 'errors': [error], 'incomplete': True,
-                     'base_currency': 'USD', 'updated_at': None,
-                     'return_basis': RETURN_BASIS,
-                     'stale': True,
-                     'refresh_interval_seconds': 10}
+                return _ranking_response(cached['payload'], state, next_boundary, False,
+                                         errors=[error], incomplete=True, stale=True)
+            payload=_ranking_payload([], [error], incomplete=True, updated_at=None, stale=True)
             _ranking_cache[cache_key] = {'bucket': bucket, 'payload': payload}
-            return payload | {'refreshed': True, 'market_open': state['open'],
-                              'market_status': state['labels'],
-                              'next_refresh_at': next_boundary.isoformat()}
+            return _ranking_response(payload, state, next_boundary, True)
         # Rank by total value in USD; the cumulative return is display only.
         ranked=sorted(zip(ids,values),key=lambda pair:(-pair[1]['equity_usd'],pair[1]['username']))
         from .accounts import profile_versions
         with Session() as db: versions=profile_versions(db,ids)
-        payload={'rows':[{'rank':i+1,'username':v['username'],'equity':v['equity'],'equity_usd':v['equity_usd'],
-                         'return_pct':v['return_pct'],'stale':v['stale'],'fx':v['fx'],
-                         'image_version':versions.get(i_id,0)}
-                        for i,(i_id,v) in enumerate(ranked)],
-                 'errors':[], 'incomplete':False, 'base_currency':'USD',
-                 'updated_at': now.isoformat(),
-                 'return_basis': RETURN_BASIS,
-                 'stale': any(v['stale'] for v in values),
-                 'refresh_interval_seconds': 10}
+        rows=[{'rank':i+1,'username':v['username'],'equity':v['equity'],'equity_usd':v['equity_usd'],
+               'return_pct':v['return_pct'],'stale':v['stale'],'fx':v['fx'],
+               'image_version':versions.get(i_id,0)}
+              for i,(i_id,v) in enumerate(ranked)]
+        payload=_ranking_payload(rows, [], incomplete=False, updated_at=now.isoformat(), stale=any(v['stale'] for v in values))
         _ranking_cache[cache_key] = {'bucket': bucket, 'payload': payload}
-        return payload | {'refreshed': True, 'market_open': state['open'],
-                          'market_status': state['labels'],
-                          'next_refresh_at': next_boundary.isoformat()}
+        return _ranking_response(payload, state, next_boundary, True)
 
 
 def performance_view(target_id, username, period, start, end):
