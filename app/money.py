@@ -29,6 +29,10 @@ def wallets(db, user):
         result[currency] = wallet
     return result
 
+def native_cost_basis(position):
+    # Positions from before native-currency accounting only carry the USD-equivalent average.
+    return position.native_average_cost if position.native_average_cost is not None else position.average_cost
+
 def costs(symbol, side, price, quantity):
     currency = 'KRW' if symbol.startswith('KR:') else 'USD'
     prefix = 'KR' if currency == 'KRW' else 'US'

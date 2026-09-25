@@ -29,7 +29,7 @@ from .db import (Session, engine, User, Position, ReportPrice, PerformanceSnapsh
                  SnapshotRun, SNAPSHOT_LOCK)
 from .instruments import instrument
 from .market import MarketError
-from .money import wallets
+from .money import wallets, native_cost_basis
 from .portfolio import performance_return, krw_value
 
 SEOUL = ZoneInfo('Asia/Seoul')
@@ -118,7 +118,7 @@ def snapshot_user(uid, day, prices, fxq, now, scheduled):
             price = prices[p.symbol]
             value = price['native_price'] * p.quantity
             equity += krw_value(price['currency'], value, rate)
-            average = p.native_average_cost if p.native_average_cost is not None else p.average_cost
+            average = native_cost_basis(p)
             positions[p.symbol] = {'quantity': p.quantity, 'native_price': str(price['native_price']),
                                    'currency': price['currency'], 'market_value_native': str(value),
                                    'market_value_krw': str(krw_value(price['currency'], value, rate).quantize(Decimal('.0001'))),

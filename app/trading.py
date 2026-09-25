@@ -5,7 +5,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from fastapi import HTTPException
 from .db import Session, User, Position, Transaction
-from .money import wallets, costs, maximum
+from .money import wallets, costs, maximum, native_cost_basis
 
 
 def checked_quote(symbol, market, allow_stale=False):
@@ -68,7 +68,7 @@ def preview_order(uid, symbol, side, quantity, market, share=None):
                     'holding_after':(p.quantity if p else 0)+(quantity if side=='buy' else -quantity),
                     'can_submit':0<quantity<=maximum_quantity,
                     'average_cost':p.native_average_cost if p else None,
-                    'unrealized_pnl':(price-(p.native_average_cost if p.native_average_cost is not None else p.average_cost))*p.quantity if p else Decimal(0)}
+                    'unrealized_pnl':(price-native_cost_basis(p))*p.quantity if p else Decimal(0)}
 
 
 KR_SESSIONS = {'정규장': 'regular', '장전': 'pre_market', '장후': 'after_hours', '장마감': 'closed', '휴장': 'closed'}
@@ -119,14 +119,14 @@ def execute_order(user_id, order, market, db=None, requested_at=None):
             if position is None:
                 position=Position(user_id=user_id,symbol=order.symbol,quantity=0,average_cost=Decimal(0),native_average_cost=Decimal(0))
                 db.add(position)
-            native_cost=position.native_average_cost if position.native_average_cost is not None else position.average_cost
+            native_cost=native_cost_basis(position)
             position.native_average_cost=(native_cost*position.quantity+c['net_amount'])/(position.quantity+quantity)
             position.average_cost=(position.average_cost*position.quantity+q['price']*quantity)/(position.quantity+quantity)
             position.quantity+=quantity
             ws[currency].balance-=c['net_amount']
         else:
             if position is None or position.quantity<quantity: raise HTTPException(409,'보유 수량이 부족합니다.')
-            native_cost=position.native_average_cost if position.native_average_cost is not None else position.average_cost
+            native_cost=native_cost_basis(position)
             realized=c['net_amount']-native_cost*quantity
             position.quantity-=quantity
             ws[currency].balance+=c['net_amount']

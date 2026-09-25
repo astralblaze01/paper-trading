@@ -1,7 +1,7 @@
 from decimal import Decimal
 from sqlalchemy import select, func
 from .db import Session, User, Position, Transaction
-from .money import wallets
+from .money import wallets, native_cost_basis
 from .instruments import instrument
 from .market import MarketError
 
@@ -53,7 +53,7 @@ def portfolio(uid, market, fx):
         except MarketError as exc: errors.append(f'{p.symbol}: {exc}')
         native=Decimal(str(q.get('native_price',q['price']))) if q else None
         value=native*p.quantity if native is not None else None
-        average=p.native_average_cost if p.native_average_cost is not None else p.average_cost
+        average=native_cost_basis(p)
         pnl=value-average*p.quantity if value is not None else None
         if value is None: complete=False
         elif info['currency']=='KRW' or rate: equity+=krw_value(info['currency'],value,rate['rate'] if rate else None)
