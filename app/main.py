@@ -54,6 +54,18 @@ _ranking_lock = RLock()
 # into an external-provider call for every request.
 _ranking_cache = {}
 
+# Sessions this service can model for new market orders. Being listed is not
+# enough to fill: the market must be open and tradable, and the quote must be
+# a verified, fresh print of the current session (trading.validate_quote).
+SUPPORTED_ORDER_SESSIONS = {'KR': {'pre_market', 'regular', 'after_hours'},
+                            'US': {'overnight', 'pre_market', 'regular', 'after_hours'}}
+# Test doubles and legacy providers report only a label.
+LEGACY_LABELS = {'정규장': 'regular', '장전': 'pre_market', '장후': 'after_hours', '프리장': 'pre_market',
+                 '애프터장': 'after_hours', '데이마켓': 'overnight', '장마감': 'closed', '휴장': 'closed',
+                 '장 상태 확인 불가': 'unknown'}
+# The LEGACY_LABELS of trading sessions, for statuses without an 'open' flag.
+OPEN_LABELS = {'정규장', '장전', '장후', '데이마켓', '프리장', '애프터장'}
+
 
 def _ranking_bucket(now=None):
     local = (now or datetime.now(timezone.utc)).astimezone(SEOUL)
@@ -82,10 +94,9 @@ def _ranking_market_state():
     # to calculate rankings; production providers always expose the status.
     if not statuses:
         return {'open': None, 'unknown': True, 'labels': []}
-    open_labels = {'정규장', '장전', '장후', '데이마켓', '프리장', '애프터장'}
     unknown = any(s.get('session', LEGACY_LABELS.get(s.get('label'))) == 'unknown' for s in statuses)
-    is_open = any(s['open'] if 'open' in s else s.get('label') in open_labels for s in statuses)
-    return {'open': is_open if not (unknown and not is_open) else None,
+    is_open = any(s['open'] if 'open' in s else s.get('label') in OPEN_LABELS for s in statuses)
+    return {'open': None if unknown and not is_open else is_open,
             'unknown': unknown, 'labels': statuses}
 
 @asynccontextmanager
@@ -255,16 +266,6 @@ def market_overview(uid=Depends(current_user)):
         status['market']=code
         rows.append(status)
     return {'markets':rows,'refreshed_at':datetime.now(timezone.utc),'refresh_seconds':60}
-
-# Sessions this service can model for new market orders. Being listed is not
-# enough to fill: the market must be open and tradable, and the quote must be
-# a verified, fresh print of the current session (trading.validate_quote).
-SUPPORTED_ORDER_SESSIONS = {'KR': {'pre_market', 'regular', 'after_hours'},
-                            'US': {'overnight', 'pre_market', 'regular', 'after_hours'}}
-# Test doubles and legacy providers report only a label.
-LEGACY_LABELS = {'정규장': 'regular', '장전': 'pre_market', '장후': 'after_hours', '프리장': 'pre_market',
-                 '애프터장': 'after_hours', '데이마켓': 'overnight', '장마감': 'closed', '휴장': 'closed',
-                 '장 상태 확인 불가': 'unknown'}
 
 def closed_market_message(symbol):
     """Why the market cannot take an order now, or None to go on to the quote checks."""
