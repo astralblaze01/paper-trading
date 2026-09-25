@@ -114,9 +114,9 @@ async def websocket_checks(kis, targets, seconds, session):
         import websockets
     except ImportError:
         return [{'provider': 'KIS', 'api': 'websocket HDFSCNT0', 'note': 'websockets package missing'}]
-    response = kis.client.post('/oauth2/Approval', json={'grant_type': 'client_credentials',
-                                                         'appkey': kis.key, 'secretkey': kis.secret})
-    approval = response.json().get('approval_key')
+    # Reuse the stream worker's cached key: issuing a new one would invalidate it.
+    from app.trade_stream import TradeStream
+    approval = TradeStream(kis).approval()
     if not approval:
         return [{'provider': 'KIS', 'api': 'websocket HDFSCNT0', 'note': 'approval key rejected'}]
     keys = {}
@@ -127,6 +127,7 @@ async def websocket_checks(kis, targets, seconds, session):
     latest, answers = {}, {}
     async with websockets.connect('ws://ops.koreainvestment.com:21000', ping_interval=None) as ws:
         for key in keys:
+            # Stop the market-stream service first: the app key allows one session.
             await ws.send(json.dumps({'header': {'approval_key': approval, 'custtype': 'P', 'tr_type': '1',
                                                  'content-type': 'utf-8'},
                                       'body': {'input': {'tr_id': 'HDFSCNT0', 'tr_key': key}}}))

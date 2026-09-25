@@ -256,3 +256,17 @@ def test_previous_day_bars_use_that_days_last_trade():
     kis = PrevDayKIS([])
     q = unified_quote(kis, 'KR:069500')
     assert kis.hours[-1] == '200000' and q['native_price' if 'native_price' in q else 'price'] == D(286500) and q['stale']
+
+
+def test_rejected_approval_key_is_dropped():
+    class Cache:
+        client = None
+        deleted = []
+        def key(self, ns, v): return ns
+        def delete(self, k): self.deleted.append(k)
+    kis = BarsKIS([]); kis.key, kis.secret = 'k', 's'
+    stream = ts.TradeStream(kis, Cache())
+    msg = '{"header":{"tr_id":"HDFSCNT0","tr_key":"RBAQAAPL"},"body":{"rt_cd":"1","msg_cd":"OPSP0011","msg1":"invalid approval : NOT FOUND"}}'
+    with pytest.raises(ts.StreamRejected):
+        asyncio.run(stream.handle(None, msg))
+    assert Cache.deleted == ['market:kis:ws-approval']

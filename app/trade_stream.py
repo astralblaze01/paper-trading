@@ -217,6 +217,9 @@ class TradeStream:
             'subscribed': sorted(self.active.values()), 'limit': self.effective_limit,
             'queued': self.queued, 'reconnects': self.reconnects, 'last_error': self.last_error}, 30)
 
+    def approval_key(self):
+        return self.cache.key('market:kis:ws-approval', self.kis.key + '\0' + self.kis.secret)
+
     def approval(self):
         def issue():
             response = self.kis.client.post('/oauth2/Approval', json={
@@ -226,8 +229,7 @@ class TradeStream:
             if not key:
                 raise StreamRejected('approval key refused')
             return {'approval_key': key}
-        return self.cache.get_or_load(self.cache.key('market:kis:ws-approval', self.kis.key + '\0' + self.kis.secret),
-                                      43200, issue)['approval_key']
+        return self.cache.get_or_load(self.approval_key(), 43200, issue)['approval_key']
 
     def store(self, symbol, q):
         if q.get('market') == 'KR':
@@ -353,6 +355,11 @@ class TradeStream:
         text, code = (body.get('msg1') or '').strip(), body.get('msg_cd')
         if 'ALREADY IN USE' in text:
             raise StreamRejected('KIS app key already has a WebSocket session')
+        if code == 'OPSP0011' or 'invalid approval' in text.lower():
+            # Issuing a new approval key (any client with this app key)
+            # invalidates the cached one; get a fresh key on reconnect.
+            await asyncio.to_thread(self.cache.delete, self.approval_key())
+            raise StreamRejected('KIS WebSocket approval key rejected')
         key = f"{header.get('tr_id')}|{header.get('tr_key')}"
         entry = self.sent.pop(key, None)
         if not entry:
