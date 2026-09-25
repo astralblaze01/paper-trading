@@ -36,6 +36,11 @@ def test_order_reads_current_server_cache(cache, monkeypatch):
     monkeypatch.setenv('MARKET_CACHE_MODE', 'worker')
     monkeypatch.setattr('app.multi_market.redis_cache', cache)
     market = MultiMarket()
+    # The fixture quote carries no session, which is only valid in the regular
+    # session; pin both the current session and the trade's session so the
+    # test does not depend on the wall clock.
+    monkeypatch.setattr(market.providers['US'], 'session', lambda: 'regular')
+    monkeypatch.setattr('app.quote_policy.clock_session', lambda when=None: 'regular')
     try:
         uid = seed()
         assert cache.store_quote('AAPL', quote(price='100', native_price='100'), 30)
