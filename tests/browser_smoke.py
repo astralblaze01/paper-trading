@@ -441,5 +441,35 @@ with sync_playwright() as p:
         assert not any('/api/market-stream/' in url for url in requests)
         print('SSE flag OFF: one 30s REST timer, no EventSource passed',flush=True)
     page.close()
+    # 30 s market-explore refresh, on a fake clock: only for a signed-in user on the explore page.
+    page=browser.new_page(viewport={'width':1280,'height':900})
+    page.clock.install()
+    explore_calls=[]
+    page.on('request',lambda r:explore_calls.append(r.url) if '/api/explore' in r.url else None)
+    page.goto('http://browserweb:8000/')
+    expect(page.locator('#auth')).to_be_visible()
+    page.clock.run_for(95000)
+    page.wait_for_timeout(300)
+    assert explore_calls==[],explore_calls   # signed out: the login-only API is never polled
+    name='refresh_'+str(int(time.time()))
+    with page.expect_response(lambda r:'/api/explore' in r.url):
+        page.evaluate("""async name=>{const s=await api('session');csrf=s.csrf;await api('register',{username:name,password:'abcd1234',password_confirm:'abcd1234'});await api('login',{username:name,password:'abcd1234'});await boot();}""",name)
+    expect(page.locator('[data-page="explore"]')).to_be_visible()
+    def ticks(ms):
+        before=len(explore_calls)
+        page.clock.run_for(ms)
+        page.wait_for_timeout(500)
+        return len(explore_calls)-before
+    assert ticks(30500)==1 and ticks(30000)==1   # one refresh per 30 s, no duplicate timer
+    page.evaluate("location.hash='#portfolio'")
+    expect(page.locator('[data-page="portfolio"]').first).to_be_visible()
+    assert ticks(61000)==0   # other pages do not refresh the explore list
+    with page.expect_response(lambda r:'/api/explore' in r.url):
+        page.evaluate("location.hash='#explore'")
+    assert ticks(30000)==1
+    page.locator('#logout').click()
+    expect(page.locator('#auth')).to_be_visible()
+    assert ticks(61000)==0   # signed out again
+    page.close()
     browser.close()
 print('Desktop + mobile browser flows passed: signup/login, FX, charts, buy/sell, watchlist, portfolio, profile, ranking, admin, notices, withdrawal')
