@@ -7,7 +7,7 @@ from fastapi import Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select, func, delete, text
 from sqlalchemy.dialects.postgresql import insert
-from .db import Session, User, Wallet, Position, Transaction, FxTransaction, Watchlist, PopularityEvent, Settings, SeasonArchive, WeeklyState, LimitOrder, AdminAudit, UserAdminNote
+from .db import ACCOUNT_LOCK, Session, User, Wallet, Position, Transaction, FxTransaction, Watchlist, PopularityEvent, Settings, SeasonArchive, WeeklyState, LimitOrder, AdminAudit, UserAdminNote
 from .instruments import SYMBOL_PATTERN, valid_symbol, instrument, CATALOG
 from .market import MarketError
 from .fx import preview, exchange
@@ -245,7 +245,7 @@ def install(app,ctx):
     def reset(target:int,data:ResetInput,uid=Depends(admin)):
         q=ctx.fx.current_rate('USD','KRW')
         with Session.begin() as db:
-            db.execute(text('SELECT pg_advisory_xact_lock(74923102)'))
+            db.execute(text('SELECT pg_advisory_xact_lock(:k)'),{'k':ACCOUNT_LOCK})
             u=db.scalar(select(User).where(User.id==target).with_for_update())
             if not u: raise HTTPException(404,'사용자가 없습니다.')
             ws=wallets(db,u); ps=list(db.scalars(select(Position).where(Position.user_id==target)))

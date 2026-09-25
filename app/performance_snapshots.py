@@ -26,14 +26,13 @@ from sqlalchemy import select, text, func
 from sqlalchemy.dialects.postgresql import insert
 
 from .db import (Session, engine, User, Position, ReportPrice, PerformanceSnapshot, BenchmarkSnapshot,
-                 SnapshotRun)
+                 SnapshotRun, SNAPSHOT_LOCK)
 from .instruments import instrument
 from .market import MarketError
 from .money import wallets
 from .portfolio import performance_return, krw_value
 
 SEOUL = ZoneInfo('Asia/Seoul')
-LOCK = 74923103
 METHOD_VERSION = 1
 log = logging.getLogger('performance-snapshots')
 
@@ -164,12 +163,12 @@ def capture_daily_snapshots(market, fx, now=None, force=False):
     if now < scheduled and not force:
         return 'waiting'
     with engine.connect() as lock:
-        if not lock.scalar(text('SELECT pg_try_advisory_lock(:k)'), {'k': LOCK}):
+        if not lock.scalar(text('SELECT pg_try_advisory_lock(:k)'), {'k': SNAPSHOT_LOCK}):
             return 'busy'
         try:
             return snapshot_all_users(market, fx, day, scheduled, now, force)
         finally:
-            lock.execute(text('SELECT pg_advisory_unlock(:k)'), {'k': LOCK})
+            lock.execute(text('SELECT pg_advisory_unlock(:k)'), {'k': SNAPSHOT_LOCK})
             lock.commit()
 
 

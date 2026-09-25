@@ -1,9 +1,10 @@
 """Additive, idempotent migration: preserve existing USD accounts and trades."""
 from sqlalchemy import text
+from .db import MIGRATION_LOCK
 
 def migrate(engine):
     with engine.begin() as db:
-        db.execute(text('SELECT pg_advisory_xact_lock(74923101)'))
+        db.execute(text('SELECT pg_advisory_xact_lock(:k)'), {'k': MIGRATION_LOCK})
         db.execute(text("ALTER TABLE transactions ADD COLUMN IF NOT EXISTS currency VARCHAR(3) NOT NULL DEFAULT 'USD'"))
         db.execute(text('ALTER TABLE transactions ADD COLUMN IF NOT EXISTS native_price NUMERIC(20,4)'))
         db.execute(text('ALTER TABLE transactions ADD COLUMN IF NOT EXISTS fx_rate NUMERIC(24,12) NOT NULL DEFAULT 1'))

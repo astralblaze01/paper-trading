@@ -8,6 +8,10 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 url = os.getenv('DATABASE_URL') or URL.create('postgresql+psycopg', username='paper', password=os.environ['DB_PASSWORD'], host=os.getenv('DB_HOST', 'db'), database='paper')
 engine = create_engine(url, pool_pre_ping=True, pool_size=10, max_overflow=20, pool_recycle=1800)
 Session = sessionmaker(engine, expire_on_commit=False)
+# PostgreSQL advisory lock keys, shared by every process that uses the database.
+MIGRATION_LOCK = 74923101  # one migrator at a time
+ACCOUNT_LOCK = 74923102    # account-wide writes and the weekly publisher never interleave
+SNAPSHOT_LOCK = 74923103   # one daily snapshot run at a time
 class Base(DeclarativeBase): pass
 class User(Base):
     __tablename__ = 'users'

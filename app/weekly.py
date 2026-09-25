@@ -7,7 +7,7 @@ from threading import Event, Thread
 from zoneinfo import ZoneInfo
 from sqlalchemy import select, text, func
 from sqlalchemy.orm import aliased
-from .db import Session, User, Position, WeeklyState, WeeklyReport, ReportPrice, Wallet
+from .db import ACCOUNT_LOCK, Session, User, Position, WeeklyState, WeeklyReport, ReportPrice, Wallet
 from .market import MarketError
 from .portfolio import performance_return, RETURN_BASIS
 
@@ -59,7 +59,7 @@ def tick(market, now=None, fx=None):
     now = now or datetime.now(timezone.utc)
     with Session.begin() as db:
         # One publisher across threads/processes; crash automatically releases lock.
-        if not db.scalar(text('SELECT pg_try_advisory_xact_lock(74923102)')):
+        if not db.scalar(text('SELECT pg_try_advisory_xact_lock(:k)'), {'k': ACCOUNT_LOCK}):
             return 'busy'
         state = db.get(WeeklyState, 1)
         if state is None:

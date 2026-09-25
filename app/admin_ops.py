@@ -7,7 +7,7 @@ from uuid import UUID
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select, delete, text, or_
-from .db import Session, User, Position, Transaction, FxTransaction, LimitOrder, Watchlist, PopularityEvent, SeasonArchive, WeeklyState, WeeklyReport, AdminAudit, WalletTransfer, UserAdminNote
+from .db import ACCOUNT_LOCK, Session, User, Position, Transaction, FxTransaction, LimitOrder, Watchlist, PopularityEvent, SeasonArchive, WeeklyState, WeeklyReport, AdminAudit, WalletTransfer, UserAdminNote
 from .accounts import delete_account_data
 from .money import wallets, initial_amount, rounded
 
@@ -70,7 +70,7 @@ def install_admin_ops(app,ctx,admin,csrf):
             with Session() as db: symbols=list(db.scalars(select(Position.symbol).where(Position.user_id==target)))
             quotes={symbol:ctx.market.quote(symbol) for symbol in symbols}
         with Session.begin() as db:
-            db.execute(text('SELECT pg_advisory_xact_lock(74923102)'))
+            db.execute(text('SELECT pg_advisory_xact_lock(:k)'),{'k':ACCOUNT_LOCK})
             prior=db.scalar(select(AdminAudit).where(AdminAudit.actor_id==uid,AdminAudit.request_id==str(data.request_id)))
             signature=data.model_dump(mode='json')
             if prior:
@@ -136,7 +136,7 @@ def install_admin_ops(app,ctx,admin,csrf):
     def manage_all(data:ManagementInput,uid=Depends(admin)):
         if data.action!='grant': raise HTTPException(422,'모든 사용자 대상 작업은 지원금 지급만 허용합니다.')
         with Session.begin() as db:
-            db.execute(text('SELECT pg_advisory_xact_lock(74923102)'))
+            db.execute(text('SELECT pg_advisory_xact_lock(:k)'),{'k':ACCOUNT_LOCK})
             prior=db.scalar(select(AdminAudit).where(AdminAudit.actor_id==uid,AdminAudit.request_id==str(data.request_id)))
             signature=data.model_dump(mode='json')
             if prior:

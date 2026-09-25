@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from fastapi import Depends, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select, delete, update, or_, text
-from .db import (Session, PerformanceSnapshot, User, Position, Wallet, Transaction, FxTransaction, LimitOrder, Watchlist, PopularityEvent,
+from .db import (ACCOUNT_LOCK, Session, PerformanceSnapshot, User, Position, Wallet, Transaction, FxTransaction, LimitOrder, Watchlist, PopularityEvent,
                  SeasonArchive, WeeklyState, WeeklyReport, AdminAudit, WalletTransfer, UserAdminNote, UserProfile, UserProfileImage)
 
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
@@ -167,8 +167,8 @@ def install_accounts(app, ctx):
     def withdraw(data: WithdrawInput, request: Request, uid=Depends(user)):
         from argon2.exceptions import VerificationError, InvalidHashError
         with Session.begin() as db:
-            # Same lock as transfers and admin operations, so none of them sees a half-removed account.
-            db.execute(text('SELECT pg_advisory_xact_lock(74923102)'))
+            # The account-wide lock, so no admin operation or weekly run sees a half-removed account.
+            db.execute(text('SELECT pg_advisory_xact_lock(:k)'), {'k': ACCOUNT_LOCK})
             me = db.scalar(select(User).where(User.id == uid).with_for_update())
             if me.is_admin: raise HTTPException(409, '관리자 계정은 회원 탈퇴할 수 없습니다.')
             try: ctx.hasher.verify(me.password_hash, data.password)
