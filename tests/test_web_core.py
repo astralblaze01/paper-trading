@@ -12,7 +12,7 @@ import pytest
 from sqlalchemy import func, select
 from test_service import database, client, register, FakeMarket, order
 from app import main, security
-from app.db import Session, User, LimitOrder, Transaction
+from app.db import Session, User, LimitOrder, Transaction, UserProfileImage
 from app.market import MarketError
 from app.portfolio import RETURN_BASIS
 from app.trading import execute_order
@@ -410,11 +410,29 @@ def test_public_lookups_share_visibility_but_keep_their_messages(client):
     with Session.begin() as db:
         db.add(User(username='boss', password_hash='x', is_admin=True))
         db.add(User(username='gone', password_hash='x', active=False))
-    for name in ('nobody', 'boss', 'gone', 'Owner'):  # lookups are case-sensitive
+    for name in ('nobody', 'boss', 'gone', 'Nobody'):
         r = client.get(f'/api/portfolios/{name}')
         assert r.status_code == 404 and r.json() == {'detail': '공개 포트폴리오를 찾을 수 없습니다.'}, name
         r = client.get(f'/api/performance/{name}')
         assert r.status_code == 404 and r.json() == {'detail': '공개 성과 기록을 찾을 수 없습니다.'}, name
+
+
+def test_public_lookups_ignore_username_case_like_login_and_avatars(client):
+    # Usernames are stored lowercase (registration and login lowercase them), so any
+    # casing of a name means that one account on every public endpoint.
+    register(client, 'owner')
+    with Session.begin() as db:
+        owner = db.scalar(select(User).where(User.username == 'owner'))
+        db.add(UserProfileImage(user_id=owner.id, content_type='image/webp', data=b'webp-bytes',
+                                updated_at=datetime.now(timezone.utc)))
+    exact = client.get('/api/portfolios/owner').json()
+    for name in ('Owner', 'OWNER', 'oWnEr'):
+        r = client.get(f'/api/portfolios/{name}')
+        assert r.status_code == 200 and r.json() == exact, name
+        r = client.get(f'/api/performance/{name}')
+        assert r.status_code == 200 and r.json()['username'] == 'owner', name
+        r = client.get(f'/api/users/{name}/avatar')
+        assert r.status_code == 200 and r.content == b'webp-bytes', name
 
 
 PERFORMANCE_KEYS = ['username', 'period', 'from', 'to', 'timezone', 'return_basis',

@@ -321,8 +321,11 @@ def portfolio(uid=Depends(current_user)):
     return wallet_portfolio(uid, market, fx)
 
 def _public_user(db, username):
-    """The account behind a public portfolio or performance page: active and not an admin."""
-    return db.scalar(select(User).where(User.username == username, User.active.is_(True), User.is_admin.is_(False)))
+    """The account behind a public portfolio or performance page: active and not an admin.
+
+    Usernames are stored lowercase (see Credentials), so any casing names the same account,
+    as it does for login and /api/users/{username}/avatar."""
+    return db.scalar(select(User).where(User.username == username.lower(), User.active.is_(True), User.is_admin.is_(False)))
 
 # Explicit read-only projection. No internal IDs, credentials, admin memo,
 # transactions or order IDs.
@@ -445,7 +448,7 @@ def public_performance(username: str, period: PerformancePeriod = '1M', start: s
     with Session() as db:
         target = _public_user(db, username)
         if not target: raise HTTPException(404, '공개 성과 기록을 찾을 수 없습니다.')
-        target_id = target.id
+        target_id, username = target.id, target.username
     return performance_view(target_id, username, period, start, end)
 
 @app.get('/api/weekly')
