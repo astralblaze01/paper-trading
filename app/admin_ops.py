@@ -59,9 +59,15 @@ def _rebase(db,u,ws,quotes,market,q,now):
     if equity<=0: raise HTTPException(409,'총자산이 0 이하인 계좌는 기준 재설정이 불가능합니다.')
     u.initial_krw=equity;u.initial_usd=equity/rate;u.net_contributions_krw=0;u.initial_fx_date=q['date'];u.performance_since=now;u.baseline_note='admin-rebase'
 
+def _restore_initial_funding(db,u,ws,q):
+    """Fund the account as a new one: today's initial USD amount, no KRW, and the return basis restarted from it at rate quote q."""
+    amount=initial_amount(db)
+    ws['USD'].balance=amount;ws['KRW'].balance=0;u.cash=amount
+    u.initial_usd=amount;u.initial_krw=amount*q['rate'];u.initial_fx_date=q['date'];u.net_contributions_krw=0
+
 def _clear(db,u,ws,before,actor,reason,q,now):
     """Back to the state right after registration; everything removed is archived first."""
-    target,rate=u.id,q['rate']
+    target=u.id
     # Preserve recovery evidence before removing user-facing records.
     models=[Position,Transaction,FxTransaction,LimitOrder,Watchlist,PopularityEvent]
     archive={m.__tablename__:records(db,m,target) for m in models}
@@ -78,8 +84,8 @@ def _clear(db,u,ws,before,actor,reason,q,now):
             report.rows=rows
     db.add(SeasonArchive(user_id=target,label='전체 초기화',data=serial(archive),created_at=now))
     for model in models: db.execute(delete(model).where(model.user_id==target))
-    amount=initial_amount(db);ws['USD'].balance=amount;ws['KRW'].balance=0
-    u.initial_usd=amount;u.initial_krw=amount*rate;u.net_contributions_krw=0;u.initial_fx_date=q['date'];u.performance_since=None;u.baseline_note='registration'
+    _restore_initial_funding(db,u,ws,q)
+    u.performance_since=None;u.baseline_note='registration'
     # Transfers also belong to the counterparty: keep the rows and
     # hide them from this user's history from now on.
     u.records_since=now
@@ -122,7 +128,8 @@ def season_reset(actor,target,label,q):
         add_audit(db,actor,target,'season_reset',label,{'archived':True})
         for p in ps: db.delete(p)
         for o in db.scalars(select(LimitOrder).where(LimitOrder.user_id==target,LimitOrder.status=='pending')): o.status='cancelled'; o.reason='관리자 초기화'
-        amount=initial_amount(db); ws['USD'].balance=amount; ws['KRW'].balance=0; u.cash=amount; u.initial_usd=amount; u.initial_krw=amount*q['rate']; u.initial_fx_date=q['date']; u.baseline_note='admin-reset'; u.net_contributions_krw=0; u.performance_since=datetime.now(timezone.utc)
+        _restore_initial_funding(db,u,ws,q)
+        u.baseline_note='admin-reset'; u.performance_since=datetime.now(timezone.utc)
         drop_from_baseline(db,target)
 
 def list_archives():
