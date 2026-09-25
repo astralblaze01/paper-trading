@@ -34,6 +34,7 @@ from .branding import BRAND_NAME, STORAGE_NAMESPACE
 from .redis_cache import redis_cache
 from .market_stream import QuoteHub, enabled as quote_sse_enabled
 from .logging_config import configure_logging
+from .security import limiter
 
 configure_logging()
 request_log = logging.getLogger('request')
@@ -105,24 +106,38 @@ app = FastAPI(title=BRAND_NAME, lifespan=lifespan, docs_url=None, redoc_url=None
 app.add_middleware(SessionMiddleware, secret_key=secret, session_cookie='paper_session', max_age=43200, same_site='strict', https_only=os.getenv('COOKIE_SECURE', 'false').lower() == 'true')
 app.mount('/static', StaticFiles(directory='app/static'), name='static')
 
-@app.middleware('http')
-async def no_cache(request, call_next):
-    from .security import limiter
-    path=request.url.path
-    started=time.monotonic()
-    supplied=request.headers.get('x-request-id','')
-    request_id=supplied if re.fullmatch(r'[A-Za-z0-9._-]{1,80}',supplied) else secrets.token_hex(12)
+# Requests per client and category within the limiter's 60-second window.
+RATE_LIMITS = {'auth': 20, 'trade': 30, 'market': 120, 'event': 60, 'profile': 30}
+
+def _request_id(request):
+    supplied = request.headers.get('x-request-id', '')
+    return supplied if re.fullmatch(r'[A-Za-z0-9._-]{1,80}', supplied) else secrets.token_hex(12)
+
+def _rate_limit_category(method, path):
+    if path in ('/api/login', '/api/register', '/api/account/delete'): return 'auth'
+    if path.startswith('/api/profile'): return 'profile'
     # Only executions spend the 'trade' budget; previews and reads (the
     # portfolio refresh lists limit orders) must not starve real orders.
-    category = 'auth' if path in ('/api/login','/api/register','/api/account/delete') else 'profile' if path.startswith('/api/profile') else 'trade' if request.method=='POST' and path in ('/api/orders','/api/fx/exchange','/api/limit-orders') else 'market' if path.startswith(('/api/search','/api/quote','/api/candles','/api/explore','/api/order-preview','/api/fx/preview','/api/fx/share','/api/market-status','/api/company','/api/portfolios','/api/performance')) else 'event' if path=='/api/popularity' else None
+    if method == 'POST' and path in ('/api/orders', '/api/fx/exchange', '/api/limit-orders'): return 'trade'
+    if path.startswith(('/api/search', '/api/quote', '/api/candles', '/api/explore', '/api/order-preview', '/api/fx/preview',
+                        '/api/fx/share', '/api/market-status', '/api/company', '/api/portfolios', '/api/performance')):
+        return 'market'
+    if path == '/api/popularity': return 'event'
+    return None
+
+@app.middleware('http')
+async def request_context(request, call_next):
+    path=request.url.path
+    started=time.monotonic()
+    request_id=_request_id(request)
+    category=_rate_limit_category(request.method,path)
     if category:
         identity=request.headers.get('x-real-ip') or (request.client.host if request.client else 'unknown')
-        limit={'auth':20,'trade':30,'market':120,'event':60,'profile':30}[category]
-        if not limiter.allow((identity,category),limit):
+        if not limiter.allow((identity,category),RATE_LIMITS[category]):
             return JSONResponse(status_code=429,content={'detail':'요청이 너무 많습니다. 잠시 후 다시 시도하세요.'},headers={'Retry-After':'60','X-Request-ID':request_id})
     response = await call_next(request)
     response.headers['X-Request-ID']=request_id
-    if request.url.path.startswith('/api') and 'cache-control' not in response.headers:
+    if path.startswith('/api') and 'cache-control' not in response.headers:
         response.headers['Cache-Control'] = 'no-store'
     request_log.info('request completed',extra={'request_id':request_id,'user_id':request.scope.get('session',{}).get('uid'),'method':request.method,'path':path,'status_code':response.status_code,'duration_ms':round((time.monotonic()-started)*1000,2)})
     return response
