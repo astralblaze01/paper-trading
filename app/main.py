@@ -34,7 +34,7 @@ from .market_stream import QuoteHub, enabled as quote_sse_enabled
 from .quote_policy import max_age as quote_max_age
 from .kr_session import SEOUL
 from .logging_config import configure_logging
-from .security import limiter, worker_token, WORKER_TOKEN_HEADER
+from .security import limiter, worker_token, WORKER_TOKEN_HEADER, SESSION_COOKIE, SESSION_MAX_AGE
 
 configure_logging()
 request_log = logging.getLogger('request')
@@ -112,7 +112,7 @@ async def lifespan(app):
         market.client.close()
 
 app = FastAPI(title=BRAND_NAME, lifespan=lifespan, docs_url=None, redoc_url=None)
-app.add_middleware(SessionMiddleware, secret_key=secret, session_cookie='paper_session', max_age=43200, same_site='strict', https_only=os.getenv('COOKIE_SECURE', 'false').lower() == 'true')
+app.add_middleware(SessionMiddleware, secret_key=secret, session_cookie=SESSION_COOKIE, max_age=SESSION_MAX_AGE, same_site='strict', https_only=os.getenv('COOKIE_SECURE', 'false').lower() == 'true')
 app.mount('/static', StaticFiles(directory='app/static'), name='static')
 
 # Requests per client and category within the limiter's 60-second window.

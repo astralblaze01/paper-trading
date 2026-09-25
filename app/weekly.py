@@ -1,17 +1,13 @@
 """Durable weekly website publication; never sends external messages."""
-import logging
 import os
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-from threading import Event, Thread
 from sqlalchemy import select, text, func
 from sqlalchemy.orm import aliased
 from .db import ACCOUNT_LOCK, Session, User, Position, WeeklyState, WeeklyReport, ReportPrice, Wallet
 from .market import MarketError
 from .portfolio import performance_return, RETURN_BASIS
 from .kr_session import SEOUL
-
-log = logging.getLogger(__name__)
 
 
 def schedule():
@@ -151,30 +147,6 @@ def tick(market, now=None, fx=None):
         db.add(report)
         state.baseline, state.baseline_at, state.next_due = accounts, now, next_run(now)
         return 'published'
-
-
-class WeeklyWorker:
-    def __init__(self, market):
-        self.market = market
-        self.stop_event = Event()
-        self.thread = Thread(target=self.run, name='weekly-publisher', daemon=True)
-
-    def start(self):
-        schedule()  # Fail early for invalid configuration.
-        self.thread.start()
-
-    def run(self):
-        while not self.stop_event.is_set():
-            try:
-                result = tick(self.market)
-                if result in ('published', 'baseline'): log.info('Weekly publisher: %s', result)
-            except Exception:
-                log.exception('Weekly publisher failed; retrying on next tick')
-            self.stop_event.wait(60)
-
-    def stop(self):
-        self.stop_event.set()
-        self.thread.join(timeout=10)
 
 
 def report_list(page=1):

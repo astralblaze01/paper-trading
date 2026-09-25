@@ -19,6 +19,7 @@ from redis.exceptions import RedisError
 from itsdangerous import TimestampSigner, BadSignature
 from .instruments import valid_symbol
 from .quote_data import public_quote
+from .security import SESSION_COOKIE, SESSION_MAX_AGE
 from .redis_cache import (QUOTE_UPDATES, REFRESH_COALESCE, REFRESH_QUEUE_KEY, STREAM_INTEREST_KEY, SUBSCRIPTIONS_KEY,
                           price_key, refresh_request_key)
 
@@ -281,7 +282,7 @@ class QuoteHub:
         keys, token = await self._admit(request, uid)
         queue = self.listen(symbol)
         heartbeat = heartbeat_seconds()
-        cookie = request.cookies.get('paper_session', '')
+        cookie = request.cookies.get(SESSION_COOKIE, '')
         signer = TimestampSigner(os.environ['SESSION_SECRET'])
 
         async def cleanup():
@@ -306,7 +307,7 @@ class QuoteHub:
                     # Timed checks cannot be starved by a busy quote queue.
                     if time.monotonic() >= next_check:
                         try:
-                            signer.unsign(cookie, max_age=43200)
+                            signer.unsign(cookie, max_age=SESSION_MAX_AGE)
                             await asyncio.to_thread(authenticate, request)
                         except (BadSignature, HTTPException):
                             yield event('status', {'state': 'auth_required'})

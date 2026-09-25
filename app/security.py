@@ -20,6 +20,11 @@ class RateLimiter:
 
 limiter=RateLimiter()
 
+# The SSE stream re-checks the session cookie by hand, so it must agree with
+# the SessionMiddleware settings in main.
+SESSION_COOKIE='paper_session'
+SESSION_MAX_AGE=43200
+
 # The scheduler container authenticates to /internal/jobs with this header. It
 # has only SESSION_SECRET, so this module must stay free of app imports.
 WORKER_TOKEN_HEADER='x-worker-token'

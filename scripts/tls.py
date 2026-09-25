@@ -1,6 +1,5 @@
 """Explicit operator commands. Never invoked by normal application startup."""
 import argparse
-import os
 from pathlib import Path
 import re
 import socket
