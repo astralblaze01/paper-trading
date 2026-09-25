@@ -243,12 +243,7 @@ handle('logout', 'click', async () => { window.disconnectQuoteStream?.();await a
 handle('refresh', 'click', refresh);
 handle('searchForm', 'submit', search);
 handle('category', 'change', async () => { $('query').value = ''; $('marketHelp').textContent = $('category').value === 'kr' ? '등록된 이름으로 검색하거나, 한국 종목의 6자리 코드를 입력하세요.' : '채권·금 분류는 등록된 ETF 목록입니다. 개별 채권과 금 현물은 지원하지 않습니다.'; await search(); });
-handle('quote', 'click', async () => {
-  if(window.openStock) { openStock($('symbol').value); return; }
-  const q = await api('quote/' + encodeURIComponent($('symbol').value));
-  const adminStamp = window.isAdmin ? ` · ${new Date(q.timestamp * 1000).toLocaleString()} · ${q.data_status || q.source || '공급자 시세'}` : '';
-  $('quoteInfo').textContent = `${viewMoney(q.native_price, q.currency)} · 실제 주문 통화 ${q.currency}${q.stale ? ' · 오래된 시세: 주문은 새 가격이 올 때까지 대기합니다.' : ' · 주문 시 가격이 달라질 수 있습니다.'}${adminStamp}`;
-});
+handle('quote', 'click', async () => { if(window.openStock) openStock($('symbol').value); });
 handle('orderForm', 'submit', async () => {
   const data = {symbol: $('symbol').value, side: $('side').value, quantity: Number($('quantity').value), use_max: maxMode}; const signature = JSON.stringify(data);
   if (!pendingOrder || pendingOrder.signature !== signature) {

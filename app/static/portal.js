@@ -1,5 +1,5 @@
 /* Page navigation and chart rendering. Prices used for settlement stay on the server. */
-let currentSymbol = '', currentRange = '1D', chartRows = [], chartIndex = null, loadVersion = 0, stockLoading = false, detailMarketOpen = false;
+let currentSymbol = '', currentRange = '1D', chartRows = [], chartIndex = null, detailMarketOpen = false;
 let exchangePending = null;
 let detailChange = null, detailQuote=null, publicCache=null, detailCompany=null, watchCache=[];
 let orderPreview=null, previewVersion=0, previewTimer=null;
@@ -101,7 +101,7 @@ let quoteGeneration=0, quoteVersion=null, quoteBackoff=0, quoteReceived=0, marke
 function detailVisible(){return !document.hidden&&!$('dashboard').hidden&&location.hash==='#detail/'+encodeURIComponent(currentSymbol);}
 function streamState(text){$('quoteConnection').textContent=text;}
 window.disconnectQuoteStream=function(){
-  ++quoteGeneration;++loadVersion;++previewVersion;
+  ++quoteGeneration;++previewVersion;
   quoteSource?.close();quoteSource=null;quoteVersion=null;
   clearTimeout(quoteRetry);clearInterval(quoteWatch);clearInterval(marketTimer);clearInterval(restTimer);clearTimeout(previewTimer);
   quoteRetry=quoteWatch=marketTimer=restTimer=null;previewQueued=null;
@@ -271,12 +271,12 @@ function renderOrderPreview(){
   if(!r.can_submit)target.append(node('p',r.quantity<1?'선택한 비율로 주문할 수 있는 수량이 없습니다.':'잔액 또는 보유 수량을 초과했습니다.','order-error'));
 }
 let previewRunning=false, previewQueued=null;
-async function estimate(unused=false,share=null){
-  if(previewRunning){++previewVersion;previewQueued=[unused,share];return;}
+async function estimate(share=null){
+  if(previewRunning){++previewVersion;previewQueued=[share];return;}
   previewRunning=true;
-  try{await requestEstimate(unused,share);}finally{previewRunning=false;if(previewQueued){const args=previewQueued;previewQueued=null;if(detailVisible())estimate(...args);}}
+  try{await requestEstimate(share);}finally{previewRunning=false;if(previewQueued){const args=previewQueued;previewQueued=null;if(detailVisible())estimate(...args);}}
 }
-async function requestEstimate(unused=false,share=null){
+async function requestEstimate(share=null){
   clearTimeout(previewTimer);
   const version=++previewVersion,symbol=$('symbol').value,side=$('side').value,quantity=Number($('quantity').value);
   $('submitOrder').disabled=true;
@@ -290,7 +290,7 @@ async function requestEstimate(unused=false,share=null){
     orderPreview=r;renderOrderPreview();
   }catch(e){if(version===previewVersion){orderPreview=null;$('orderEstimate').textContent=e.message;}}
 }
-async function chooseOrderShare(share){await estimate(false,Math.round(share*100));}
+async function chooseOrderShare(share){await estimate(Math.round(share*100));}
 document.querySelectorAll('[data-order-share]').forEach(button=>button.addEventListener('click',()=>chooseOrderShare(Number(button.dataset.orderShare))));
 // 매수 = red, 매도 = blue. The hidden select stays the single source of truth.
 function setSide(side){$('side').value=side;document.querySelectorAll('[data-side]').forEach(b=>{if(b.getAttribute('role')==='radio')b.setAttribute('aria-checked',String(b.dataset.side===side));});$('submitOrder').dataset.side=side;$('submitOrder').textContent=side==='buy'?'매수 주문':'매도 주문';}
