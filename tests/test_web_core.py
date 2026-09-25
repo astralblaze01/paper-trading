@@ -481,3 +481,13 @@ def test_internal_jobs_accept_the_worker_token(client, monkeypatch, caplog):
     monkeypatch.setenv('DAILY_SNAPSHOT_HOUR', '24')  # the capture raises; the job still answers
     assert client.post('/internal/jobs', headers={'x-worker-token': token}).json()['snapshots'] == 'error'
     assert [rec.getMessage() for rec in caplog.records if rec.name == 'request' and rec.levelno == logging.ERROR] == ['daily snapshot failed']
+
+
+def test_worker_token_is_the_jobs_credential(client, monkeypatch):
+    token = security.worker_token(main.secret)
+    assert token == hmac.new(main.secret.encode(), b'paper-worker', hashlib.sha256).hexdigest()
+    assert security.WORKER_TOKEN_HEADER == 'x-worker-token'
+    monkeypatch.setenv('DAILY_SNAPSHOT_ENABLED', 'false')
+    assert client.post('/internal/jobs', headers={security.WORKER_TOKEN_HEADER: token}).status_code == 200
+    other = security.worker_token(main.secret + 'x')
+    assert client.post('/internal/jobs', headers={security.WORKER_TOKEN_HEADER: other}).status_code == 403

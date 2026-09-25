@@ -34,7 +34,7 @@ from .market_stream import QuoteHub, enabled as quote_sse_enabled
 from .quote_policy import max_age as quote_max_age
 from .kr_session import SEOUL
 from .logging_config import configure_logging
-from .security import limiter
+from .security import limiter, worker_token, WORKER_TOKEN_HEADER
 
 configure_logging()
 request_log = logging.getLogger('request')
@@ -451,9 +451,7 @@ install_accounts(app, sys.modules[__name__])
 
 @app.post('/internal/jobs')
 def internal_jobs(request: Request):
-    import hmac, hashlib
-    expected=hmac.new(secret.encode(),b'paper-worker',hashlib.sha256).hexdigest()
-    if not secrets.compare_digest(request.headers.get('x-worker-token',''),expected): raise HTTPException(403,'Forbidden')
+    if not secrets.compare_digest(request.headers.get(WORKER_TOKEN_HEADER,''),worker_token(secret)): raise HTTPException(403,'Forbidden')
     from .limits import process
     from .weekly import tick
     filled=process(market)

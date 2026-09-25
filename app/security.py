@@ -1,5 +1,7 @@
 from collections import deque
 from threading import Lock
+import hashlib
+import hmac
 import time
 
 class RateLimiter:
@@ -17,3 +19,9 @@ class RateLimiter:
         with self.lock: self.entries.clear()
 
 limiter=RateLimiter()
+
+# The scheduler container authenticates to /internal/jobs with this header. It
+# has only SESSION_SECRET, so this module must stay free of app imports.
+WORKER_TOKEN_HEADER='x-worker-token'
+
+def worker_token(secret): return hmac.new(secret.encode(),b'paper-worker',hashlib.sha256).hexdigest()
