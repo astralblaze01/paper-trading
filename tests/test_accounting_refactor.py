@@ -558,3 +558,25 @@ def test_curated_rows_keep_catalog_order_when_nothing_is_priced():
     assert result['notice'] == ('등록 종목의 실제 공급자 시세입니다. 전체 시장 순위가 아닙니다. '
                                 '이 시세 공급자는 거래대금을 제공하지 않아 거래대금순으로 정렬할 수 없습니다. 순위 키 필요')
     assert (result['unavailable'], result['source']) == (True, '시세 확인 대기')
+
+
+def test_flow_adjusted_returns_keep_their_exact_decimals():
+    """The three return paths, pinned digit for digit: str() keeps the exponent, which reaches
+    JSON as int vs float."""
+    from types import SimpleNamespace
+    from app.portfolio import performance_return
+    from app.performance_snapshots import flow_adjusted
+    assert str(performance_return(D('110.0000'), D('100.0000'), D('0.0000'))) == '10.0'
+    assert str(performance_return(110, 100)) == '10.0'
+    assert str(performance_return('123.45', '100', None)) == '23.4500'
+    assert str(performance_return(D('1'), D('3'), D('0'))) == '-66.66666666666666666666666667'
+    assert performance_return(D('1'), D('0')) is None and performance_return(None, D('1')) is None
+    row = lambda equity, flow: SimpleNamespace(equity_krw=D(equity), net_contributions_krw=D(flow))
+    assert str(flow_adjusted(row('121.0000', '10.0000'), row('100.0000', '0.0000'))) == '11.00'
+    assert str(flow_adjusted(row('1.0000', '0.0000'), row('3.0000', '0.0000'))) == '-66.66666666666666666666666667'
+    assert flow_adjusted(row('1.0000', '0.0000'), row('0.0000', '0.0000')) is None
+    rows, excluded = standings({1: {'equity': '100.00', 'contributions': '5'}, 2: {'equity': '0'}},
+                               {1: {'username': 'a', 'equity': '112.5', 'contributions': '10', 'initial_equity': '90'},
+                                2: {'username': 'b', 'equity': '1'}})
+    assert excluded == 1
+    assert (rows[0]['return_pct'], rows[0]['pnl'], rows[0]['total_return_pct']) == ('7.500000', '7.50', '13.888889')
