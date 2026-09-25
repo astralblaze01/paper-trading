@@ -20,7 +20,8 @@ def drive(monkeypatch, tmp_path, times, kr=None, us=None):
             calls.append((name, now[0]))
             return behaviour() if behaviour else 1
         return refresh
-    monkeypatch.delenv('MARKET_WORKER_MODE', raising=False)  # main() sets it; restore afterwards
+    # main() writes MARKET_WORKER_MODE; setenv first so monkeypatch restores the old (unset) value.
+    monkeypatch.setenv('MARKET_WORKER_MODE', '')
     monkeypatch.setattr(mw.time, 'monotonic', lambda: now[0])
     monkeypatch.setattr(mw, 'HEARTBEAT', tmp_path / 'heartbeat')
     monkeypatch.setattr(mw, 'MultiMarket', lambda: SimpleNamespace(close=lambda: None))
