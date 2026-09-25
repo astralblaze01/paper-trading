@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from .db import Session, LimitOrder, Transaction, PopularityEvent, lock_user
 from .market import MarketError
+from .money import OrderRejected
 from .trading import execute_order, checked_quote
 
 
@@ -53,7 +54,7 @@ def process(market):
                 row.status='filled'; row.reason=None; filled+=1
                 db.execute(insert(PopularityEvent).values(user_id=uid,symbol=row.symbol,kind='order',bucket=int(datetime.now(timezone.utc).timestamp())//3600,created_at=datetime.now(timezone.utc)).on_conflict_do_nothing())
             except MarketError: row.reason='시세 조회 대기'
-            except HTTPException as exc:
-                if '잔액' in str(exc.detail) or '수량' in str(exc.detail): row.status='rejected'
-                row.reason=str(exc.detail)[:200]
+            except OrderRejected as exc: row.status='rejected'; row.reason=str(exc.detail)[:200]
+            # Any other refusal (stale quote, session closed, ...) is retried on the next pass.
+            except HTTPException as exc: row.reason=str(exc.detail)[:200]
     return filled

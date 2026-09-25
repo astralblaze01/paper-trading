@@ -7,6 +7,13 @@ from .instruments import currency_of
 
 D = Decimal
 
+
+class OrderRejected(HTTPException):
+    """A 409 for an order that can never fill as requested (funds, holdings, fees, a conflicting request id).
+
+    The HTTP answer is the same as any HTTPException; the type tells the queued-order worker to
+    reject instead of retrying on the next pass."""
+
 def bps(name, default='0'):
     value = D(os.getenv(name, default))
     if not value.is_finite() or not 0 <= value < 10000: raise ValueError('Invalid basis-point setting: ' + name)
@@ -43,7 +50,7 @@ def costs(symbol, side, price, quantity):
     fee = rounded(gross*fee_bps/D(10000),currency,up=True)
     tax = rounded(gross*tax_bps/D(10000),currency,up=True)
     net = gross+fee+tax if side=='buy' else gross-fee-tax
-    if net < 0: raise HTTPException(409,'수수료/세금 설정을 확인하세요.')
+    if net < 0: raise OrderRejected(409,'수수료/세금 설정을 확인하세요.')
     return dict(currency=currency,gross_amount=gross,fee=fee,tax=tax,net_amount=net,fee_bps=fee_bps,tax_bps=tax_bps)
 
 def maximum(symbol, price, balance):

@@ -4,7 +4,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from fastapi import HTTPException
 from .db import Session, Position, Transaction, lock_user
-from .money import wallets, costs, maximum, native_cost_basis
+from .money import OrderRejected, wallets, costs, maximum, native_cost_basis
 from .instruments import market_of, currency_of
 from . import quote_policy
 
@@ -91,7 +91,7 @@ def filled_replay(db, user_id, order):
     previous=db.scalar(select(Transaction).where(Transaction.user_id==user_id,Transaction.request_id==str(order.request_id)))
     if not previous: return None
     if (previous.symbol,previous.side)!=(order.symbol,order.side) or (not getattr(order,'use_max',False) and previous.quantity!=order.quantity):
-        raise HTTPException(409,'동일 주문 ID에 다른 주문을 사용할 수 없습니다.')
+        raise OrderRejected(409,'동일 주문 ID에 다른 주문을 사용할 수 없습니다.')
     return {'id':previous.id,'replayed':True,'quantity':previous.quantity}
 
 
@@ -132,18 +132,18 @@ def execute_order(user_id, order, market, db=None, requested_at=None):
         quantity=order.quantity
         if getattr(order,'use_max',False):
             quantity=maximum(order.symbol,price,ws[currency].balance) if order.side=='buy' else (position.quantity if position else 0)
-        if quantity<=0: raise HTTPException(409,'주문 가능한 수량이 없습니다.')
+        if quantity<=0: raise OrderRejected(409,'주문 가능한 수량이 없습니다.')
         c=costs(order.symbol,order.side,price,quantity)
         realized=Decimal(0)
         if order.side=='buy':
-            if ws[currency].balance<c['net_amount']: raise HTTPException(409,f'{currency} 잔액이 부족합니다. 필요한 통화로 먼저 환전하세요.')
+            if ws[currency].balance<c['net_amount']: raise OrderRejected(409,f'{currency} 잔액이 부족합니다. 필요한 통화로 먼저 환전하세요.')
             if position is None:
                 position=Position(user_id=user_id,symbol=order.symbol,quantity=0,average_cost=Decimal(0),native_average_cost=Decimal(0))
                 db.add(position)
             _buy_into(position,quantity,c['net_amount'],q['price'])
             ws[currency].balance-=c['net_amount']
         else:
-            if position is None or position.quantity<quantity: raise HTTPException(409,'보유 수량이 부족합니다.')
+            if position is None or position.quantity<quantity: raise OrderRejected(409,'보유 수량이 부족합니다.')
             realized=_sell_from(position,quantity,c['net_amount'])
             ws[currency].balance+=c['net_amount']
             if position.quantity==0: db.delete(position)
