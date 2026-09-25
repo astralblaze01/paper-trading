@@ -121,8 +121,7 @@ class QuoteHub:
 
     async def interest(self, symbol, missing=False):
         await self.redis.zadd('market:subscriptions', {symbol: time.time()})
-        if not symbol.startswith('KR:'):
-            await self.redis.zadd('market:stream:interest', {symbol: time.time()})
+        await self.redis.zadd('market:stream:interest', {symbol: time.time()})
         if missing and await self.redis.set(f'market:refresh-request:{symbol}', '1', nx=True, ex=10):
             await self.redis.lpush('market:refresh', symbol)
 

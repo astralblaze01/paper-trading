@@ -136,7 +136,7 @@ def execute_order(user_id, order, market, db=None, requested_at=None):
                           price=q['price'],native_price=price,fx_rate=q.get('fx_rate',Decimal(1)),fx_date=q.get('fx_date'),
                           quote_time=datetime.fromtimestamp(q['timestamp'],timezone.utc),created_at=datetime.now(timezone.utc),
                           realized_pnl=realized,accounting_version=2,
-                          order_requested_at=requested_at,market_session=market_session(order.symbol,q,market),
+                          order_requested_at=requested_at,market_session=market_session(order.symbol,q,market),venue=q.get('venue'),
                           quote_source=q.get('source'),price_mode=q.get('price_mode'),quote_stale=bool(q.get('stale',False)),**c)
         db.add(trade); db.flush()
         return {'id':trade.id,'replayed':False,'quantity':quantity,'currency':currency,'net_amount':c['net_amount']}

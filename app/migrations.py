@@ -120,3 +120,7 @@ def migrate(engine):
                 db.execute(text(f'ALTER TABLE transactions ADD COLUMN IF NOT EXISTS {column}'))
             db.execute(text('CREATE INDEX IF NOT EXISTS idx_performance_snapshots_date ON performance_snapshots(snapshot_date)'))
             db.execute(text('INSERT INTO schema_migrations(version) VALUES (10)'))
+
+        if not db.scalar(text('SELECT 1 FROM schema_migrations WHERE version=11')):
+            db.execute(text('ALTER TABLE transactions ADD COLUMN IF NOT EXISTS venue VARCHAR(12)'))
+            db.execute(text('INSERT INTO schema_migrations(version) VALUES (11)'))

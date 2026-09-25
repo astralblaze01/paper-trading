@@ -105,20 +105,8 @@ class KoreaPrices:
 
     def quote(self, symbol):
         if not re.fullmatch(r'KR:[0-9]{6}',symbol): raise MarketError('잘못된 국내 종목코드입니다.')
-        # Rounded minute makes requests from different browsers share one cache entry.
-        d=self.get(self.PATH,'FHKST03010200',{'FID_COND_MRKT_DIV_CODE':'J','FID_INPUT_ISCD':symbol[3:],'FID_INPUT_HOUR_1':datetime.now(SEOUL).strftime('%H%M')+'00','FID_PW_DATA_INCU_YN':'Y','FID_ETC_CLS_CODE':''},int(os.getenv('QUOTE_TTL','15')))
-        try:
-            bar=max(d['output2'],key=lambda b:b['stck_bsop_date']+b['stck_cntg_hour'])
-            stamp=int(datetime.strptime(bar['stck_bsop_date']+bar['stck_cntg_hour'],'%Y%m%d%H%M%S').replace(tzinfo=SEOUL).timestamp())
-            price=Decimal(str(bar['stck_prpr'])).quantize(Decimal('.0001'))
-            if not price.is_finite() or not 0<price<=1000000000 or not 0<stamp<=time.time()+60: raise ValueError()
-            info=d.get('output1',{})
-            return {'symbol':symbol,'price':price,'timestamp':stamp,'stale':time.time()-stamp>int(os.getenv('MAX_QUOTE_AGE','900')),
-                    'name':info.get('hts_kor_isnm',symbol),'change':info.get('prdy_vrss'),'change_pct':info.get('prdy_ctrt'),
-                    'high':info.get('stck_hgpr'),'low':info.get('stck_lwpr'),'volume':info.get('acml_vol'),
-                    'turnover':info.get('acml_tr_pbmn') or bar.get('acml_tr_pbmn'),
-                    'data_status':'KIS 분봉 · 실시간 체결 스트림 아님'}
-        except (ValueError,KeyError,TypeError,InvalidOperation) as exc: raise MarketError('국내 시세를 확인할 수 없습니다.') from exc
+        from .kr_quotes import unified_quote
+        return unified_quote(self, symbol)
 
 class ReferenceFX:
     """Daily ECB reference rates for paper conversion, NOT a live FX quote."""
@@ -255,14 +243,14 @@ class MultiMarket:
         return value
 
     def assess(self, symbol, q):
-        """Attach current-session tradeability to a US quote (see quote_policy)."""
-        if symbol.startswith('KR:'):
-            return q
+        """Attach current-session tradeability to a quote (see quote_policy)."""
         from .quote_policy import assess
         if 'valid_sessions' not in q:
-            # Pre-upgrade snapshots were all Finnhub prints: regular session only.
+            # Pre-upgrade snapshots were Finnhub (US) or KRX (KR) prints of the
+            # regular session only.
             q = q | {'origin': 'rest', 'valid_sessions': ['regular']}
-        return assess(q, self.providers['US'].session(), self.stream_status())
+        code = 'KR' if symbol.startswith('KR:') else 'US'
+        return assess(q, self.providers[code].session(), self.stream_status())
 
     def quote_direct(self, symbol):
         if not valid_symbol(symbol): raise MarketError('잘못된 종목 코드입니다.')
@@ -270,9 +258,14 @@ class MultiMarket:
         if info['currency'] == 'USD':
             q = self.us_quotes.quote(symbol, self.providers['US'].session())
             return q | info | {'native_price': q['price'], 'fx_rate': Decimal(1), 'fx_date': None}
-        q = self.kr.quote(symbol)
+        from .us_quotes import record_health
+        try:
+            q = self.kr.quote(symbol)
+        except MarketError as exc:
+            record_health('kis_kr', False, type(exc).__name__)
+            raise
+        record_health('kis_kr', True)
         rate, fx_date = self.fx.krw_to_usd()
         price = (q['price'] * rate).quantize(Decimal('.0001'))
         if price <= 0: raise MarketError('환산 가격이 최소 거래 단위보다 작습니다.')
-        return q | info | {'price': price, 'native_price': q['price'], 'fx_rate': rate,
-                           'fx_date': fx_date, 'source': 'KIS 분봉 / ECB 일별 기준환율'}
+        return q | info | {'price': price, 'native_price': q['price'], 'fx_rate': rate, 'fx_date': fx_date}

@@ -63,6 +63,7 @@ class Transaction(Base):
     # NULL on trades recorded before these columns existed.
     order_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     market_session: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    venue: Mapped[str | None] = mapped_column(String(12), nullable=True)   # US, UNIFIED (KRX+NXT), ...
     quote_source: Mapped[str | None] = mapped_column(String(40), nullable=True)
     price_mode: Mapped[str | None] = mapped_column(String(24), nullable=True)
     quote_stale: Mapped[bool | None] = mapped_column(Boolean, nullable=True)

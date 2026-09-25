@@ -17,7 +17,7 @@ from app.quote_policy import assess, rejection
 from app.trading import validate_quote
 from app.us_quotes import NoSessionData, USQuotes, PRIMARY_SESSIONS
 from app.us_session import NEW_YORK, clock_session, resolve_session
-from app import us_trade_stream as ts
+from app import trade_stream as ts
 from test_service import database, client, register  # noqa: F401  (shared fixtures)
 
 
@@ -324,13 +324,13 @@ def test_stream_subscriptions_respect_limit_and_session(monkeypatch):
     run = asyncio.run
     run(stream.reconcile(ws, 'k', 'overnight', ['AAPL', 'SPY', 'NVDA', 'MSFT', 'KR:005930']))
     keys = [m['body']['input']['tr_key'] for m in ws.sent]
-    assert keys == ['RBAQAAPL', 'RBAASPY', 'RBAQNVDA'] and stream.queued == ['MSFT']
+    assert keys == ['RBAQAAPL', 'RBAASPY', 'RBAQNVDA'] and stream.queued == ['MSFT', 'KR:005930']
     run(stream.reconcile(ws, 'k', 'overnight', ['AAPL', 'SPY', 'NVDA', 'MSFT']))
     assert len(ws.sent) == 3  # no duplicate subscribe while acks are pending
     for key in ('RBAQAAPL', 'RBAASPY'):
         run(stream.handle(ws, ack(key)))
     run(stream.handle(ws, ack('RBAQNVDA', 'OPSP0008', False, 'MAX SUBSCRIBE OVER')))
-    assert stream.effective_limit == 2 and sorted(stream.active) == ['RBAASPY', 'RBAQAAPL']
+    assert stream.effective_limit == 2 and sorted(stream.active) == ['HDFSCNT0|RBAASPY', 'HDFSCNT0|RBAQAAPL']
     # Pre-market needs the primary-exchange key: resubscribe, never reuse the overnight one.
     stream.since = {s: 0 for s in stream.since}
     run(stream.reconcile(ws, 'k', 'pre_market', ['AAPL', 'SPY']))
@@ -343,7 +343,7 @@ def test_stream_trade_reaches_redis_and_reconnect_resets():
     cache = FakeCache()
     stream = ts.TradeStream(FakeKIS(), cache)
     stream.conn = 'c1'
-    stream.active = {'RBAQNVDA': 'NVDA'}
+    stream.active = {'HDFSCNT0|RBAQNVDA': 'NVDA'}
     real = time.time
     try:
         ts.time.time = lambda: ny('2026-09-24T23:13:14')
@@ -360,18 +360,19 @@ def test_stream_trade_reaches_redis_and_reconnect_resets():
 @pytest.mark.skipif(not shutil.which('node'), reason='node is not installed')
 def test_ui_only_says_unsupported_when_unsupported():
     source = open('app/static/app.js').read()
-    start = source.index('window.usPriceText=')
+    start = source.index('window.marketPriceText=')
     body = source[start:source.index('};', start) + 2]
     script = 'const window={};' + body + '''
 const cases=[
- [{market:'US',session:'overnight',day_market_status:'realtime'},'실시간'],
- [{market:'US',session:'overnight',day_market_status:'rest'},'보조 시세'],
- [{market:'US',session:'overnight',day_market_status:'unsupported'},'체결 시세 미지원'],
- [{market:'US',session:'after_hours',extended_price_status:'realtime'},'실시간'],
- [{market:'US',session:'after_hours',extended_price_status:'provider_unavailable'},'체결 시세 미지원'],
- [{market:'US',session:'regular',stream_connected:false,price_mode:'rest'},'보조 시세'],
+ [{market:'US',session:'overnight',open:true,tradable:true,price_mode:'overnight_stream'},'실시간'],
+ [{market:'US',session:'overnight',open:true,tradable:true,price_mode:'overnight_rest'},'보조 시세'],
+ [{market:'US',session:'overnight',open:true,tradable:false,price_mode:'unavailable'},'시장 열림 · 주문 시세 확인 불가'],
+ [{market:'KR',session:'after_hours',open:true,tradable:true,price_mode:'extended_stream'},'실시간'],
+ [{market:'KR',session:'pre_market',open:true,tradable:true,price_mode:'extended_rest'},'보조 시세'],
+ [{market:'US',session:'regular',open:true,tradable:true,price_mode:'rest'},'보조 시세'],
+ [{market:'US',session:'after_hours',price_mode:'unavailable'},'체결 시세 미지원'],
  [{market:'US',session:'closed'},''],[{market:'KR',label:'정규장'},'']];
-for(const [x,want] of cases){const got=window.usPriceText(x);if(got!==want)throw new Error(JSON.stringify(x)+' '+got);}'''
+for(const [x,want] of cases){const got=window.marketPriceText(x);if(got!==want)throw new Error(JSON.stringify(x)+' '+got);}'''
     subprocess.run(['node', '-e', script], check=True)
 
 

@@ -214,10 +214,13 @@ class USProvider:
         extended=runtime(EXTENDED,'not_current_session')
         day=runtime({'overnight'},'available')
         label='휴장' if raw and raw.get('holiday') and session=='closed' else LABELS[session]
-        return {'label':label,'session':session,'timezone':'America/New_York',
+        mode=session_price_mode(session,stream if kis else None,rest_ok)
+        is_open=session not in ('closed','unknown')
+        return {'market':'US','label':label,'session':session,'timezone':'America/New_York',
+                'open':is_open,'tradable':is_open and mode!='unavailable','venue':'US' if is_open else 'NONE',
                 'source':'KIS' if kis and session!='regular' else 'Finnhub',
                 'verified':raw is not None,'stream_connected':streaming,
-                'price_mode':session_price_mode(session,stream if kis else None,rest_ok),
+                'price_mode':mode,
                 'extended_prices':session in EXTENDED and extended in ('realtime','rest'),
                 'extended_price_status':extended,
                 'day_market_supported':kis,'day_market_status':day}
@@ -250,7 +253,7 @@ class KRProvider:
                     nxt=datetime.fromtimestamp(earliest,ZoneInfo('Asia/Seoul'))-timedelta(minutes=1)
                     if nxt.date()!=now.date() or nxt.hour<9 or nxt.strftime('%H%M%S')>=cursor: break
                     cursor=nxt.strftime('%H%M%S')
-                return candle_result(s,period,'1m',rows,'KIS 당일 분봉')
+                return candle_result(s,period,'1m',rows,'KIS KRX 당일 분봉')
             res='D' if period=='1W' else res
             end=now.date(); start=end-timedelta(days=days)
             for _ in range(10):
@@ -263,7 +266,7 @@ class KRProvider:
                 earliest=datetime.strptime(min(b['stck_bsop_date'] for b in bars),'%Y%m%d').date()
                 if earliest<=start or earliest>end: break
                 end=earliest-timedelta(days=1)
-            return candle_result(s,period,res,rows,'KIS 수정주가 · 1W는 일봉으로 제공')
+            return candle_result(s,period,res,rows,'KIS KRX 수정주가 · 1W는 일봉으로 제공')
         try: return self.cache.get(('candles',s,period),30 if period=='1D' else 900,load)
         except (KeyError,TypeError,ValueError): raise MarketError('국내 차트 데이터 형식 오류입니다.')
     def movers(self,direction):
@@ -293,14 +296,38 @@ class KRProvider:
             return {'rows':rows,'scope':scope,'source':'KIS','data_time':stamp,'notice':notice}
         return self.cache.get(('leaders',direction),120,load)
     def volume_leaders(self): return self.movers('volume')
-    def market_status(self):
-        local=datetime.now(ZoneInfo('Asia/Seoul')); day=local.strftime('%Y%m%d')
+    def trading_day(self,local=None):
+        """True/False from the KIS holiday API, None when it cannot be checked."""
+        local=local or datetime.now(ZoneInfo('Asia/Seoul')); day=local.strftime('%Y%m%d')
         try:
             data=self.adapter.get('/uapi/domestic-stock/v1/quotations/chk-holiday','CTCA0903R',{'BASS_DT':day,'CTX_AREA_FK':'','CTX_AREA_NK':''},86400)
-            record=next(r for r in data['output'] if r['bass_dt']==day)
-            if record['opnd_yn']!='Y': label='휴장'
-            else:
-                minutes=local.hour*60+local.minute
-                label='정규장' if 540<=minutes<930 else '장전' if 480<=minutes<540 else '장후' if 930<=minutes<1080 else '장마감'
-            return {'label':label,'timezone':'Asia/Seoul','source':'KIS 휴장일 + 표준 시간표 (특별 개장시간 미반영)','verified':False,'extended_prices':False}
-        except (MarketError,KeyError,StopIteration,TypeError): return {'label':'장 상태 확인 불가','timezone':'Asia/Seoul','verified':False,'extended_prices':False}
+            return next(r for r in data['output'] if r['bass_dt']==day)['opnd_yn']=='Y'
+        except (MarketError,KeyError,StopIteration,TypeError): return None
+    def session(self):
+        from .kr_session import clock_session
+        day=self.cache.get('trading-day',300,self.trading_day)
+        return 'unknown' if day is None else clock_session(trading_day=day)
+    def market_status(self):
+        """KRX+NXT session with the price sources that can serve it right now."""
+        from .kr_session import LABELS, OPEN, venues
+        from .quote_policy import stream_healthy, session_price_mode
+        from .us_quotes import rest_health
+        from .redis_cache import redis_cache
+        day=self.cache.get('trading-day',300,self.trading_day)
+        session=self.session()
+        configured=bool(getattr(self.adapter,'configured',False))
+        stream=redis_cache.stream_status() if configured else None
+        streaming=stream_healthy(stream,market='KR')
+        ok,record=rest_health('kis_kr')
+        rest_ok=configured and (ok or not record)
+        is_open=session in OPEN
+        mode=session_price_mode(session,stream if configured else None,rest_ok,'KR')
+        label='휴장' if day is False else LABELS[session]
+        return {'market':'KR','label':label,'session':session,'timezone':'Asia/Seoul',
+                'open':is_open,'tradable':is_open and mode!='unavailable',
+                'venue':'UNIFIED' if is_open else 'NONE','venues_open':venues(session),
+                'source':'KIS','verified':day is not None,'schedule_verified':False,
+                'schedule_source':'KIS 휴장일 + 표준 시간표 (특별 개장시간 미반영)',
+                'stream_connected':streaming,'price_mode':mode,
+                'extended_prices':session in ('pre_market','after_hours') and is_open and mode!='unavailable',
+                'nxt_supported':configured,'nxt_status':'open' if 'NXT' in venues(session) else 'closed'}

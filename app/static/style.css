@@ -464,3 +464,4 @@ table { font-size:15px; }
 }
 
 .quote-connection { min-height: 1.4em; color: var(--muted, #697580); }
+.admin-market { white-space:pre-line; }

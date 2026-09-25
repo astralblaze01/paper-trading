@@ -178,7 +178,7 @@ class RedisCache:
         The trade stream has very few slots, so only these requests (detail
         page, order preview, order) compete for them; portfolio valuation
         and rankings do not."""
-        if not self.client or symbol.startswith('KR:'):
+        if not self.client:
             return
         try:
             self.client.zadd('market:stream:interest', {symbol: time.time()})

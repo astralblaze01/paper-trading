@@ -81,8 +81,8 @@ def _ranking_market_state():
     if not statuses:
         return {'open': None, 'unknown': True, 'labels': []}
     open_labels = {'정규장', '장전', '장후', '데이마켓', '프리장', '애프터장'}
-    unknown = any(s.get('label') == '장 상태 확인 불가' for s in statuses)
-    is_open = any(s.get('label') in open_labels for s in statuses)
+    unknown = any(s.get('session', LEGACY_LABELS.get(s.get('label'))) == 'unknown' for s in statuses)
+    is_open = any(s['open'] if 'open' in s else s.get('label') in open_labels for s in statuses)
     return {'open': is_open if not (unknown and not is_open) else None,
             'unknown': unknown, 'labels': statuses}
 
@@ -240,26 +240,34 @@ def market_overview(uid=Depends(current_user)):
         rows.append(status)
     return {'markets':rows,'refreshed_at':datetime.now(timezone.utc),'refresh_seconds':60}
 
-# Sessions in which a new market order may be attempted. Being listed here is
-# not enough to fill: a US order also needs a verified, fresh print from the
-# current session (trading.validate_quote_for_session). Korea trades in the
-# regular session only.
-ORDER_SESSIONS = {'KR': {'정규장'}, 'US': {'데이마켓', '프리장', '정규장', '애프터장'}}
+# Sessions this service can model for new market orders. Being listed is not
+# enough to fill: the market must be open and tradable, and the quote must be
+# a verified, fresh print of the current session (trading.validate_quote).
+SUPPORTED_ORDER_SESSIONS = {'KR': {'pre_market', 'regular', 'after_hours'},
+                            'US': {'overnight', 'pre_market', 'regular', 'after_hours'}}
+# Test doubles and legacy providers report only a label.
+LEGACY_LABELS = {'정규장': 'regular', '장전': 'pre_market', '장후': 'after_hours', '프리장': 'pre_market',
+                 '애프터장': 'after_hours', '데이마켓': 'overnight', '장마감': 'closed', '휴장': 'closed',
+                 '장 상태 확인 불가': 'unknown'}
 
 def closed_market_message(symbol):
-    """Explain a closed market instead of a generic stale-price error.
-
-    An unknown status does not block: the quote checks still apply."""
+    """Why the market cannot take an order now, or None to go on to the quote checks."""
     code = 'KR' if symbol.startswith('KR:') else 'US'
     provider = (getattr(market, 'providers', {}) or {}).get(code)
     if provider is None or not hasattr(provider, 'market_status'): return None
-    try: label = (provider.market_status() or {}).get('label')
-    except (MarketError, KeyError, TypeError): return None
-    if label in (None, '장 상태 확인 불가') or label in ORDER_SESSIONS[code]: return None
+    try: status = provider.market_status() or {}
+    except (MarketError, KeyError, TypeError): status = {}
+    session = status.get('session') or LEGACY_LABELS.get(status.get('label'), 'unknown')
     name = '한국' if code == 'KR' else '미국'
-    if label == '휴장':
+    if session == 'unknown':
+        return f'{name} 시장 상태를 확인할 수 없어 주문할 수 없습니다. 잠시 후 다시 시도해주세요.'
+    if status.get('label') == '휴장':
         return f'오늘은 {name} 주식시장 휴장일이므로 주문할 수 없습니다. 다음 거래일 장 운영 시간에 다시 주문해주세요.'
-    return f'현재 {name} 주식시장이 휴장 중({label})이므로 주문할 수 없습니다. 장 운영 시간에 다시 주문해주세요.'
+    if session not in SUPPORTED_ORDER_SESSIONS[code] or status.get('open') is False:
+        return f'현재 {name} 주식시장이 휴장 중({status.get("label", "장마감")})이므로 주문할 수 없습니다. 장 운영 시간에 다시 주문해주세요.'
+    if status.get('tradable') is False:
+        return f'{name} {status.get("label")}은 열려 있지만 주문에 쓸 시세를 확인할 수 없어 주문할 수 없습니다.'
+    return None
 
 @app.post('/api/orders', dependencies=[Depends(csrf)])
 def order(data: Order, uid=Depends(current_user)):
@@ -322,7 +330,7 @@ def public_portfolio(username: str, uid=Depends(current_user)):
 def transactions(page: int = Query(1, ge=1), uid=Depends(current_user)):
     with Session() as db:
         rows = db.scalars(select(Transaction).where(Transaction.user_id == uid).order_by(Transaction.id.desc()).offset((page-1)*50).limit(50))
-        return [{'id': t.id, 'symbol': t.symbol, 'side': t.side, 'quantity': t.quantity, 'price': t.price, 'currency': t.currency, 'native_price': t.native_price, 'fx_rate': t.fx_rate, 'fx_date': t.fx_date, 'quote_time': t.quote_time, 'created_at': t.created_at, 'gross_amount': t.gross_amount, 'fee': t.fee, 'tax': t.tax, 'net_amount': t.net_amount, 'realized_pnl': t.realized_pnl, 'accounting_version': t.accounting_version, 'order_requested_at': t.order_requested_at, 'market_session': t.market_session, 'quote_source': t.quote_source, 'price_mode': t.price_mode, 'quote_stale': t.quote_stale} for t in rows]
+        return [{'id': t.id, 'symbol': t.symbol, 'side': t.side, 'quantity': t.quantity, 'price': t.price, 'currency': t.currency, 'native_price': t.native_price, 'fx_rate': t.fx_rate, 'fx_date': t.fx_date, 'quote_time': t.quote_time, 'created_at': t.created_at, 'gross_amount': t.gross_amount, 'fee': t.fee, 'tax': t.tax, 'net_amount': t.net_amount, 'realized_pnl': t.realized_pnl, 'accounting_version': t.accounting_version, 'order_requested_at': t.order_requested_at, 'market_session': t.market_session, 'venue': t.venue, 'quote_source': t.quote_source, 'price_mode': t.price_mode, 'quote_stale': t.quote_stale} for t in rows]
 
 @app.get('/api/ranking')
 def ranking(uid=Depends(current_user)):

@@ -224,7 +224,7 @@ def install(app,ctx):
             counts={'users':db.scalar(select(func.count()).select_from(User)),'transactions':db.scalar(select(func.count()).select_from(Transaction)),'positions':db.scalar(select(func.count()).select_from(Position)),'pending_orders':db.scalar(select(func.count()).select_from(LimitOrder).where(LimitOrder.status=='pending'))}
         from .notices import active_notice, public, TEMPLATES
         with Session() as db: notice=public(active_notice(db))
-        return {'users':users,'initial_usd':amount,'notice':notice,'notice_templates':TEMPLATES,'maintenance':bool(notice and notice['kind']=='maintenance'),'fees':{n:bps(n,'10' if n=='FX_FEE_BPS' else '5' if n=='FX_SPREAD_BPS' else '0') for n in names},'health':ctx.health(),'providers':ctx.market.status(),'counts':counts,'us_market':us_diagnostics(ctx.market)}
+        return {'users':users,'initial_usd':amount,'notice':notice,'notice_templates':TEMPLATES,'maintenance':bool(notice and notice['kind']=='maintenance'),'fees':{n:bps(n,'10' if n=='FX_FEE_BPS' else '5' if n=='FX_SPREAD_BPS' else '0') for n in names},'health':ctx.health(),'providers':ctx.market.status(),'counts':counts,'us_market':us_diagnostics(ctx.market),'kr_market':us_diagnostics(ctx.market,'KR')}
     from .notices import install_notices
     install_notices(app,admin,csrf)
     @app.post('/api/admin/initial',dependencies=[Depends(csrf)])

@@ -1,6 +1,6 @@
 """US REST quotes chosen by session; every result names the sessions its source covers.
 
-Verified against live responses (scripts/check_us_day_market.py):
+Verified against live responses (scripts/check_us_sessions.py):
 - Finnhub /quote: regular-session prints only. Outside regular hours it keeps
   returning the 16:00 close, so it is valid for 'regular' alone.
 - KIS 1-minute bars on the primary exchange (NAS/NYS/AMS): the response states
@@ -69,7 +69,7 @@ class USQuotes:
 
     def finnhub_quote(self, symbol):
         q = self.finnhub.quote(symbol)
-        return q | {'source': 'Finnhub', 'origin': 'rest', 'venue': 'primary', 'valid_sessions': ['regular']}
+        return q | {'source': 'Finnhub', 'origin': 'rest', 'market': 'US', 'venue': 'US', 'valid_sessions': ['regular']}
 
     def kis_bars(self, symbol, overnight):
         primary = self.exchange(symbol)
@@ -97,7 +97,7 @@ class USQuotes:
             pass  # The change is display-only; the trade price stands without it.
         return {'symbol': symbol, 'price': price, 'timestamp': int(stamp), 'stale': False,
                 'change': change, 'change_pct': pct, 'high': None, 'low': None, 'volume': None,
-                'source': 'KIS', 'origin': 'rest', 'venue': 'overnight' if overnight else 'primary',
+                'source': 'KIS', 'origin': 'rest', 'market': 'US', 'venue': 'US',
                 'exchange': code, 'valid_sessions': ['overnight'] if overnight else PRIMARY_SESSIONS,
                 'kis_window': f"{window.get('stim', '')}-{window.get('etim', '')} ET",
                 'data_status': f"KIS {code} {'데이마켓' if overnight else '시간외 포함'} 1분봉 · 실시간 체결 스트림 아님"}
@@ -135,18 +135,22 @@ class USQuotes:
         return q
 
 
-def diagnostics(market):
-    """Admin-only view of the US price pipeline. Contains no credentials."""
+def diagnostics(market, code='US'):
+    """Admin-only view of one market's price pipeline. Contains no credentials."""
     from .quote_policy import stream_healthy
     now = time.time()
     stream = redis_cache.stream_status() or {}
-    provider = (getattr(market, 'providers', {}) or {}).get('US')
+    provider = (getattr(market, 'providers', {}) or {}).get(code)
     status = provider.market_status() if provider and hasattr(provider, 'market_status') else {}
     last = stream.get('last_message')
+    mine = [s for s in stream.get('subscribed', []) if s.startswith('KR:') == (code == 'KR')]
+    sources = ('kis_kr',) if code == 'KR' else ('finnhub', 'kis_primary', 'kis_overnight')
     return {'session': status.get('session'), 'label': status.get('label'), 'price_mode': status.get('price_mode'),
-            'stream': {'state': stream.get('state', 'no_worker'), 'healthy': stream_healthy(stream, now),
+            'open': status.get('open'), 'tradable': status.get('tradable'), 'venue': status.get('venue'),
+            'venues_open': status.get('venues_open'), 'verified': status.get('verified'),
+            'stream': {'state': stream.get('state', 'no_worker'), 'healthy': stream_healthy(stream, now, code),
                        'last_message_age': round(now - last, 1) if last else None,
-                       'subscribed': stream.get('subscribed', []), 'limit': stream.get('limit'),
+                       'subscribed': mine, 'all_subscribed': stream.get('subscribed', []), 'limit': stream.get('limit'),
                        'queued': stream.get('queued', []), 'reconnects': stream.get('reconnects', 0),
                        'last_error': stream.get('last_error')},
-            'rest': {name: rest_health(name, now)[1] or None for name in ('finnhub', 'kis_primary', 'kis_overnight')}}
+            'rest': {name: rest_health(name, now)[1] or None for name in sources}}

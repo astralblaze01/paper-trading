@@ -12,8 +12,9 @@
 ### 거래
 - **USD·KRW 이중 지갑**: 가입 시 USD 지갑에 초기 자금(기본 $100,000)이 지급됩니다. 미국 종목은 USD, 국내 종목은 KRW로 결제합니다.
 - **모의 시장가 주문**: 최신 시세가 있으면 즉시 체결합니다. 시세가 오래됐거나 장이 닫혀 있으면 대기 주문으로 넘기지 않고 거절합니다.
-  - 한국: 정규장에서만 주문 가능
-  - 미국: 데이마켓·프리장·정규장·애프터장에서 주문 가능. 단, 현재 세션의 체결가가 확인된 경우에만 체결합니다([미국 세션과 시세](#미국-세션과-시세)).
+  - 한국: 프리장(NXT 상장 종목)·정규장·애프터장(ETF·ETN 제외)에서 주문 가능([한국 세션과 시세](#한국-세션과-시세))
+  - 미국: 데이마켓·프리장·정규장·애프터장에서 주문 가능([미국 세션과 시세](#미국-세션과-시세))
+  - 어느 시장이든 현재 세션의 체결가가 확인된 경우에만 체결합니다.
 - **빠른 수량 선택**: 최대 / 50% / 25% / 10% / 5% (수수료·세금 반영 후 서버에서 재계산)
 - **가상 환전**: USD ↔ KRW, ECB 일별 기준환율에 설정된 수수료·스프레드를 적용합니다. 실행 전 예상 금액을 확인할 수 있습니다.
 - **거래 대상**: 미국·한국 주식/ETF, 한국·미국 채권 ETF, 금 ETF (개별 채권과 금 현물은 지원하지 않습니다)
@@ -53,7 +54,7 @@
 | `nginx` | 외부 진입점. 보안 헤더, 요청 속도 제한, `/internal/` 차단 |
 | `web` | FastAPI 앱 (`app.main:app`). 시작 시 테이블 생성과 마이그레이션 수행 |
 | `market-worker` | 요청된 종목 시세를 REST로 수집해 Redis에 캐시, 국내·미국 종목 마스터를 하루 한 번 갱신 |
-| `us-trade-stream` | KIS WebSocket 하나로 미국 실시간 체결을 받아 Redis에 저장 (앱키당 세션 1개라 복제 금지) |
+| `market-stream` | KIS WebSocket 하나로 미국·한국 실시간 체결을 받아 Redis에 저장 (앱키당 세션 1개라 복제 금지) |
 | `worker` | 1분마다 내부 작업 호출 (이전 주문 처리, 주간 순위 게시) |
 | `db` | PostgreSQL 17 (`pgdata` 볼륨) |
 | `redis` | Redis 7 시세 캐시 (`redis_data` 볼륨) |
@@ -126,10 +127,10 @@ docker compose exec web python -m app.admin_cli <아이디>
 | `QUOTE_TTL` | `15` | 시세 캐시·갱신 주기(초) |
 | `MAX_QUOTE_AGE` | `900` | 국내 시세의 주문 허용 최대 나이(초) |
 | `US_MAX_QUOTE_AGE` | `1800` | 미국 REST 시세의 주문 허용 최대 나이(초) |
-| `US_TRADE_STREAM_ENABLED` | `true` | 미국 실시간 체결 스트림 사용 여부 |
-| `US_STREAM_MAX_AGE` | `10` | 스트림 워커 heartbeat가 이 시간(초)보다 오래되면 스트림 가격을 실시간으로 보지 않음 |
-| `US_STREAM_MAX_SUBSCRIPTIONS` | `3` | KIS WebSocket 동시 구독 수 (현재 키 실측 한도 3) |
-| `US_STREAM_RECONNECT_MAX_SECONDS` | `60` | 재연결 지수 백오프 최대 간격(초) |
+| `US_TRADE_STREAM_ENABLED` / `KR_TRADE_STREAM_ENABLED` | `true` | 시장별 실시간 체결 스트림 사용 여부 |
+| `US_STREAM_MAX_AGE` / `KR_STREAM_MAX_AGE` | `10` | 스트림 워커 heartbeat가 이 시간(초)보다 오래되면 스트림 가격을 실시간으로 보지 않음 |
+| `MARKET_STREAM_MAX_SUBSCRIPTIONS` | `3` | KIS WebSocket 동시 구독 수, 두 시장 합계 (현재 키 실측 한도 3) |
+| `MARKET_STREAM_RECONNECT_MAX_SECONDS` | `60` | 재연결 지수 백오프 최대 간격(초, ±20% jitter) |
 | `MARKET_CALLS_PER_MINUTE` | `50` | Finnhub 분당 호출 한도 |
 | `WEEKLY_ENABLED` | `true` | 주간 순위 게시 사용 여부 |
 | `WEEKLY_DAY` / `WEEKLY_HOUR` | `5` / `9` | 게시 요일(월=0 … 일=6)과 시각, 한국 시간 |
@@ -196,7 +197,9 @@ app/
   providers.py       차트·순위·장 상태
   us_session.py      미국 세션 판정 (America/New_York 기준)
   us_quotes.py       세션별 미국 REST 시세 소스
-  us_trade_stream.py KIS WebSocket 체결 스트림 워커
+  trade_stream.py    KIS WebSocket 체결 스트림 워커 (미국·한국)
+  kr_session.py      한국 세션 판정 (KRX·NXT, Asia/Seoul)
+  kr_quotes.py       한국 통합 시세, 종목별 NXT·ETP capability
   quote_policy.py    시세의 세션·실시간·주문 가능 여부 판정
   kr_symbols.py, us_symbols.py   종목 마스터 검색
   instruments.py     기본 종목 목록(채권·금 ETF 포함)
@@ -205,7 +208,7 @@ app/
   admin_cli.py       관리자 승격 명령
   static/            웹 화면 (index.html, app.js, portal.js, profile.js, style.css)
 nginx/               nginx 설정 (HTTP, HTTPS 템플릿)
-scripts/             HTTPS 설정, 공개 전 비밀 값 검사, 미국 세션별 시세 진단(check_us_day_market.py)
+scripts/             HTTPS 설정, 공개 전 비밀 값 검사, 세션별 시세 진단(check_us_sessions.py, check_kr_sessions.py)
 tests/               pytest 테스트, 브라우저 스모크 테스트
 ```
 
@@ -277,6 +280,59 @@ docker compose exec db psql -U paper -d paper -c \
 실제 사용자 데이터를 연구에 쓰려면 익명화, 참가자 동의, 연구윤리(IRB) 절차를 따로 검토해야 합니다.
 이 기능은 개인정보를 추가로 수집하지 않습니다.
 
+## 한국 세션과 시세
+
+NXT 상장 종목은 KRX와 NXT 체결을 합친 **통합 시세**(KIS `FID_COND_MRKT_DIV_CODE=UN`, 실시간 `H0UNCNT0`)를 씁니다. 그래서 한 거래소의 체결을 놓치지 않습니다.
+NXT에 없는 종목은 **KRX 시세**(`J`, 실시간 `H0STCNT0`)를 씁니다.
+- 이런 종목의 통합 시세에는 KRX 애프터마켓 체결이 빠져 있었습니다.
+- 실측 예: 2026-09-23 18:30, 카카오 KRX 108주 체결 / 통합 0건.
+
+체결에는 `venue`(`UNIFIED` 또는 `KRX`)를 기록합니다. 통합 시세의 체결이 어느 거래소에서 났는지는 임의로 정하지 않습니다.
+
+### 세션 (`Asia/Seoul`)
+
+| 세션 | 화면 표시 | 시각 | 열리는 거래소 |
+| --- | --- | --- | --- |
+| `pre_market` | 프리장 | 08:00–08:50 | NXT |
+| `regular` | 정규장 | 09:00–15:30 | KRX, NXT(09:00:30–15:20) |
+| `after_hours` | 애프터장 | 15:40–20:00 | NXT(15:40–), KRX 애프터마켓(16:00–, 2026-09-14 개장) |
+| `closed` | 장마감 / 휴장 | 그 외, 휴장일 | – |
+
+- 거래일 여부는 KIS 휴장일 API로 확인합니다(`verified`).
+- 장중 시각은 위 표준 시간표로 판단합니다. 특별 개장일은 이 API로 알 수 없어서 `schedule_verified=false`로 표시합니다.
+  - 그런 날에도 주문은 현재 세션의 실제 체결가가 있어야만 체결됩니다. 개장이 늦어지면 체결이 없으므로 주문은 자동으로 거절됩니다.
+- 장운영정보 WebSocket(`H0STMKO0` 등)도 구독은 되지만, 3건뿐인 등록 슬롯을 차지하므로 쓰지 않습니다.
+
+### 종목별 제한
+
+종목마다 KIS에서 확인해 하루 동안 캐시합니다.
+- **NXT 상장 여부**: `NX` 기준가가 0이면 비상장입니다. 비상장 종목은 프리장에 주문할 수 없습니다.
+- **ETF·ETN(ETP) 여부**: 애프터장은 NXT 상장 종목이거나 ETP가 아닌 종목만 가능합니다. 두 애프터마켓 모두 ETP를 제외합니다.
+- 확인할 수 없으면 가장 보수적으로 판단해 정규장만 허용합니다.
+
+### 가격과 freshness
+- REST는 통합 1분봉 중 **거래량이 있는 마지막 봉**만 체결로 봅니다. KIS는 체결이 없는 분에도 직전 가격을 반복하는 거래량 0 봉을 돌려주기 때문입니다.
+- 주문에 쓰려면 체결 시각이 현재 세션에 속하고 `MAX_QUOTE_AGE`(900초) 이내여야 합니다.
+- 정규장 종가(15:30 이전 체결)는 애프터장 가격으로 쓰지 않습니다.
+- 스트림 가격의 판정 기준은 미국과 같습니다. heartbeat가 `KR_STREAM_MAX_AGE` 이내이고 같은 연결에서 구독 중이면 실시간입니다.
+- 시장 탐색 순위와 차트는 KRX 기준 데이터이며 화면에 그렇게 표시합니다.
+
+```bash
+docker compose run --rm --no-deps -v ./scripts:/srv/scripts market-worker python scripts/check_kr_sessions.py
+# 휴장일에는 직전 거래일의 특정 시각 분봉을 확인
+docker compose run --rm --no-deps -v ./scripts:/srv/scripts market-worker python scripts/check_kr_sessions.py --at 183000
+```
+
+## 시장 열림과 주문 가능
+
+`/api/market-overview`와 `/api/market-status/{symbol}`은 두 시장 모두 같은 형식으로 응답합니다.
+주요 필드: `market`, `session`, `label`, `open`, `tradable`, `venue`, `price_mode`, `stream_connected`, `verified`.
+- `open`은 세션 자체가 열려 있다는 뜻입니다.
+- `tradable`은 이 서비스가 지금 그 세션의 가격 source를 확보했다는 뜻입니다.
+- `open=true, tradable=false`이면 화면에 `시장 열림 · 주문 시세 확인 불가`를 표시하고, 주문은 이유와 함께 거절합니다.
+- 종목 단위의 최종 판단은 시세의 `session_tradeable`로 합니다.
+- 화면은 label 문자열로 주문 가능 여부를 추측하지 않습니다.
+
 ## 미국 세션과 시세
 
 미국 주식은 현재 시장 세션과 사용 가능한 시세 source에 따라 실시간 stream 또는 REST fallback을 사용합니다.
@@ -307,7 +363,7 @@ KIS 분봉 응답에는 KIS의 세션 범위(데이마켓 20:00–04:00 ET)도 �
 | 프리장·애프터장 | KIS WebSocket `D`+`NAS/NYS/AMS` (`extended_stream`) | KIS 주 거래소 1분봉 (`extended_rest`) | 주문 불가 |
 | 정규장 | KIS WebSocket (`trade_stream`) | Finnhub `/quote`, 실패 시 KIS 1분봉 (`rest`) | 주문 불가 |
 
-2026-09-24 실측(`scripts/check_us_day_market.py`) 결과는 다음과 같습니다.
+2026-09-24 실측(`scripts/check_us_sessions.py`) 결과는 다음과 같습니다.
 - KIS 현재가 API는 체결 시각이 없습니다. 게다가 데이마켓 시간에 `NAS`로 조회하면 정규장 종가를 돌려줍니다. 그래서 전일 대비 계산의 기준가로만 씁니다.
 - Finnhub `/quote`는 장 마감 뒤에도 16:00 종가를 줍니다. 따라서 정규장에서만 체결가로 인정합니다.
 
@@ -332,7 +388,7 @@ KIS 분봉 응답에는 KIS의 세션 범위(데이마켓 20:00–04:00 ET)도 �
 
 - 현재 키는 세션당 구독 3건만 허용합니다. 4번째부터 `OPSP0008 MAX SUBSCRIBE OVER`가 나옵니다.
 - 같은 앱키로 두 번째 연결을 하면 `ALREADY IN USE appkey`로 거절됩니다.
-- 그래서 `us-trade-stream` 하나만 연결합니다. Redis 리더 락으로 중복 실행도 막습니다.
+- 그래서 `market-stream` 하나만 연결합니다. 한국 체결도 같은 연결과 같은 3건을 나눠 씁니다. Redis 리더 락으로 중복 실행도 막습니다.
 - 슬롯은 지금 상세 화면을 보거나 주문하는 종목(`market:stream:interest`, 최근 150초) 순으로 배정합니다. 한 번 배정한 종목은 최소 30초 유지합니다.
 - 나머지 종목은 market-worker의 REST 시세를 씁니다.
 - 연결이 끊기면 1초부터 시작하는 지수 백오프(최대 `US_STREAM_RECONNECT_MAX_SECONDS`)로 재연결합니다. 그동안 REST로 대체합니다.
@@ -360,11 +416,11 @@ Redis 키:
 ```bash
 # 스트림 워커와 같은 앱키로 WebSocket을 열 수 없으므로 REST만 확인
 docker compose run --rm --no-deps -v ./scripts:/srv/scripts market-worker \
-  python scripts/check_us_day_market.py --seconds 0 AAPL TSLA QQQ
+  python scripts/check_us_sessions.py --seconds 0 AAPL TSLA QQQ
 docker compose exec redis redis-cli GET market:stream:status
 ```
 
-WebSocket까지 확인하려면 먼저 `docker compose stop us-trade-stream` 하고 `--seconds 30`으로 실행합니다.
+WebSocket까지 확인하려면 먼저 `docker compose stop market-stream` 하고 `--seconds 30`으로 실행합니다.
 관리자 화면에는 세션, 가격 모드, 스트림 상태, 구독 수/한도, REST source 상태가 표시됩니다.
 
 ## 종목 상세 현재가 SSE (선택 활성화)

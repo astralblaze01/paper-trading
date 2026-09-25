@@ -4,7 +4,7 @@ Read-only diagnostic. Run inside the market-worker container so it shares the
 Redis-cached KIS token instead of issuing a new one:
 
     docker compose run --rm --no-deps -v ./scripts:/srv/scripts market-worker \
-        python scripts/check_us_day_market.py [--seconds 30] [SYMBOL ...]
+        python scripts/check_us_sessions.py [--seconds 30] [SYMBOL ...]
 
 For every symbol it prints each source's price, trade timestamp and age, and
 whether that price could be used as a trade price in the current session.

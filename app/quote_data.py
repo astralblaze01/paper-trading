@@ -9,7 +9,8 @@ PUBLIC = ('symbol', 'price', 'native_price', 'currency', 'timestamp', 'stale', '
           'change_pct', 'high', 'low', 'volume', 'turnover', 'source', 'data_status',
           'fx_rate', 'fx_date', 'name', 'category', 'cached_at',
           # US session state, added by quote_policy.assess at read time
-          'session', 'trade_session', 'price_mode', 'realtime', 'session_tradeable', 'tradeable')
+          'session', 'trade_session', 'price_mode', 'realtime', 'session_tradeable', 'tradeable',
+          'market', 'venue')
 
 
 def max_age(symbol):

@@ -327,16 +327,24 @@ def test_kis_read_only_timestamp_and_cache():
         if request.url.path == '/oauth2/tokenP':
             return httpx.Response(200, json={'access_token': 'mock-token', 'expires_in': 86400})
         assert request.method == 'GET'
+        if request.url.path.endswith('/inquire-price'):  # capability: KRX and NXT listing
+            return httpx.Response(200, json={'rt_cd': '0', 'output': {'stck_sdpr': '69000', 'rprs_mrkt_kor_name': 'KOSPI200', 'bstp_kor_isnm': '전기·전자'}})
         assert request.url.path == m.PATH
-        return httpx.Response(200, json={'rt_cd': '0', 'output1': {'hts_kor_isnm': '삼성전자','acml_tr_pbmn':'140000000'}, 'output2': [{'stck_bsop_date': stamp.strftime('%Y%m%d'), 'stck_cntg_hour': stamp.strftime('%H%M%S'), 'stck_prpr': '70000'}]})
+        assert request.url.params['FID_COND_MRKT_DIV_CODE'] == 'UN'  # unified KRX+NXT
+        filler = datetime.now(SEOUL).replace(second=0)
+        # A later zero-volume bar only repeats the price; it is not a trade.
+        return httpx.Response(200, json={'rt_cd': '0', 'output1': {'hts_kor_isnm': '삼성전자','acml_tr_pbmn':'140000000'}, 'output2': [
+            {'stck_bsop_date': filler.strftime('%Y%m%d'), 'stck_cntg_hour': filler.strftime('%H%M%S'), 'stck_prpr': '70000', 'cntg_vol': '0'},
+            {'stck_bsop_date': stamp.strftime('%Y%m%d'), 'stck_cntg_hour': stamp.strftime('%H%M%S'), 'stck_prpr': '70000', 'cntg_vol': '12'}]})
     m.client = httpx.Client(base_url='https://test', transport=httpx.MockTransport(handler))
     try:
         q = m.quote('KR:005930')
         assert q['price'] == 70000 and not q['stale']
         assert q['timestamp'] == int(stamp.timestamp())
-        assert q['turnover'] == '140000000'
+        assert q['turnover'] == '140000000' and q['venue'] == 'UNIFIED'
+        assert q['valid_sessions'] == ['pre_market', 'regular', 'after_hours']
         m.quote('KR:005930')
-        assert len(calls) == 2
+        assert len(calls) == 4  # token, bars, KRX + NXT listing; the repeat is cached
     finally:
         redis_cache.delete(m._token_key())
         m.client.close()

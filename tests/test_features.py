@@ -117,11 +117,12 @@ class Status:
 @pytest.mark.parametrize('market_code,label,symbol,blocked,text', [
     ('US', '휴장', 'AAPL', True, '미국 주식시장 휴장일'),
     ('US', '장마감', 'AAPL', True, '현재 미국 주식시장이 휴장 중'),
-    ('KR', '장후', 'KR:005930', True, '현재 한국 주식시장이 휴장 중'),
+    ('KR', '장마감', 'KR:005930', True, '현재 한국 주식시장이 휴장 중'),
+    ('KR', '장후', 'KR:005930', False, None),  # after-hours: the quote checks decide
     ('KR', '휴장', 'KR:005930', True, '한국 주식시장 휴장일'),
     ('US', '프리장', 'AAPL', False, None),
     ('US', '정규장', 'AAPL', False, None),
-    ('US', '장 상태 확인 불가', 'AAPL', False, None),
+    ('US', '장 상태 확인 불가', 'AAPL', True, '시장 상태를 확인할 수 없어'),
 ])
 def test_closed_market_orders_explain_why(client, market_code, label, symbol, blocked, text):
     headers = {'x-csrf-token': register(client)}
@@ -129,11 +130,11 @@ def test_closed_market_orders_explain_why(client, market_code, label, symbol, bl
     body = {'symbol': symbol, 'side': 'buy', 'quantity': 1, 'request_id': str(uuid4())}
     r = client.post('/api/orders', headers=headers, json=body)
     if blocked:
-        assert r.status_code == 409 and text in r.json()['detail'] and '장 운영 시간' in r.json()['detail']
+        assert r.status_code == 409 and text in r.json()['detail']
         assert client.get(f'/api/order-preview?symbol={symbol}').json()['market_closed']
     else:
         assert r.status_code != 409 or '휴장' not in r.json()['detail']
-        assert client.get('/api/order-preview?symbol=AAPL').json()['market_closed'] is None
+        assert client.get(f'/api/order-preview?symbol={symbol}').json()['market_closed'] is None
 
 
 # 랭킹 -------------------------------------------------------------------
