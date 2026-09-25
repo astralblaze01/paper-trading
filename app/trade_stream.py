@@ -53,6 +53,20 @@ MIN_HOLD = 30     # seconds a subscription is kept before another symbol may tak
 SILENCE = 150     # KIS sends PINGPONG regularly; a socket silent this long is dead
 ACK_TIMEOUT = 10  # an unanswered (un)subscribe request is forgotten and retried
 KEEPALIVE = 30    # republish the last trade so a quiet symbol's snapshot never expires
+KR_TRADE_MAX_AGE = 43200  # seconds; a Korean print must also be today's (Seoul) and in a session
+US_TRADE_MAX_AGE = 86400  # seconds; a US print must also fall in a session its venue serves
+CLOCK_SKEW = 60           # a print may be stamped this far ahead of our clock
+APPROVAL_TTL = 43200      # the cached KIS approval key is reused this long
+TRADE_TTL = 43200         # market:trade:*, which the market-worker prefers over an older REST bar
+SNAPSHOT_TTL = 120        # market:price:* written from a trade; KEEPALIVE renews it
+LEADER_TTL = 30           # a dead leader frees the app key's only session after this
+STATUS_TTL = 30           # market:stream:status disappears this long after writes stop
+LOOKUP_RETRY = 600        # a failed exchange lookup is not repeated sooner
+KR_DAY_REFRESH = 600      # the KIS trading-day answer is reused this long
+STABLE_CONNECTION = 60    # a connection that lasted this long resets the reconnect backoff
+IDLE_POLL = 10            # seconds between checks while disabled or on standby
+PRICE_STEP = Decimal('.0001')
+DOWN_SIGNS = ('4', '5')   # KIS sign codes for a fall; the difference itself is sent unsigned
 
 
 class StreamRejected(Exception):
@@ -119,9 +133,9 @@ def kr_trade_quote(values, symbol, conn, reference=None, now=None, venue='UNIFIE
             return None
         local = datetime.strptime(f['date'] + f['hour'], '%Y%m%d%H%M%S').replace(tzinfo=kr_session.SEOUL)
         stamp = local.timestamp()
-        price = Decimal(f['price']).quantize(Decimal('.0001'))
+        price = Decimal(f['price']).quantize(PRICE_STEP)
         diff, rate = Decimal(f['diff']), Decimal(f['rate'])
-        if (not price.is_finite() or price <= 0 or not now - 43200 < stamp <= now + 60
+        if (not price.is_finite() or price <= 0 or not now - KR_TRADE_MAX_AGE < stamp <= now + CLOCK_SKEW
                 or local.date() != datetime.fromtimestamp(now, kr_session.SEOUL).date()):
             return None
         if reference and abs(price / Decimal(str(reference)) - 1) > Decimal('0.3'):
@@ -130,7 +144,7 @@ def kr_trade_quote(values, symbol, conn, reference=None, now=None, venue='UNIFIE
         return None
     if kr_session.clock_session(local) not in kr_session.OPEN:
         return None
-    if f['sign'] in ('4', '5'):
+    if f['sign'] in DOWN_SIGNS:
         diff = -abs(diff)
     return instrument(symbol) | {
         'symbol': symbol, 'native_price': price, 'currency': 'KRW', 'timestamp': int(stamp), 'stale': False,
@@ -148,31 +162,31 @@ def trade_quote(fields, symbol, key, conn, now=None):
     must fall in a session that venue serves. A primary-exchange print can
     therefore never become a day-market price, or the reverse."""
     now = time.time() if now is None else now
+    tr_key = key.split('|')[-1]  # handle() passes the whole subscription key 'HDFSCNT0|<tr_key>'
     try:
-        if fields['RSYM'] != key.split('|')[-1] or fields['SYMB'] != symbol:
+        if fields['RSYM'] != tr_key or fields['SYMB'] != symbol:
             return None
         stamp = datetime.strptime(fields['XYMD'] + fields['XHMS'], '%Y%m%d%H%M%S').replace(tzinfo=NEW_YORK).timestamp()
-        price = Decimal(fields['LAST']).quantize(Decimal('.0001'))
+        price = Decimal(fields['LAST']).quantize(PRICE_STEP)
         diff, rate = Decimal(fields['DIFF']), Decimal(fields['RATE'])
-        if not price.is_finite() or price <= 0 or not now - 86400 < stamp <= now + 60:
+        if not price.is_finite() or price <= 0 or not now - US_TRADE_MAX_AGE < stamp <= now + CLOCK_SKEW:
             return None
     except (KeyError, ValueError, InvalidOperation):
         return None
-    key = key.split('|')[-1]
-    overnight = key.startswith('R')
+    overnight, exchange = tr_key.startswith('R'), tr_key[1:4]
     sessions = ['overnight'] if overnight else PRIMARY_SESSIONS
     if clock_session(datetime.fromtimestamp(stamp, timezone.utc)) not in sessions:
         return None
-    if fields.get('SIGN') in ('4', '5'):  # KIS sends the difference unsigned
+    if fields.get('SIGN') in DOWN_SIGNS:
         diff = -abs(diff)
     return instrument(symbol) | {
         'symbol': symbol, 'price': price, 'native_price': price, 'currency': 'USD',
         'fx_rate': Decimal(1), 'fx_date': None, 'timestamp': int(stamp), 'stale': False,
         'change': diff, 'change_pct': rate, 'high': fields.get('HIGH') or None, 'low': fields.get('LOW') or None,
         'volume': fields.get('TVOL') or None, 'source': 'KIS', 'origin': 'stream', 'market': 'US', 'venue': 'US',
-        'exchange': key[1:4], 'valid_sessions': sessions,
+        'exchange': exchange, 'valid_sessions': sessions,
         'stream_conn': conn, 'received_at': now, '_cached_at': now,
-        'data_status': f"KIS {key[1:4]} 실시간 체결{' · 데이마켓' if overnight else ''}"}
+        'data_status': f"KIS {exchange} 실시간 체결{' · 데이마켓' if overnight else ''}"}
 
 
 class TradeStream:
@@ -205,8 +219,8 @@ class TradeStream:
         client = self.cache.client
         if not client:
             return False
-        if client.set(LEADER_KEY, self.token, nx=True, ex=30) or client.get(LEADER_KEY) == self.token:
-            client.expire(LEADER_KEY, 30)
+        if client.set(LEADER_KEY, self.token, nx=True, ex=LEADER_TTL) or client.get(LEADER_KEY) == self.token:
+            client.expire(LEADER_KEY, LEADER_TTL)
             return True
         return False
 
@@ -215,7 +229,7 @@ class TradeStream:
             'state': self.state, 'connected': connected, 'conn': self.conn if connected else None,
             'heartbeat': time.time(), 'last_message': self.last_message,
             'subscribed': sorted(self.active.values()), 'limit': self.effective_limit,
-            'queued': self.queued, 'reconnects': self.reconnects, 'last_error': self.last_error}, 30)
+            'queued': self.queued, 'reconnects': self.reconnects, 'last_error': self.last_error}, STATUS_TTL)
 
     def approval_key(self):
         return self.cache.key('market:kis:ws-approval', self.kis.key + '\0' + self.kis.secret)
@@ -229,14 +243,14 @@ class TradeStream:
             if not key:
                 raise StreamRejected('approval key refused')
             return {'approval_key': key}
-        return self.cache.get_or_load(self.approval_key(), 43200, issue)['approval_key']
+        return self.cache.get_or_load(self.approval_key(), APPROVAL_TTL, issue)['approval_key']
 
     def store(self, symbol, q):
         if q.get('market') == 'KR':
             # Same USD conversion as REST Korean quotes (ECB daily reference).
             rate, day = self.fx.krw_to_usd()
-            q = q | {'price': (q['native_price'] * rate).quantize(Decimal('.0001')), 'fx_rate': rate, 'fx_date': day}
-        self.cache.set_json(f'market:trade:{symbol}', q, 43200)
+            q = q | {'price': (q['native_price'] * rate).quantize(PRICE_STEP), 'fx_rate': rate, 'fx_date': day}
+        self.cache.set_json(f'market:trade:{symbol}', q, TRADE_TTL)
         self.latest[symbol] = q
         at, _ = self.published.get(symbol, (0, 0))
         # Busy symbols print many times a second; the snapshot and its SSE
@@ -245,7 +259,7 @@ class TradeStream:
             self.publish(symbol, q)
 
     def publish(self, symbol, q):
-        if self.cache.store_quote(symbol, q, 120):
+        if self.cache.store_quote(symbol, q, SNAPSHOT_TTL):
             self.published[symbol] = (time.monotonic(), q['timestamp'])
 
     def flush(self):
@@ -269,7 +283,7 @@ class TradeStream:
         return snapshot.get('native_price')
 
     def exchange(self, symbol):
-        if time.monotonic() - self.no_exchange.get(symbol, -1e9) < 600:
+        if time.monotonic() - self.no_exchange.get(symbol, -1e9) < LOOKUP_RETRY:
             return None
         try:
             return self.lookup.exchange(symbol)
@@ -279,7 +293,7 @@ class TradeStream:
 
     def kr_trading_day(self):
         at, day = self.kr_day
-        if time.monotonic() - at > 600:
+        if time.monotonic() - at > KR_DAY_REFRESH:
             from .providers import KRProvider
             day = KRProvider(self.kis).trading_day()
             self.kr_day = (time.monotonic(), day)
@@ -328,22 +342,31 @@ class TradeStream:
 
     async def handle(self, ws, message):
         if message[:1] in ('0', '1'):
-            symbols = self.active | {k: v[0] for k, v in self.sent.items() if v[1] == 'subscribe'}
-            tr_id, rows = records(message)
-            for values in rows:
-                key = f'{tr_id}|{values[0] if values else ""}'
-                symbol = symbols.get(key)
-                if not symbol:
-                    continue
-                if tr_id == 'HDFSCNT0':
-                    q = trade_quote(dict(zip(FIELDS, values)), symbol, key, self.conn) if len(values) >= len(FIELDS) else None
-                else:
-                    reference = (self.latest.get(symbol) or {}).get('native_price') or await asyncio.to_thread(self.reference, symbol)
-                    q = kr_trade_quote(values, symbol, self.conn, reference, venue='UNIFIED' if tr_id == 'H0UNCNT0' else 'KRX')
-                if q:
-                    log.debug('trade %s %s', symbol, q['native_price'])
-                    await asyncio.to_thread(self.store, symbol, q)
-            return
+            await self._on_trades(message)
+        else:
+            await self._on_control(ws, message)
+
+    async def _on_trades(self, message):
+        """Caret-delimited trade records for confirmed or requested subscriptions."""
+        requested = {key: symbol for key, (symbol, op, _) in self.sent.items() if op == 'subscribe'}
+        symbols = self.active | requested
+        tr_id, rows = records(message)
+        for values in rows:
+            key = f'{tr_id}|{values[0] if values else ""}'
+            symbol = symbols.get(key)
+            if not symbol:
+                continue
+            if tr_id == 'HDFSCNT0':
+                q = trade_quote(dict(zip(FIELDS, values)), symbol, key, self.conn) if len(values) >= len(FIELDS) else None
+            else:
+                reference = (self.latest.get(symbol) or {}).get('native_price') or await asyncio.to_thread(self.reference, symbol)
+                q = kr_trade_quote(values, symbol, self.conn, reference, venue='UNIFIED' if tr_id == 'H0UNCNT0' else 'KRX')
+            if q:
+                log.debug('trade %s %s', symbol, q['native_price'])
+                await asyncio.to_thread(self.store, symbol, q)
+
+    async def _on_control(self, ws, message):
+        """JSON frames: PINGPONG, fatal session errors, then (un)subscribe answers."""
         try:
             data = json.loads(message)
         except ValueError:
@@ -428,7 +451,7 @@ class TradeStream:
             if not enabled() or not self.kis.configured:
                 self.state = 'disabled' if not enabled() else 'not_configured'
                 await asyncio.to_thread(self.write_status, False)
-                await asyncio.sleep(10)
+                await asyncio.sleep(IDLE_POLL)
                 continue
             try:
                 leader = await asyncio.to_thread(self.lead)
@@ -437,7 +460,7 @@ class TradeStream:
             if not leader:
                 # Another instance holds the only session the app key allows.
                 self.state = 'standby'
-                await asyncio.sleep(10)
+                await asyncio.sleep(IDLE_POLL)
                 continue
             started = time.monotonic()
             try:
@@ -448,7 +471,7 @@ class TradeStream:
                 log.warning('trade stream error', extra={'status_code': type(exc).__name__})
             if self.conn:
                 log.info('trade stream disconnected; REST fallback activated')
-            if time.monotonic() - started > 60:
+            if time.monotonic() - started > STABLE_CONNECTION:
                 delay = 1
             self.reset()
             self.reconnects += 1
