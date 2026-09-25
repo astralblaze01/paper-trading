@@ -20,10 +20,10 @@ function node(tag, text, cls) { const n = document.createElement(tag); if(text!=
 function uuid() { const b=crypto.getRandomValues(new Uint8Array(16)); b[6]=(b[6]&15)|64;b[8]=(b[8]&63)|128;const h=Array.from(b,x=>x.toString(16).padStart(2,'0')).join('');return `${h.slice(0,8)}-${h.slice(8,12)}-${h.slice(12,16)}-${h.slice(16,20)}-${h.slice(20)}`; }
 window.routePage = async function() {
   disconnectQuoteStream();
-  let [pageName, symbol] = location.hash.slice(1).split('/');
+  let [pageName, segment] = location.hash.slice(1).split('/');
   // #user/<id> is the public profile; #public/<id> is kept for old links.
   if(pageName==='user')pageName='public';
-  if(pageName==='public'&&symbol&&decodeURIComponent(symbol).toLowerCase()===window.sessionUsername){location.replace('#portfolio');return;}
+  if(pageName==='public'&&segment&&decodeURIComponent(segment).toLowerCase()===window.sessionUsername){location.replace('#portfolio');return;}
   let selected=['explore','portfolio','history','fx','watchlist','ranking','admin','detail','public'].includes(pageName)?pageName:'explore';
   if(window.isAdmin)selected='admin';
   document.querySelectorAll('[data-page]').forEach(el=>el.hidden=el.dataset.page!==selected);
@@ -32,9 +32,8 @@ window.routePage = async function() {
   message('');
   try {
     if(selected==='explore')await explore();
-    if(selected==='public' && symbol){publicCache=null;loadPerformance(decodeURIComponent(symbol));$('publicTitle').textContent='투자 현황 조회 중…';for(const id of ['publicPositions','publicMetrics','publicProfile','publicAllocation'])$(id).replaceChildren();const name=decodeURIComponent(symbol);const [p]=await Promise.all([api('portfolios/'+encodeURIComponent(name)),rankingCache?null:refreshRankingOnly().catch(()=>null)]);publicCache=p;renderPublic();
-      if(p.positions.some(x=>x.value==null))retryMissingPrices(async()=>{if(location.hash.split('/')[1]!==symbol)return null;const next=await api('portfolios/'+encodeURIComponent(name));publicCache=next;renderPublic();return next;});}
-    if(selected==='detail' && symbol) { currentSymbol=decodeURIComponent(symbol);chartRows=[];drawChart();detailCompany=null;detailQuote=null;orderPreview=null;$('symbol').value=currentSymbol;maxMode=false;loadCompany(currentSymbol);await loadStock(true);await api('popularity',{symbol:currentSymbol,kind:'view'}); }
+    if(selected==='public' && segment)await openPublicPage(segment);
+    if(selected==='detail' && segment)await openDetailPage(segment);
     if(selected==='fx'){await Promise.all([fxHistory(),loadFxRate()]);}
     if(selected==='watchlist')await watchlist();
     if(selected==='ranking')await refreshRankingOnly();
@@ -42,6 +41,26 @@ window.routePage = async function() {
     if(selected==='portfolio'&&window.loadMyProfile)await loadMyProfile();
   } catch(e){message(e.message);}
 };
+// segment is still URI-encoded: the missing-price retry compares it with the live hash.
+async function openPublicPage(segment){
+  publicCache=null;
+  const name=decodeURIComponent(segment);
+  loadPerformance(name);
+  $('publicTitle').textContent='투자 현황 조회 중…';
+  for(const id of ['publicPositions','publicMetrics','publicProfile','publicAllocation'])$(id).replaceChildren();
+  const [p]=await Promise.all([api('portfolios/'+encodeURIComponent(name)),rankingCache?null:refreshRankingOnly().catch(()=>null)]);
+  publicCache=p;renderPublic();
+  if(p.positions.some(x=>x.value==null))retryMissingPrices(async()=>{if(location.hash.split('/')[1]!==segment)return null;const next=await api('portfolios/'+encodeURIComponent(name));publicCache=next;renderPublic();return next;});
+}
+// The previous symbol's quote, company, preview and chart are cleared before anything loads.
+async function openDetailPage(segment){
+  currentSymbol=decodeURIComponent(segment);chartRows=[];drawChart();
+  detailCompany=null;detailQuote=null;orderPreview=null;
+  $('symbol').value=currentSymbol;maxMode=false;
+  loadCompany(currentSymbol);
+  await loadStock(true);
+  await api('popularity',{symbol:currentSymbol,kind:'view'});
+}
 window.openStock = function(symbol) { if(location.hash==='#detail/'+encodeURIComponent(symbol))loadStock(true).catch(e=>message(e.message));else location.hash='detail/'+encodeURIComponent(symbol); };
 window.addEventListener('hashchange',routePage);
 function displayedPrice(r) {
