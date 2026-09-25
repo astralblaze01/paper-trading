@@ -72,8 +72,10 @@ return count
 
 
 class QuoteHub:
-    def __init__(self, url=None):
+    def __init__(self, url=None, assess=None):
         self.url = url or os.getenv('REDIS_URL', '')
+        # Session tradeability depends on the time of reading, not of writing.
+        self.assess = assess
         self.redis = None
         self.listeners = {}
         self.ready = asyncio.Event()
@@ -119,6 +121,8 @@ class QuoteHub:
 
     async def interest(self, symbol, missing=False):
         await self.redis.zadd('market:subscriptions', {symbol: time.time()})
+        if not symbol.startswith('KR:'):
+            await self.redis.zadd('market:stream:interest', {symbol: time.time()})
         if missing and await self.redis.set(f'market:refresh-request:{symbol}', '1', nx=True, ex=10):
             await self.redis.lpush('market:refresh', symbol)
 
@@ -132,7 +136,8 @@ class QuoteHub:
             # Pre-upgrade snapshots have no version: wait for worker publication.
             if not VERSION.fullmatch(version):
                 return None
-            return {'schema_version': 1, 'symbol': symbol, 'version': version, 'quote': public_quote(symbol, q)}
+            quote = await asyncio.to_thread(public_quote, symbol, q, self.assess) if self.assess else public_quote(symbol, q)
+            return {'schema_version': 1, 'symbol': symbol, 'version': version, 'quote': quote}
         except (ValueError, TypeError, KeyError, AttributeError):
             self.metrics['invalid'] += 1
             return None

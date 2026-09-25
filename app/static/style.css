@@ -218,8 +218,10 @@ table { font-size:15px; }
 .brand { font-family:inherit; font-size:27px; font-weight:800; letter-spacing:2px; display:flex; align-items:center; gap:9px; }
 .brand-mark { color:#507b70; font-size:35px; line-height:1; }
 .detail-price { display:grid; gap:10px; margin:18px 0 8px; }
-.detail-price-main { display:flex; align-items:baseline; gap:10px; }
+.detail-price-main { display:flex; flex-wrap:wrap; align-items:baseline; gap:10px; }
 .detail-price-main strong { font-size:34px; font-variant-numeric:tabular-nums; }
+.quote-badge { font-size:12px; color:var(--muted); border:1px solid var(--border); border-radius:999px; padding:2px 8px; white-space:nowrap; }
+.quote-badge.live { color:var(--accent); border-color:var(--accent); }
 .detail-change-block { display:flex; align-items:center; flex-wrap:wrap; gap:12px; font-size:18px; font-weight:700; font-variant-numeric:tabular-nums; }
 .detail-change-label { color:var(--muted); font-size:14px; font-weight:500; }
 .detail-change-block .gain,.detail-change-block .loss,.detail-change-block .flat { min-width:78px; }

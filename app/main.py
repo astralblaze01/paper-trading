@@ -80,7 +80,7 @@ def _ranking_market_state():
     # to calculate rankings; production providers always expose the status.
     if not statuses:
         return {'open': None, 'unknown': True, 'labels': []}
-    open_labels = {'정규장', '장전', '장후', '프리장', '애프터장'}
+    open_labels = {'정규장', '장전', '장후', '데이마켓', '프리장', '애프터장'}
     unknown = any(s.get('label') == '장 상태 확인 불가' for s in statuses)
     is_open = any(s.get('label') in open_labels for s in statuses)
     return {'open': is_open if not (unknown and not is_open) else None,
@@ -92,7 +92,7 @@ async def lifespan(app):
     migrate(engine)
     worker = None  # Scheduled work is driven by the separate worker container.
     if worker: worker.start()
-    app.state.quote_hub = QuoteHub()
+    app.state.quote_hub = QuoteHub(assess=getattr(market, 'assess', None))
     if quote_sse_enabled(): await app.state.quote_hub.start()
     try:
         yield
@@ -224,6 +224,7 @@ def search(q: str = Query('', max_length=60), category: str = Query('all'), uid=
 @app.get('/api/quote/{symbol}')
 def quote(symbol: str, uid=Depends(current_user)):
     if not valid_symbol(symbol): raise HTTPException(422, '잘못된 종목 코드입니다.')
+    redis_cache.request_stream(symbol)  # the detail page is looking at it
     return market.quote(symbol)
 
 @app.get('/api/market-stream/{symbol}')
@@ -239,9 +240,11 @@ def market_overview(uid=Depends(current_user)):
         rows.append(status)
     return {'markets':rows,'refreshed_at':datetime.now(timezone.utc),'refresh_seconds':60}
 
-# Sessions in which a new market order may settle. US extended sessions trade
-# when the provider has a current price; Korea trades in the regular session.
-ORDER_SESSIONS = {'KR': {'정규장'}, 'US': {'정규장', '프리장', '애프터장'}}
+# Sessions in which a new market order may be attempted. Being listed here is
+# not enough to fill: a US order also needs a verified, fresh print from the
+# current session (trading.validate_quote_for_session). Korea trades in the
+# regular session only.
+ORDER_SESSIONS = {'KR': {'정규장'}, 'US': {'데이마켓', '프리장', '정규장', '애프터장'}}
 
 def closed_market_message(symbol):
     """Explain a closed market instead of a generic stale-price error.
@@ -268,6 +271,7 @@ def order(data: Order, uid=Depends(current_user)):
             return {'id':queued.id,'pending':queued.status=='pending','status':queued.status,'replayed':True}
     closed=closed_market_message(data.symbol)
     if closed: raise HTTPException(409, closed)
+    redis_cache.request_stream(data.symbol)
     # New market orders either settle immediately against a current provider
     # quote or fail clearly. They are never silently converted into a queue.
     result=execute_order(uid, data, market)

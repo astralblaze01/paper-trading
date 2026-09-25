@@ -109,7 +109,8 @@ window.disconnectQuoteStream=function(){
 function updateQuoteAge(){
   if(!detailQuote)return;
   const age=Date.now()/1000-Number(detailQuote.timestamp),limit=window.quoteMaxAge?.[currentSymbol.startsWith('KR:')?'KR':'US']??(currentSymbol.startsWith('KR:')?900:1800);
-  if(age>limit&&!detailQuote.stale){detailQuote.stale=true;renderDetailQuote();}
+  // A live stream's last trade stays current however quiet the symbol is.
+  if(age>limit&&!detailQuote.stale&&!detailQuote.realtime){detailQuote.stale=true;renderDetailQuote();}
 }
 function applyQuote(q){
   if(!detailQuote)rememberStock(currentSymbol,detailCompany?.name||q.name||currentSymbol);
@@ -126,8 +127,10 @@ async function refreshMarketStatus(){
   marketRequest=api('market-status/'+encodeURIComponent(symbol));
   try{
     const r=await marketRequest;if(generation!==quoteGeneration)return;
-    detailMarketOpen=['정규장','장전','장후','프리장','애프터장'].includes(r.label);
-    $('marketState').textContent=`${r.label} · ${r.timezone}${r.verified?'':' · 확정 상태 아님'}${detailMarketOpen?'':' · 마지막 데이터 유지'}`;
+    detailMarketOpen=openSessionLabels.includes(r.label);
+    const state=usPriceText({...r,market:symbol.startsWith('KR:')?'KR':'US'});
+    const admin=window.isAdmin&&r.session?` · session ${r.session} · ${r.price_mode} · stream ${r.stream_connected?'connected':'down'} · ${r.source}`:'';
+    $('marketState').textContent=`${r.label}${state?' · '+state:''} · ${r.timezone}${r.verified?'':' · 확정 상태 아님'}${detailMarketOpen?'':' · 마지막 데이터 유지'}${admin}`;
   }catch{if(generation===quoteGeneration)$('marketState').textContent='장 상태를 확인할 수 없습니다.';}
   finally{marketRequest=null;if(generation!==quoteGeneration&&detailVisible())refreshMarketStatus();}
 }
@@ -191,16 +194,28 @@ window.loadStock=async function(withChart=true){
   if(withChart)await loadChart();
   else await estimate();
 };
+// Per-symbol price state. 실시간 only for a live stream print; a REST price
+// is 보조 시세 even when it is recent enough to trade.
+function quoteBadge(q){
+  if(!q.session)return '';
+  if(window.isAdmin)return `${q.source||''} ${q.origin==='stream'?'websocket':'REST'} · ${q.trade_session||'-'} · ${q.price_mode} · ${new Date(q.timestamp*1000).toLocaleTimeString()}`;
+  if(['closed','unknown'].includes(q.session))return '최근 체결가';
+  if(q.realtime)return '실시간';
+  return q.session_tradeable?'보조 시세':'체결 시세 미지원';
+}
 function renderDetailQuote(){
   const q=detailQuote;if(!q)return;
   $('detailTitle').textContent=(detailCompany?.name||q.name||currentSymbol)+(window.isAdmin?' · '+currentSymbol:'');
   const adminStamp=window.isAdmin?` · ${new Date(q.timestamp*1000).toLocaleString()} · ${q.data_status||q.source||'공급자 시세'}`:'';
-  $('quoteInfo').textContent=`${viewMoney(q.native_price,q.currency)} · 실제 주문 통화 ${q.currency}${q.stale?' · 새 시세를 기다립니다.':' · 체결 시 가격은 달라질 수 있습니다.'}${adminStamp}`;
-  const priceKey=JSON.stringify([q.native_price,q.currency,q.change,q.change_pct,displayMode,viewFx?.rate]);
+  const offSession=q.session_tradeable===false&&!['closed','unknown'].includes(q.session);
+  $('quoteInfo').textContent=`${viewMoney(q.native_price,q.currency)} · 실제 주문 통화 ${q.currency}${offSession?' · 현재 세션 체결 시세가 없어 주문할 수 없습니다.':q.stale?' · 새 시세를 기다립니다.':' · 체결 시 가격은 달라질 수 있습니다.'}${adminStamp}`;
+  const badge=quoteBadge(q);
+  const priceKey=JSON.stringify([q.native_price,q.currency,q.change,q.change_pct,displayMode,viewFx?.rate,badge]);
   if($('detailPrice').dataset.quoteKey!==priceKey){
   $('detailPrice').dataset.quoteKey=priceKey;
   const priceBlock=node('div',null,'detail-price-main');
   priceBlock.append(node('strong',viewMoney(q.native_price,q.currency)));
+  if(badge)priceBlock.append(node('span',badge,'quote-badge'+(q.realtime?' live':'')));
   const changeBlock=node('div',null,'detail-change-block');
   changeBlock.append(node('span','전일 대비','detail-change-label'),signed(q.change,`${Number(q.change)>0?'+':''}${viewMoney(q.change,q.currency)}`),signed(detailChange,q.change_pct==null?'—':`${detailChange>0?'+':''}${pct(q.change_pct)}`));
   $('detailPrice').replaceChildren(priceBlock,changeBlock);
@@ -320,7 +335,7 @@ async function fxHistory(){const rows=await api('fx/history');table($('fxHistory
 let adminUsers=[],adminSelectedId=null,adminPending=null,adminSearchTimer=null,adminSearchVersion=0;
 const adminLabel=u=>u.note?`${u.username} - ${u.note}`:u.username;
 function adminSelected(){return adminUsers.find(u=>u.id===adminSelectedId)||null;}
-async function admin(){const r=await api('admin');adminUsers=r.users;$('adminHealth').textContent=`DB ${r.health.database} · Redis ${r.health.redis} · 국내 시세 ${r.providers.kr?'설정됨':'미설정'} · 미국 시세 ${r.providers.us?'설정됨':'미설정'}`;$('adminFees').textContent=Object.entries(r.fees).map(([k,v])=>k+': '+v+' bps').join(' · ');$('initialAmount').value=r.initial_usd;noticeTemplates=r.notice_templates||noticeTemplates;renderNoticeAdmin(r.notice);
+async function admin(){const r=await api('admin');adminUsers=r.users;$('adminHealth').textContent=`DB ${r.health.database} · Redis ${r.health.redis} · 국내 시세 ${r.providers.kr?'설정됨':'미설정'} · 미국 시세 ${r.providers.us?'설정됨':'미설정'}`;const m=r.us_market;if(m){const st=m.stream,rest=Object.entries(m.rest).map(([k,v])=>`${k} ${v?(v.ok?'ok':'fail '+(v.error||'')):'no data'}`).join(', ');$('adminMarket').textContent=`US Session: ${m.session} (${m.label}) · Price mode: ${m.price_mode} · US Stream: ${st.state}${st.healthy?' (healthy)':''} · Last message: ${st.last_message_age==null?'—':st.last_message_age+'s ago'} · Subscribed: ${st.subscribed.length} / ${st.limit??'—'} ${st.subscribed.join(' ')}${st.queued.length?' · Queued: '+st.queued.join(' '):''} · Reconnects: ${st.reconnects}${st.last_error?' · Last error: '+st.last_error:''} · REST: ${rest}`;}$('adminFees').textContent=Object.entries(r.fees).map(([k,v])=>k+': '+v+' bps').join(' · ');$('initialAmount').value=r.initial_usd;noticeTemplates=r.notice_templates||noticeTemplates;renderNoticeAdmin(r.notice);
  $('adminOverview').replaceChildren();for(const [label,value] of [['사용자',r.counts.users],['체결',r.counts.transactions],['보유 종목',r.counts.positions],['대기 주문',r.counts.pending_orders]]){const box=node('div',null,'metric');box.append(node('small',label),node('strong',value));$('adminOverview').append(box);}
  $('adminUsers').replaceChildren();for(const u of r.users){const row=node('div',null,'watch-row'),status=node('button',u.active?'계정 정지':'계정 활성화','secondary');row.append(node('strong',`${adminLabel(u)} · ${u.admin?'관리자':'일반'} · ${u.active?'활성':'정지'}`),node('span',nativeMoney(u.wallets.USD,'USD')+' / '+nativeMoney(u.wallets.KRW,'KRW')),status);status.addEventListener('click',async()=>{try{await api(`admin/users/${u.id}/active`,{active:!u.active});await admin();}catch(e){toast(e.message,'error');}});$('adminUsers').append(row);}
  if(adminSelectedId!==null&&!adminSelected())adminSelectedId=null;

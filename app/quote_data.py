@@ -7,7 +7,9 @@ from .instruments import valid_symbol
 DECIMALS = ('price', 'native_price', 'fx_rate', 'change', 'change_pct', 'high', 'low', 'turnover')
 PUBLIC = ('symbol', 'price', 'native_price', 'currency', 'timestamp', 'stale', 'change',
           'change_pct', 'high', 'low', 'volume', 'turnover', 'source', 'data_status',
-          'fx_rate', 'fx_date', 'name', 'category', 'cached_at')
+          'fx_rate', 'fx_date', 'name', 'category', 'cached_at',
+          # US session state, added by quote_policy.assess at read time
+          'session', 'trade_session', 'price_mode', 'realtime', 'session_tradeable', 'tradeable')
 
 
 def max_age(symbol):
@@ -43,7 +45,9 @@ def normalize_quote(symbol, value, now=None):
     return q
 
 
-def public_quote(symbol, value):
+def public_quote(symbol, value, assess=None):
     q = normalize_quote(symbol, value)
+    if assess:
+        q = assess(symbol, q)
     return {key: str(q[key]) if isinstance(q[key], Decimal) else q[key]
             for key in PUBLIC if key in q}

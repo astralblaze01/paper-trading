@@ -12,14 +12,32 @@ def checked_quote(symbol, market, allow_stale=False):
     return validate_quote(symbol, market.quote(symbol), allow_stale)
 
 
-def validate_quote(symbol, q, allow_stale=False):
+def validate_quote_for_session(q, allow_stale=False):
+    """A US quote must be a verified print from the current session.
+
+    Previews (allow_stale) may still show the last price as indicative."""
+    from .quote_policy import rejection
+    reason = None if allow_stale else rejection(q)
+    if reason:
+        raise HTTPException(409, reason)
+
+
+def validate_quote_freshness(symbol, q, allow_stale=False):
     if q.get('stale') and not allow_stale:
         raise HTTPException(409,'오래된 시세로는 주문할 수 없습니다.')
     stamp=datetime.fromtimestamp(q['timestamp'],timezone.utc)
     age=(datetime.now(timezone.utc)-stamp).total_seconds()
     max_age = int(os.getenv('MAX_QUOTE_AGE','900') if symbol.startswith('KR:') else os.getenv('US_MAX_QUOTE_AGE','1800'))
+    # A live stream's last trade stays current however quiet the symbol is.
+    if q.get('realtime') and not allow_stale:
+        max_age = 86400
     if age < -60 or age > (7*86400 if allow_stale else max_age):
         raise HTTPException(409,'시세가 만료되었습니다.')
+
+
+def validate_quote(symbol, q, allow_stale=False):
+    validate_quote_for_session(q, allow_stale)
+    validate_quote_freshness(symbol, q, allow_stale)
     currency='KRW' if symbol.startswith('KR:') else 'USD'
     if q.get('currency',currency)!=currency: raise HTTPException(409,'시세 통화가 일치하지 않습니다.')
     price=Decimal(str(q.get('native_price',q['price'])))
@@ -43,7 +61,9 @@ def preview_order(uid, symbol, side, quantity, market, share=None):
         c=costs(symbol,side,price,quantity)
         return c | {'price':price,'quantity':quantity,'max_quantity':maximum_quantity,'balance':available,
                     'balance_after':available-c['net_amount'] if side=='buy' else available+c['net_amount'],
-                    'quote_timestamp':q['timestamp'],'indicative_only':q.get('stale',False) or datetime.now(timezone.utc).timestamp()-q['timestamp']>int(os.getenv('MAX_QUOTE_AGE','900') if symbol.startswith('KR:') else os.getenv('US_MAX_QUOTE_AGE','1800')),
+                    'quote_timestamp':q['timestamp'],'session':q.get('session'),'price_mode':q.get('price_mode'),
+                    'session_tradeable':q.get('session_tradeable',True),
+                    'indicative_only':q.get('stale',False) or not q.get('session_tradeable',True) or datetime.now(timezone.utc).timestamp()-q['timestamp']>int(os.getenv('MAX_QUOTE_AGE','900') if symbol.startswith('KR:') else os.getenv('US_MAX_QUOTE_AGE','1800')),
                     'holding':p.quantity if p else 0,
                     'holding_after':(p.quantity if p else 0)+(quantity if side=='buy' else -quantity),
                     'can_submit':0<quantity<=maximum_quantity,

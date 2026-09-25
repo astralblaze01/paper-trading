@@ -172,6 +172,33 @@ class RedisCache:
         except RedisError:
             pass
 
+    def request_stream(self, symbol):
+        """Mark a symbol someone is looking at or ordering right now.
+
+        The trade stream has very few slots, so only these requests (detail
+        page, order preview, order) compete for them; portfolio valuation
+        and rankings do not."""
+        if not self.client or symbol.startswith('KR:'):
+            return
+        try:
+            self.client.zadd('market:stream:interest', {symbol: time.time()})
+        except RedisError:
+            pass
+
+    def stream_interest(self, active_seconds=150):
+        """Recently requested stream symbols, most recent first."""
+        if not self.client:
+            return []
+        try:
+            now = time.time()
+            self.client.zremrangebyscore('market:stream:interest', 0, now - active_seconds)
+            return self.client.zrevrangebyscore('market:stream:interest', '+inf', now - active_seconds)
+        except RedisError:
+            return []
+
+    def stream_status(self):
+        return self.get_json('market:stream:status')
+
     def requested_symbols(self, active_seconds=600):
         if not self.client:
             return []

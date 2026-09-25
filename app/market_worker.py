@@ -50,7 +50,15 @@ def main():
                 try:
                     quote = market.quote_direct(symbol)
                     quote['_cached_at'] = time.time()
-                    if not redis_cache.store_quote(symbol, quote, max(30, interval * 3)):
+                    # Publication is monotonic in trade time. When the trade
+                    # stream holds a newer print, republish that print so it
+                    # stays available, instead of failing on the older bar.
+                    trade = redis_cache.get_json(f'market:trade:{symbol}')
+                    if trade and float(trade.get('timestamp', 0)) > float(quote['timestamp']):
+                        quote = trade
+                    # Tradeability is judged at read time (quote_policy), so
+                    # the snapshot may outlive a slow provider cycle.
+                    if not redis_cache.store_quote(symbol, quote, max(120, interval * 8)):
                         raise ValueError('quote store rejected')
                     refreshed[symbol] = time.monotonic()
                     retry_after.pop(symbol, None)

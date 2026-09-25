@@ -114,6 +114,8 @@ def install(app,ctx):
     def order_preview(symbol: str, side: Literal['buy','sell']='buy', quantity: int=Query(1,ge=1,le=1000000),share: int|None=Query(None),uid=Depends(user)):
         if not valid_symbol(symbol): raise HTTPException(422,'잘못된 종목코드입니다.')
         if share is not None and share not in (5,10,25,50,100): raise HTTPException(422,'지원하지 않는 수량 비율입니다.')
+        from .redis_cache import redis_cache
+        redis_cache.request_stream(symbol)
         return preview_order(uid,symbol,side,quantity,ctx.market,share=share)|{'market_closed':ctx.closed_market_message(symbol)}
 
     @app.get('/api/fx')
@@ -213,6 +215,7 @@ def install(app,ctx):
 
     @app.get('/api/admin')
     def admin_info(uid=Depends(admin)):
+        from .us_quotes import diagnostics as us_diagnostics
         names=['FX_FEE_BPS','FX_SPREAD_BPS','US_BUY_FEE_BPS','US_SELL_FEE_BPS','KR_BUY_FEE_BPS','KR_SELL_FEE_BPS','KR_SELL_TAX_BPS']
         with Session() as db:
             notes=dict(db.execute(select(UserAdminNote.user_id,UserAdminNote.note)).all())
@@ -221,7 +224,7 @@ def install(app,ctx):
             counts={'users':db.scalar(select(func.count()).select_from(User)),'transactions':db.scalar(select(func.count()).select_from(Transaction)),'positions':db.scalar(select(func.count()).select_from(Position)),'pending_orders':db.scalar(select(func.count()).select_from(LimitOrder).where(LimitOrder.status=='pending'))}
         from .notices import active_notice, public, TEMPLATES
         with Session() as db: notice=public(active_notice(db))
-        return {'users':users,'initial_usd':amount,'notice':notice,'notice_templates':TEMPLATES,'maintenance':bool(notice and notice['kind']=='maintenance'),'fees':{n:bps(n,'10' if n=='FX_FEE_BPS' else '5' if n=='FX_SPREAD_BPS' else '0') for n in names},'health':ctx.health(),'providers':ctx.market.status(),'counts':counts}
+        return {'users':users,'initial_usd':amount,'notice':notice,'notice_templates':TEMPLATES,'maintenance':bool(notice and notice['kind']=='maintenance'),'fees':{n:bps(n,'10' if n=='FX_FEE_BPS' else '5' if n=='FX_SPREAD_BPS' else '0') for n in names},'health':ctx.health(),'providers':ctx.market.status(),'counts':counts,'us_market':us_diagnostics(ctx.market)}
     from .notices import install_notices
     install_notices(app,admin,csrf)
     @app.post('/api/admin/initial',dependencies=[Depends(csrf)])

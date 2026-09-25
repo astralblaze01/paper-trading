@@ -178,14 +178,53 @@ class USProvider:
             except MarketError:pass
         return self._alpha_movers(direction)
     def volume_leaders(self): return self.movers('volume')
-    def market_status(self):
+    def raw_status(self):
+        """Finnhub /stock/market-status (holidays, early closes), or None.
+
+        Failures are cached too: every quote assessment asks for the session."""
         def load():
-            d=self.adapter.get('/stock/market-status',{'exchange':'US'},60)
-            session=d.get('session')
-            label='휴장' if d.get('holiday') else {'pre-market':'프리장','post-market':'애프터장','regular':'정규장'}.get(session,'정규장' if d.get('isOpen') else '장마감')
-            return {'label':label,'timezone':'America/New_York','source':'Finnhub','verified':True,'extended_prices':False,'day_market_supported':False}
-        try: return self.cache.get('status',60,load)
-        except MarketError: return {'label':'장 상태 확인 불가','timezone':'America/New_York','verified':False,'extended_prices':False}
+            try: return self.adapter.get('/stock/market-status',{'exchange':'US'},60)
+            except MarketError: return None
+        return self.cache.get('raw-status',60,load)
+    def session(self): return self.session_from(self.raw_status())
+    def market_status(self):
+        """Session plus the price sources that can actually serve it right now.
+
+        Capability (`*_supported`) comes from the configured provider; runtime
+        status (`*_status`) from the stream heartbeat and recent REST results.
+        Nothing here is true merely because of the clock."""
+        from .us_session import LABELS, EXTENDED
+        from .quote_policy import stream_healthy, session_price_mode
+        from .us_quotes import rest_health
+        from .redis_cache import redis_cache
+        raw=self.raw_status(); session=self.session_from(raw)
+        kis=bool(self.kis and getattr(self.kis,'configured',False))
+        stream=redis_cache.stream_status() if kis else None
+        streaming=stream_healthy(stream)
+        def rest(name):
+            ok,record=rest_health(name)
+            return ok or not record  # no recent attempt is not a failure
+        rest_ok={'overnight':kis and rest('kis_overnight'),'pre_market':kis and rest('kis_primary'),
+                 'after_hours':kis and rest('kis_primary'),
+                 'regular':rest('finnhub') or (kis and rest('kis_primary'))}.get(session,False)
+        def runtime(sessions,idle):
+            if not kis: return 'unsupported'
+            if session not in sessions: return idle
+            return 'realtime' if streaming else 'rest' if rest_ok else 'provider_unavailable'
+        extended=runtime(EXTENDED,'not_current_session')
+        day=runtime({'overnight'},'available')
+        label='휴장' if raw and raw.get('holiday') and session=='closed' else LABELS[session]
+        return {'label':label,'session':session,'timezone':'America/New_York',
+                'source':'KIS' if kis and session!='regular' else 'Finnhub',
+                'verified':raw is not None,'stream_connected':streaming,
+                'price_mode':session_price_mode(session,stream if kis else None,rest_ok),
+                'extended_prices':session in EXTENDED and extended in ('realtime','rest'),
+                'extended_price_status':extended,
+                'day_market_supported':kis,'day_market_status':day}
+    @staticmethod
+    def session_from(raw):
+        from .us_session import resolve_session
+        return resolve_session(raw)
 
 class KRProvider:
     def __init__(self,adapter): self.adapter=adapter; self.cache=TTLCache()

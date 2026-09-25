@@ -121,9 +121,17 @@ async function boot() {
     else {$('greeting').textContent = s.username + '님의 투자 현황'; await Promise.all([refresh(),refreshMarketSessions()]); if(window.renderRecentStocks)renderRecentStocks(); if(window.routePage) await routePage();}
   }
 }
+window.openSessionLabels=['정규장','장전','장후','데이마켓','프리장','애프터장'];
+// US price state from the server's market status. Only what the server
+// reports as working is called 실시간/보조 시세; anything else is 미지원.
+window.usPriceText=function(x){
+  if(x.market!=='US'||!x.session||['closed','unknown'].includes(x.session))return '';
+  const status=x.session==='overnight'?x.day_market_status:x.session==='regular'?(x.stream_connected?'realtime':x.price_mode==='unavailable'?'provider_unavailable':'rest'):x.extended_price_status;
+  return {realtime:'실시간',rest:'보조 시세'}[status]||'체결 시세 미지원';
+};
 async function refreshMarketSessions(){
   if(!window.sessionUsername||window.isAdmin)return;
-  try{const r=await api('market-overview');window.marketOpen=Object.fromEntries(r.markets.map(x=>[x.market,['정규장','장전','장후','프리장','애프터장'].includes(x.label)]));$('marketSessions').textContent=r.markets.map(x=>{const unsupported=x.market==='US'&&['프리장','애프터장'].includes(x.label)&&x.extended_prices===false?' (체결 시세 미지원)':'';return `${x.market==='KR'?'한국':'미국'} ${x.label}${unsupported}`;}).join(' · ');}catch(e){$('marketSessions').textContent='시장 상태 확인 불가';}
+  try{const r=await api('market-overview');window.marketOpen=Object.fromEntries(r.markets.map(x=>[x.market,openSessionLabels.includes(x.label)]));$('marketSessions').textContent=r.markets.map(x=>{const state=usPriceText(x);return `${x.market==='KR'?'한국':'미국'} ${x.label}${state?' · '+state:''}`;}).join(' / ');}catch(e){$('marketSessions').textContent='시장 상태 확인 불가';}
 }
 setInterval(()=>{if(!document.hidden)refreshMarketSessions();},60000);
 // Notice posted by an administrator (e.g. the maintenance template): a banner only, nothing is blocked.

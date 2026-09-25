@@ -184,6 +184,9 @@ class MultiMarket:
         self.fx = ReferenceFX()
         from .providers import USProvider, KRProvider
         self.providers={'US':USProvider(self.us,self.kr),'KR':KRProvider(self.kr)}
+        from .us_quotes import USQuotes
+        self.us_quotes = USQuotes(self.us, self.kr)
+        self._stream = (0.0, None)
         self.key = self.us.key or self.kr.key
         self.client = self  # lifespan close interface
 
@@ -238,17 +241,35 @@ class MultiMarket:
             if cached is None:
                 raise MarketError('시세 수집기가 가격을 준비 중입니다. 잠시 후 다시 시도하세요.')
             try:
-                return normalize_quote(symbol, cached)
+                return self.assess(symbol, normalize_quote(symbol, cached))
             except (ValueError, TypeError, KeyError) as exc:
                 raise MarketError('유효한 서버 시세가 없습니다.') from exc
-        return self.quote_direct(symbol)
+        return self.assess(symbol, self.quote_direct(symbol))
+
+    def stream_status(self):
+        # One Redis read per second per process, however many quotes are assessed.
+        at, value = self._stream
+        if time.monotonic() - at > 1:
+            value = redis_cache.stream_status()
+            self._stream = (time.monotonic(), value)
+        return value
+
+    def assess(self, symbol, q):
+        """Attach current-session tradeability to a US quote (see quote_policy)."""
+        if symbol.startswith('KR:'):
+            return q
+        from .quote_policy import assess
+        if 'valid_sessions' not in q:
+            # Pre-upgrade snapshots were all Finnhub prints: regular session only.
+            q = q | {'origin': 'rest', 'valid_sessions': ['regular']}
+        return assess(q, self.providers['US'].session(), self.stream_status())
 
     def quote_direct(self, symbol):
         if not valid_symbol(symbol): raise MarketError('잘못된 종목 코드입니다.')
         info = instrument(symbol)
         if info['currency'] == 'USD':
-            q = self.us.quote(symbol)
-            return q | info | {'native_price': q['price'], 'fx_rate': Decimal(1), 'fx_date': None, 'source': 'Finnhub'}
+            q = self.us_quotes.quote(symbol, self.providers['US'].session())
+            return q | info | {'native_price': q['price'], 'fx_rate': Decimal(1), 'fx_date': None}
         q = self.kr.quote(symbol)
         rate, fx_date = self.fx.krw_to_usd()
         price = (q['price'] * rate).quantize(Decimal('.0001'))
