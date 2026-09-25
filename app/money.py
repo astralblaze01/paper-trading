@@ -3,6 +3,7 @@ import os
 from decimal import Decimal, ROUND_CEILING, ROUND_DOWN
 from fastapi import HTTPException
 from .db import Wallet, Settings
+from .instruments import currency_of
 
 D = Decimal
 
@@ -34,7 +35,7 @@ def native_cost_basis(position):
     return position.native_average_cost if position.native_average_cost is not None else position.average_cost
 
 def costs(symbol, side, price, quantity):
-    currency = 'KRW' if symbol.startswith('KR:') else 'USD'
+    currency = currency_of(symbol)
     prefix = 'KR' if currency == 'KRW' else 'US'
     fee_bps = bps(f'{prefix}_{side.upper()}_FEE_BPS')
     tax_bps = bps('KR_SELL_TAX_BPS') if currency=='KRW' and side=='sell' else D(0)

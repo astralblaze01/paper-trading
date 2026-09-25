@@ -1,7 +1,7 @@
 """Shared quote validation/freshness; never performs provider or cache I/O."""
 import time
 from decimal import Decimal, InvalidOperation
-from .instruments import valid_symbol
+from .instruments import valid_symbol, market_of, currency_of
 from . import quote_policy
 
 DECIMALS = ('price', 'native_price', 'fx_rate', 'change', 'change_pct', 'high', 'low', 'turnover')
@@ -14,7 +14,7 @@ PUBLIC = ('symbol', 'price', 'native_price', 'currency', 'timestamp', 'stale', '
 
 
 def max_age(symbol):
-    return quote_policy.max_age('KR' if symbol.startswith('KR:') else 'US')
+    return quote_policy.max_age(market_of(symbol))
 
 
 def normalize_quote(symbol, value, now=None):
@@ -28,7 +28,7 @@ def normalize_quote(symbol, value, now=None):
     stamp = float(q['timestamp'])
     if not 0 < stamp <= now + 60:
         raise ValueError('invalid quote timestamp')
-    expected = 'KRW' if symbol.startswith('KR:') else 'USD'
+    expected = currency_of(symbol)
     if q.get('currency') != expected:
         raise ValueError('invalid quote currency')
     try:

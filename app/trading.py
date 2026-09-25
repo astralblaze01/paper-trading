@@ -5,6 +5,7 @@ from sqlalchemy import select
 from fastapi import HTTPException
 from .db import Session, Position, Transaction, lock_user
 from .money import wallets, costs, maximum, native_cost_basis
+from .instruments import market_of, currency_of
 from . import quote_policy
 
 
@@ -27,7 +28,7 @@ def validate_quote_freshness(symbol, q, allow_stale=False):
         raise HTTPException(409,'오래된 시세로는 주문할 수 없습니다.')
     stamp=datetime.fromtimestamp(q['timestamp'],timezone.utc)
     age=(datetime.now(timezone.utc)-stamp).total_seconds()
-    max_age = quote_policy.max_age('KR' if symbol.startswith('KR:') else 'US')
+    max_age = quote_policy.max_age(market_of(symbol))
     # A live stream's last trade stays current however quiet the symbol is.
     if q.get('realtime') and not allow_stale:
         max_age = 86400
@@ -38,7 +39,7 @@ def validate_quote_freshness(symbol, q, allow_stale=False):
 def validate_quote(symbol, q, allow_stale=False):
     validate_quote_for_session(q, allow_stale)
     validate_quote_freshness(symbol, q, allow_stale)
-    currency='KRW' if symbol.startswith('KR:') else 'USD'
+    currency=currency_of(symbol)
     if q.get('currency',currency)!=currency: raise HTTPException(409,'시세 통화가 일치하지 않습니다.')
     price=Decimal(str(q.get('native_price',q['price'])))
     if not price.is_finite() or price<=0: raise HTTPException(409,'유효한 가격이 없습니다.')
@@ -51,7 +52,7 @@ def preview_order(uid, symbol, side, quantity, market, share=None):
         user=lock_user(db,uid)
         if not user or not user.active: raise HTTPException(403,'계좌를 사용할 수 없습니다.')
         ws=wallets(db,user)
-        currency='KRW' if symbol.startswith('KR:') else 'USD'
+        currency=currency_of(symbol)
         p=db.get(Position,(uid,symbol))
         available=ws[currency].balance
         maximum_quantity=maximum(symbol,price,available) if side=='buy' else (p.quantity if p else 0)
@@ -63,7 +64,7 @@ def preview_order(uid, symbol, side, quantity, market, share=None):
                     'balance_after':available-c['net_amount'] if side=='buy' else available+c['net_amount'],
                     'quote_timestamp':q['timestamp'],'session':q.get('session'),'price_mode':q.get('price_mode'),
                     'session_tradeable':q.get('session_tradeable',True),
-                    'indicative_only':q.get('stale',False) or not q.get('session_tradeable',True) or datetime.now(timezone.utc).timestamp()-q['timestamp']>quote_policy.max_age('KR' if symbol.startswith('KR:') else 'US'),
+                    'indicative_only':q.get('stale',False) or not q.get('session_tradeable',True) or datetime.now(timezone.utc).timestamp()-q['timestamp']>quote_policy.max_age(market_of(symbol)),
                     'holding':p.quantity if p else 0,
                     'holding_after':(p.quantity if p else 0)+(quantity if side=='buy' else -quantity),
                     'can_submit':0<quantity<=maximum_quantity,
@@ -78,7 +79,7 @@ def market_session(symbol, q, market):
     """Session in force at the fill, for research. US quotes carry it; Korea asks the provider."""
     if q.get('session'):
         return q['session']
-    provider = (getattr(market, 'providers', None) or {}).get('KR' if symbol.startswith('KR:') else 'US')
+    provider = (getattr(market, 'providers', None) or {}).get(market_of(symbol))
     try:
         return KR_SESSIONS.get((provider.market_status() or {}).get('label')) if provider else None
     except Exception:
@@ -126,7 +127,7 @@ def execute_order(user_id, order, market, db=None, requested_at=None):
         # Recheck age after the account lock wait, without external I/O.
         validate_quote(order.symbol, q)
         ws=wallets(db,user)
-        currency='KRW' if order.symbol.startswith('KR:') else 'USD'
+        currency=currency_of(order.symbol)
         position=db.get(Position,(user_id,order.symbol))
         quantity=order.quantity
         if getattr(order,'use_max',False):

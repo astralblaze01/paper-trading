@@ -40,11 +40,19 @@ ALIASES = {
 def _search_text(value):
     return re.sub(r'[\s._-]+','',value.casefold())
 
+def market_of(symbol):
+    """'KR' for a Korean listing (KR:######), otherwise 'US'."""
+    return 'KR' if symbol.startswith('KR:') else 'US'
+
+def currency_of(symbol):
+    """The settlement currency: KRW for Korean listings, otherwise USD."""
+    return 'KRW' if symbol.startswith('KR:') else 'USD'
+
 def instrument(symbol):
     for code, name, category, currency in CATALOG:
         if code == symbol:
             return dict(symbol=code, name=name, category=category, currency=currency)
-    return dict(symbol=symbol, name=symbol, category='kr' if symbol.startswith('KR:') else 'us', currency='KRW' if symbol.startswith('KR:') else 'USD')
+    return dict(symbol=symbol, name=symbol, category='kr' if symbol.startswith('KR:') else 'us', currency=currency_of(symbol))
 
 def discover(query='', category='all'):
     query = _search_text(query.strip())

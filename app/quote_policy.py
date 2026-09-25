@@ -26,14 +26,14 @@ import time
 from datetime import datetime, timezone
 
 from .us_session import clock_session
-from . import kr_session
+from . import instruments, kr_session
 
 STREAM_MODE = {'overnight': 'overnight_stream', 'regular': 'trade_stream'}
 REST_MODE = {'overnight': 'overnight_rest', 'regular': 'rest'}
 
 
 def market_of(q):
-    return 'KR' if str(q.get('symbol', '')).startswith('KR:') else 'US'
+    return instruments.market_of(str(q.get('symbol', '')))
 
 
 def max_age(market):

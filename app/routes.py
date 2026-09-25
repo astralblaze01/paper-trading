@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select, func, delete
 from sqlalchemy.dialects.postgresql import insert
 from .db import Session, User, FxTransaction, Watchlist, PopularityEvent, LimitOrder, lock_user
-from .instruments import SYMBOL_PATTERN, valid_symbol, instrument, CATALOG
+from .instruments import SYMBOL_PATTERN, valid_symbol, instrument, CATALOG, market_of
 from .market import MarketError
 from .fx import preview, exchange
 from .money import wallets, rounded
@@ -47,7 +47,7 @@ def curated_market_rows(market, asset, kind, unavailable=None):
     rows=[]; failures=[]
     for symbol, _, category, _ in CATALOG:
         if category!=asset: continue
-        row=instrument(symbol) | {'market':'KR' if symbol.startswith('KR:') else 'US'}
+        row=instrument(symbol) | {'market':market_of(symbol)}
         try:
             q=market.quote(symbol)
             row |= {'price':q.get('native_price',q['price']), 'change_pct':q.get('change_pct'),
@@ -110,7 +110,7 @@ def install(app,ctx):
         return uid
     def provider(symbol):
         if not valid_symbol(symbol): raise HTTPException(422,'잘못된 종목코드입니다.')
-        return ctx.market.providers['KR' if symbol.startswith('KR:') else 'US']
+        return ctx.market.providers[market_of(symbol)]
 
     @app.get('/api/order-preview')
     def order_preview(symbol: str, side: Literal['buy','sell']='buy', quantity: int=Query(1,ge=1,le=1000000),share: int|None=Query(None),uid=Depends(user)):

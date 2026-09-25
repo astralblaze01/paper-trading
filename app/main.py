@@ -21,7 +21,7 @@ from sqlalchemy.exc import IntegrityError
 from .db import Base, engine, Session, User, Transaction, LimitOrder
 from .market import MarketError
 from .multi_market import MultiMarket
-from .instruments import SYMBOL_PATTERN, valid_symbol, CATEGORIES
+from .instruments import SYMBOL_PATTERN, valid_symbol, CATEGORIES, market_of
 from .migrations import migrate
 from .trading import execute_order
 from .money import wallets, initial_amount
@@ -273,7 +273,7 @@ def market_overview(uid=Depends(current_user)):
 
 def closed_market_message(symbol):
     """Why the market cannot take an order now, or None to go on to the quote checks."""
-    code = 'KR' if symbol.startswith('KR:') else 'US'
+    code = market_of(symbol)
     provider = (getattr(market, 'providers', {}) or {}).get(code)
     if provider is None or not hasattr(provider, 'market_status'): return None
     try: status = provider.market_status() or {}

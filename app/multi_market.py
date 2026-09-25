@@ -7,7 +7,7 @@ from decimal import Decimal, InvalidOperation
 from threading import RLock
 import httpx
 from .market import Finnhub, MarketError
-from .instruments import discover, instrument, valid_symbol
+from .instruments import discover, instrument, valid_symbol, market_of
 from .redis_cache import price_key, redis_cache
 from .quote_data import normalize_quote
 from . import kr_session
@@ -255,7 +255,7 @@ class MultiMarket:
             # Pre-upgrade snapshots were Finnhub (US) or KRX (KR) prints of the
             # regular session only.
             q = q | {'origin': 'rest', 'valid_sessions': ['regular']}
-        code = 'KR' if symbol.startswith('KR:') else 'US'
+        code = market_of(symbol)
         return assess(q, self.providers[code].session(), self.stream_status())
 
     def quote_direct(self, symbol):
