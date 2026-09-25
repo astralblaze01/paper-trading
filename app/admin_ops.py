@@ -6,10 +6,10 @@ from typing import Literal
 from uuid import UUID, uuid4
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select, delete, text, or_
-from .db import ACCOUNT_LOCK, Session, User, Position, Transaction, FxTransaction, LimitOrder, Watchlist, PopularityEvent, SeasonArchive, WeeklyReport, AdminAudit, WalletTransfer, UserAdminNote
+from sqlalchemy import select, delete, func, text, or_
+from .db import ACCOUNT_LOCK, Session, User, Wallet, Settings, Position, Transaction, FxTransaction, LimitOrder, Watchlist, PopularityEvent, SeasonArchive, WeeklyReport, AdminAudit, WalletTransfer, UserAdminNote
 from .accounts import delete_account_data
-from .money import wallets, initial_amount, rounded
+from .money import wallets, initial_amount, rounded, bps
 from .weekly import assign_ranks, drop_from_baseline
 
 class ManagementInput(BaseModel):
@@ -83,6 +83,50 @@ def _clear(db,u,ws,before,actor,reason,q,now):
     # Transfers also belong to the counterparty: keep the rows and
     # hide them from this user's history from now on.
     u.records_since=now
+
+def admin_overview(market,health):
+    """Everything the admin page shows: accounts, settings, the notice, provider diagnostics."""
+    from .us_quotes import diagnostics as us_diagnostics
+    names=['FX_FEE_BPS','FX_SPREAD_BPS','US_BUY_FEE_BPS','US_SELL_FEE_BPS','KR_BUY_FEE_BPS','KR_SELL_FEE_BPS','KR_SELL_TAX_BPS']
+    with Session() as db:
+        notes=dict(db.execute(select(UserAdminNote.user_id,UserAdminNote.note)).all())
+        users=[{'id':u.id,'username':u.username,'active':u.active,'admin':u.is_admin,'initial_usd':u.initial_usd,'initial_krw':u.initial_krw,'note':notes.get(u.id,''),'wallets':{w.currency:w.balance for w in db.scalars(select(Wallet).where(Wallet.user_id==u.id))}} for u in db.scalars(select(User).order_by(User.id))]
+        amount=initial_amount(db)
+        counts={'users':db.scalar(select(func.count()).select_from(User)),'transactions':db.scalar(select(func.count()).select_from(Transaction)),'positions':db.scalar(select(func.count()).select_from(Position)),'pending_orders':db.scalar(select(func.count()).select_from(LimitOrder).where(LimitOrder.status=='pending'))}
+    from .notices import active_notice, public, TEMPLATES
+    with Session() as db: notice=public(active_notice(db))
+    return {'users':users,'initial_usd':amount,'notice':notice,'notice_templates':TEMPLATES,'maintenance':bool(notice and notice['kind']=='maintenance'),'fees':{n:bps(n,'10' if n=='FX_FEE_BPS' else '5' if n=='FX_SPREAD_BPS' else '0') for n in names},'health':health(),'providers':market.status(),'counts':counts,'us_market':us_diagnostics(market),'kr_market':us_diagnostics(market,'KR')}
+
+def set_initial_amount(actor,amount):
+    with Session.begin() as db:
+        before=initial_amount(db)
+        db.merge(Settings(key='INITIAL_USD',value=str(amount)))
+        add_audit(db,actor,actor,'initial_amount','초기 지급액 변경',{'before':str(before),'after':str(amount)})
+
+def set_account_active(actor,target,active):
+    with Session.begin() as db:
+        u=db.scalar(select(User).where(User.id==target).with_for_update())
+        if not u: raise HTTPException(404,'사용자가 없습니다.')
+        add_audit(db,actor,target,'account_status','계정 상태 변경',{'before':u.active,'after':active})
+        u.active=active
+
+def season_reset(actor,target,label,q):
+    """Archive the season and restart the account from the initial funding at rate quote q."""
+    with Session.begin() as db:
+        db.execute(text('SELECT pg_advisory_xact_lock(:k)'),{'k':ACCOUNT_LOCK})
+        u=db.scalar(select(User).where(User.id==target).with_for_update())
+        if not u: raise HTTPException(404,'사용자가 없습니다.')
+        ws=wallets(db,u); ps=list(db.scalars(select(Position).where(Position.user_id==target)))
+        snapshot={'wallets':{c:str(w.balance) for c,w in ws.items()},'positions':[{'symbol':p.symbol,'quantity':p.quantity,'average_cost':str(p.average_cost),'native_average_cost':str(p.native_average_cost)} for p in ps],'initial_krw':str(u.initial_krw),'actor':actor}
+        db.add(SeasonArchive(user_id=target,label=label,data=snapshot,created_at=datetime.now(timezone.utc)))
+        add_audit(db,actor,target,'season_reset',label,{'archived':True})
+        for p in ps: db.delete(p)
+        for o in db.scalars(select(LimitOrder).where(LimitOrder.user_id==target,LimitOrder.status=='pending')): o.status='cancelled'; o.reason='관리자 초기화'
+        amount=initial_amount(db); ws['USD'].balance=amount; ws['KRW'].balance=0; u.cash=amount; u.initial_usd=amount; u.initial_krw=amount*q['rate']; u.initial_fx_date=q['date']; u.baseline_note='admin-reset'; u.net_contributions_krw=0; u.performance_since=datetime.now(timezone.utc)
+        drop_from_baseline(db,target)
+
+def list_archives():
+    with Session() as db: return [{'id':a.id,'user_id':a.user_id,'label':a.label,'data':a.data,'created_at':a.created_at} for a in db.scalars(select(SeasonArchive).order_by(SeasonArchive.id.desc()).limit(100))]
 
 def install_admin_ops(app,ctx,admin,csrf):
     @app.get('/api/admin/audit')

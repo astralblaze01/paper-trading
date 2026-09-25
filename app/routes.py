@@ -5,16 +5,15 @@ from typing import Literal
 from uuid import UUID
 from fastapi import Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select, func, delete, text
+from sqlalchemy import select, func, delete
 from sqlalchemy.dialects.postgresql import insert
-from .db import ACCOUNT_LOCK, Session, User, Wallet, Position, Transaction, FxTransaction, Watchlist, PopularityEvent, Settings, SeasonArchive, LimitOrder, UserAdminNote
+from .db import Session, User, FxTransaction, Watchlist, PopularityEvent, LimitOrder
 from .instruments import SYMBOL_PATTERN, valid_symbol, instrument, CATALOG
 from .market import MarketError
 from .fx import preview, exchange
-from .money import wallets, initial_amount, bps, rounded
+from .money import wallets, rounded
 from .trading import preview_order
-from .weekly import drop_from_baseline
-from .admin_ops import add_audit
+from .admin_ops import admin_overview, set_initial_amount, set_account_active, season_reset, list_archives
 from .branding import BRAND_NAME
 
 class Strict(BaseModel):
@@ -217,50 +216,21 @@ def install(app,ctx):
         return {'ok':True}
 
     @app.get('/api/admin')
-    def admin_info(uid=Depends(admin)):
-        from .us_quotes import diagnostics as us_diagnostics
-        names=['FX_FEE_BPS','FX_SPREAD_BPS','US_BUY_FEE_BPS','US_SELL_FEE_BPS','KR_BUY_FEE_BPS','KR_SELL_FEE_BPS','KR_SELL_TAX_BPS']
-        with Session() as db:
-            notes=dict(db.execute(select(UserAdminNote.user_id,UserAdminNote.note)).all())
-            users=[{'id':u.id,'username':u.username,'active':u.active,'admin':u.is_admin,'initial_usd':u.initial_usd,'initial_krw':u.initial_krw,'note':notes.get(u.id,''),'wallets':{w.currency:w.balance for w in db.scalars(select(Wallet).where(Wallet.user_id==u.id))}} for u in db.scalars(select(User).order_by(User.id))]
-            amount=initial_amount(db)
-            counts={'users':db.scalar(select(func.count()).select_from(User)),'transactions':db.scalar(select(func.count()).select_from(Transaction)),'positions':db.scalar(select(func.count()).select_from(Position)),'pending_orders':db.scalar(select(func.count()).select_from(LimitOrder).where(LimitOrder.status=='pending'))}
-        from .notices import active_notice, public, TEMPLATES
-        with Session() as db: notice=public(active_notice(db))
-        return {'users':users,'initial_usd':amount,'notice':notice,'notice_templates':TEMPLATES,'maintenance':bool(notice and notice['kind']=='maintenance'),'fees':{n:bps(n,'10' if n=='FX_FEE_BPS' else '5' if n=='FX_SPREAD_BPS' else '0') for n in names},'health':ctx.health(),'providers':ctx.market.status(),'counts':counts,'us_market':us_diagnostics(ctx.market),'kr_market':us_diagnostics(ctx.market,'KR')}
+    def admin_info(uid=Depends(admin)): return admin_overview(ctx.market,ctx.health)
     from .notices import install_notices
     install_notices(app,admin,csrf)
     @app.post('/api/admin/initial',dependencies=[Depends(csrf)])
     def set_initial(data:AmountInput,uid=Depends(admin)):
-        with Session.begin() as db:
-            before=initial_amount(db)
-            db.merge(Settings(key='INITIAL_USD',value=str(data.amount)))
-            add_audit(db,uid,uid,'initial_amount','초기 지급액 변경',{'before':str(before),'after':str(data.amount)})
+        set_initial_amount(uid,data.amount)
         return {'ok':True,'applies_to':'new accounts and explicitly reset accounts'}
     @app.post('/api/admin/users/{target}/active',dependencies=[Depends(csrf)])
     def set_active(target:int,data:ActiveInput,uid=Depends(admin)):
         if target==uid and not data.active: raise HTTPException(409,'자기 계정을 정지할 수 없습니다.')
-        with Session.begin() as db:
-            u=db.scalar(select(User).where(User.id==target).with_for_update())
-            if not u: raise HTTPException(404,'사용자가 없습니다.')
-            add_audit(db,uid,target,'account_status','계정 상태 변경',{'before':u.active,'after':data.active})
-            u.active=data.active
+        set_account_active(uid,target,data.active)
         return {'ok':True}
     @app.post('/api/admin/users/{target}/reset',dependencies=[Depends(csrf)])
     def reset(target:int,data:ResetInput,uid=Depends(admin)):
-        q=ctx.fx.current_rate('USD','KRW')
-        with Session.begin() as db:
-            db.execute(text('SELECT pg_advisory_xact_lock(:k)'),{'k':ACCOUNT_LOCK})
-            u=db.scalar(select(User).where(User.id==target).with_for_update())
-            if not u: raise HTTPException(404,'사용자가 없습니다.')
-            ws=wallets(db,u); ps=list(db.scalars(select(Position).where(Position.user_id==target)))
-            snapshot={'wallets':{c:str(w.balance) for c,w in ws.items()},'positions':[{'symbol':p.symbol,'quantity':p.quantity,'average_cost':str(p.average_cost),'native_average_cost':str(p.native_average_cost)} for p in ps],'initial_krw':str(u.initial_krw),'actor':uid}
-            db.add(SeasonArchive(user_id=target,label=data.label,data=snapshot,created_at=datetime.now(timezone.utc)))
-            add_audit(db,uid,target,'season_reset',data.label,{'archived':True})
-            for p in ps: db.delete(p)
-            for o in db.scalars(select(LimitOrder).where(LimitOrder.user_id==target,LimitOrder.status=='pending')): o.status='cancelled'; o.reason='관리자 초기화'
-            amount=initial_amount(db); ws['USD'].balance=amount; ws['KRW'].balance=0; u.cash=amount; u.initial_usd=amount; u.initial_krw=amount*q['rate']; u.initial_fx_date=q['date']; u.baseline_note='admin-reset'; u.net_contributions_krw=0; u.performance_since=datetime.now(timezone.utc)
-            drop_from_baseline(db,target)
+        season_reset(uid,target,data.label,ctx.fx.current_rate('USD','KRW'))
         return {'ok':True,'archived':True}
     from .admin_ops import install_admin_ops
     install_admin_ops(app,ctx,admin,csrf)
@@ -275,8 +245,7 @@ def install(app,ctx):
         from .performance_snapshots import capture_daily_snapshots, status
         return {'result':capture_daily_snapshots(ctx.market,ctx.fx,force=True)}|status()
     @app.get('/api/admin/archives')
-    def archives(uid=Depends(admin)):
-        with Session() as db: return [{'id':a.id,'user_id':a.user_id,'label':a.label,'data':a.data,'created_at':a.created_at} for a in db.scalars(select(SeasonArchive).order_by(SeasonArchive.id.desc()).limit(100))]
+    def archives(uid=Depends(admin)): return list_archives()
 
     @app.get('/api/limit-orders')
     def limits(uid=Depends(user)):
