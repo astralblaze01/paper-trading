@@ -2,18 +2,19 @@ import time
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Literal
-from uuid import UUID, uuid4
+from uuid import UUID
 from fastapi import Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select, func, delete, text
 from sqlalchemy.dialects.postgresql import insert
-from .db import ACCOUNT_LOCK, Session, User, Wallet, Position, Transaction, FxTransaction, Watchlist, PopularityEvent, Settings, SeasonArchive, LimitOrder, AdminAudit, UserAdminNote
+from .db import ACCOUNT_LOCK, Session, User, Wallet, Position, Transaction, FxTransaction, Watchlist, PopularityEvent, Settings, SeasonArchive, LimitOrder, UserAdminNote
 from .instruments import SYMBOL_PATTERN, valid_symbol, instrument, CATALOG
 from .market import MarketError
 from .fx import preview, exchange
 from .money import wallets, initial_amount, bps, rounded
 from .trading import preview_order
 from .weekly import drop_from_baseline
+from .admin_ops import add_audit
 from .branding import BRAND_NAME
 
 class Strict(BaseModel):
@@ -231,7 +232,7 @@ def install(app,ctx):
         with Session.begin() as db:
             before=initial_amount(db)
             db.merge(Settings(key='INITIAL_USD',value=str(data.amount)))
-            db.add(AdminAudit(actor_id=uid,target_id=uid,request_id=str(uuid4()),action='initial_amount',reason='초기 지급액 변경',data={'before':str(before),'after':str(data.amount)},created_at=datetime.now(timezone.utc)))
+            add_audit(db,uid,uid,'initial_amount','초기 지급액 변경',{'before':str(before),'after':str(data.amount)})
         return {'ok':True,'applies_to':'new accounts and explicitly reset accounts'}
     @app.post('/api/admin/users/{target}/active',dependencies=[Depends(csrf)])
     def set_active(target:int,data:ActiveInput,uid=Depends(admin)):
@@ -239,7 +240,7 @@ def install(app,ctx):
         with Session.begin() as db:
             u=db.scalar(select(User).where(User.id==target).with_for_update())
             if not u: raise HTTPException(404,'사용자가 없습니다.')
-            db.add(AdminAudit(actor_id=uid,target_id=target,request_id=str(uuid4()),action='account_status',reason='계정 상태 변경',data={'before':u.active,'after':data.active},created_at=datetime.now(timezone.utc)))
+            add_audit(db,uid,target,'account_status','계정 상태 변경',{'before':u.active,'after':data.active})
             u.active=data.active
         return {'ok':True}
     @app.post('/api/admin/users/{target}/reset',dependencies=[Depends(csrf)])
@@ -252,7 +253,7 @@ def install(app,ctx):
             ws=wallets(db,u); ps=list(db.scalars(select(Position).where(Position.user_id==target)))
             snapshot={'wallets':{c:str(w.balance) for c,w in ws.items()},'positions':[{'symbol':p.symbol,'quantity':p.quantity,'average_cost':str(p.average_cost),'native_average_cost':str(p.native_average_cost)} for p in ps],'initial_krw':str(u.initial_krw),'actor':uid}
             db.add(SeasonArchive(user_id=target,label=data.label,data=snapshot,created_at=datetime.now(timezone.utc)))
-            db.add(AdminAudit(actor_id=uid,target_id=target,request_id=str(uuid4()),action='season_reset',reason=data.label,data={'archived':True},created_at=datetime.now(timezone.utc)))
+            add_audit(db,uid,target,'season_reset',data.label,{'archived':True})
             for p in ps: db.delete(p)
             for o in db.scalars(select(LimitOrder).where(LimitOrder.user_id==target,LimitOrder.status=='pending')): o.status='cancelled'; o.reason='관리자 초기화'
             amount=initial_amount(db); ws['USD'].balance=amount; ws['KRW'].balance=0; u.cash=amount; u.initial_usd=amount; u.initial_krw=amount*q['rate']; u.initial_fx_date=q['date']; u.baseline_note='admin-reset'; u.net_contributions_krw=0; u.performance_since=datetime.now(timezone.utc)

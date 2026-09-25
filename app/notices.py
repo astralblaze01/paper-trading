@@ -2,11 +2,11 @@
 notice the administrator writes. Informational only; nothing is blocked."""
 from datetime import datetime, timezone
 from typing import Literal
-from uuid import uuid4
 from fastapi import Depends
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select, update
-from .db import Session, SiteNotice, AdminAudit
+from .db import Session, SiteNotice
+from .admin_ops import add_audit
 
 TEMPLATES = {
     'maintenance': {'label': '서버 점검 예고', 'title': '서버 점검 예정',
@@ -51,7 +51,7 @@ def post(db, uid, kind, title, body):
     db.execute(update(SiteNotice).where(SiteNotice.active.is_(True)).values(active=False, cleared_at=now))
     row = SiteNotice(kind=kind, title=title, body=body, active=True, posted_by=uid, posted_at=now)
     db.add(row); db.flush()
-    db.add(AdminAudit(actor_id=uid, target_id=uid, request_id=str(uuid4()), action='notice_post', reason=f'공지 등록 · {TEMPLATES[kind]["label"]} · {title}'[:300], data={'notice_id': row.id, 'kind': kind}, created_at=now))
+    add_audit(db, uid, uid, 'notice_post', f'공지 등록 · {TEMPLATES[kind]["label"]} · {title}'[:300], {'notice_id': row.id, 'kind': kind}, at=now)
     return row
 
 
@@ -60,7 +60,7 @@ def clear(db, uid):
     if not current: return False
     now = datetime.now(timezone.utc)
     db.execute(update(SiteNotice).where(SiteNotice.active.is_(True)).values(active=False, cleared_at=now))
-    db.add(AdminAudit(actor_id=uid, target_id=uid, request_id=str(uuid4()), action='notice_clear', reason=f'공지 해제 · {current.title}'[:300], data={'notice_id': current.id, 'kind': current.kind}, created_at=now))
+    add_audit(db, uid, uid, 'notice_clear', f'공지 해제 · {current.title}'[:300], {'notice_id': current.id, 'kind': current.kind}, at=now)
     return True
 
 

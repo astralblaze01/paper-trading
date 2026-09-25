@@ -3,7 +3,7 @@ import json
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Literal
-from uuid import UUID
+from uuid import UUID, uuid4
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select, delete, text, or_
@@ -27,6 +27,11 @@ ACTION_LABELS={'grant':'지원금 지급','rebase':'수익률 기준 재설정',
 class NoteInput(BaseModel):
     model_config=ConfigDict(extra='forbid')
     note: str=Field(max_length=200)
+
+def add_audit(db,actor_id,target_id,action,reason,data,request_id=None,at=None):
+    """Log one admin action. Retry-safe operations pass their request id; the rest get a fresh one."""
+    db.add(AdminAudit(actor_id=actor_id,target_id=target_id,request_id=request_id or str(uuid4()),action=action,reason=reason,
+                      data=data,created_at=at or datetime.now(timezone.utc)))
 
 def serial(value): return json.loads(json.dumps(value,default=str))
 def records(db,model,target):
@@ -83,7 +88,7 @@ def install_admin_ops(app,ctx,admin,csrf):
             if data.action=='delete':
                 if target==uid: raise HTTPException(409,'현재 로그인한 관리자 계정은 삭제할 수 없습니다.')
                 username=delete_account_data(db,u)
-                db.add(AdminAudit(actor_id=uid,target_id=uid,request_id=str(data.request_id),action='account_delete',reason=reason,data={'request':signature,'deleted_username':username,'deleted_user_id':target},created_at=datetime.now(timezone.utc)))
+                add_audit(db,uid,uid,'account_delete',reason,{'request':signature,'deleted_username':username,'deleted_user_id':target},request_id=str(data.request_id))
                 return {'ok':True,'replayed':False,'deleted':username}
             q=ctx.fx.current_rate('USD','KRW');rate=q['rate'];now=datetime.now(timezone.utc)
             ws=wallets(db,u)
@@ -125,7 +130,7 @@ def install_admin_ops(app,ctx,admin,csrf):
                 u.initial_usd=amount;u.initial_krw=amount*rate;u.net_contributions_krw=0;u.initial_fx_date=q['date'];u.performance_since=None;u.baseline_note='registration';u.records_since=now
             u.cash=ws['USD'].balance
             if data.action!='grant': drop_from_baseline(db,target)
-            db.add(AdminAudit(actor_id=uid,target_id=target,request_id=str(data.request_id),action=data.action,reason=reason,data={'request':signature,'before':before,'after':{c:str(w.balance) for c,w in ws.items()},'fx_rate':str(rate),'fx_date':q['date']},created_at=now))
+            add_audit(db,uid,target,data.action,reason,{'request':signature,'before':before,'after':{c:str(w.balance) for c,w in ws.items()},'fx_rate':str(rate),'fx_date':q['date']},request_id=str(data.request_id),at=now)
         return {'ok':True,'replayed':False}
 
     @app.post('/api/admin/users/manage-all',dependencies=[Depends(csrf)])
@@ -147,5 +152,5 @@ def install_admin_ops(app,ctx,admin,csrf):
                 ws[data.currency].balance+=data.amount
                 user.net_contributions_krw+=data.amount*(rate if data.currency=='USD' else 1)
                 user.cash=ws['USD'].balance
-            db.add(AdminAudit(actor_id=uid,target_id=uid,request_id=str(data.request_id),action='bulk_grant',reason=data.reason.strip() or '전체 지원금 지급',data={'request':signature,'count':len(users),'currency':data.currency,'amount':str(data.amount)},created_at=datetime.now(timezone.utc)))
+            add_audit(db,uid,uid,'bulk_grant',data.reason.strip() or '전체 지원금 지급',{'request':signature,'count':len(users),'currency':data.currency,'amount':str(data.amount)},request_id=str(data.request_id))
             return {'ok':True,'replayed':False,'count':len(users)}
