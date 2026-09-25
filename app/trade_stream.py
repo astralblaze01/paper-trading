@@ -64,6 +64,7 @@ LOOKUP_RETRY = 600        # a failed exchange lookup is not repeated sooner
 KR_DAY_REFRESH = 600      # the KIS trading-day answer is reused this long
 STABLE_CONNECTION = 60    # a connection that lasted this long resets the reconnect backoff
 IDLE_POLL = 10            # seconds between checks while disabled or on standby
+FX_WARNING_INTERVAL = 60  # one "no reference rate" warning per window (ReferenceFX cools down 60 s)
 PRICE_STEP = Decimal('.0001')
 DOWN_SIGNS = ('4', '5')   # KIS sign codes for a fall; the difference itself is sent unsigned
 
@@ -199,6 +200,7 @@ class TradeStream:
         self.token = uuid4().hex
         self.state, self.reconnects, self.last_error = 'starting', 0, None
         self.no_exchange = {}
+        self.fx_warned = float('-inf')
         self.reset()
 
     def reset(self):
@@ -247,7 +249,16 @@ class TradeStream:
     def store(self, symbol, q):
         if q.get('market') == 'KR':
             # Same USD conversion as REST Korean quotes (ECB daily reference).
-            rate, day = self.fx.krw_to_usd()
+            try:
+                rate, day = self.fx.krw_to_usd()
+            except MarketError:
+                # No reference rate (an outage, or ReferenceFX's cooldown after one):
+                # this print cannot be priced in USD, but the socket and every other
+                # symbol are fine. Warn once per window instead of once per print.
+                if time.monotonic() - self.fx_warned >= FX_WARNING_INTERVAL:
+                    self.fx_warned = time.monotonic()
+                    log.warning('Korean trade print skipped: no reference rate')
+                return
             q = q | {'price': (q['native_price'] * rate).quantize(PRICE_STEP), 'fx_rate': rate, 'fx_date': day}
         self.cache.set_json(trade_key(symbol), q, TRADE_TTL)
         self.latest[symbol] = q

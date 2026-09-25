@@ -861,3 +861,43 @@ def test_us_kis_chart_fallback_pages_and_exchanges(monkeypatch):
     with pytest.raises(MarketError, match='^미국 과거 차트를 불러오지 못했습니다.'):
         USProvider(DeniedFinnhub(), cooling).candles('AAPL', '3M')
     assert [c['params']['EXCD'] for c in cooling.calls] == ['NAS']
+
+
+def test_fx_outage_skips_korean_prints_without_ending_the_stream(monkeypatch, caplog):
+    """A missing reference rate drops that Korean print only; the socket, US prints and later prints go on."""
+    stream = ts.TradeStream(StreamKIS(), StreamCache())
+    monkeypatch.setattr(ts.kr_session, 'clock_session', lambda when=None, trading_day=True: 'after_hours')
+    monkeypatch.setattr(ts.time, 'time', lambda: datetime(2026, 9, 24, 23, 13, 14, tzinfo=NEW_YORK).timestamp())
+    monkeypatch.setattr(stream, 'reference', lambda symbol: '281000')
+    calls = []
+
+    class DownFX:
+        def krw_to_usd(self):
+            calls.append(1)
+            raise MarketError('환율 조회를 잠시 후 다시 시도하세요.')
+    stream.fx, stream.conn = DownFX(), 'c1'
+    stream.active = {'H0STCNT0|035720': 'KR:035720', 'HDFSCNT0|RBAQNVDA': 'NVDA'}
+    korean = message('H0STCNT0', kr_frame('035720', local=datetime(2026, 9, 25, 12, 13, 13, tzinfo=SEOUL)))
+    with caplog.at_level('WARNING', logger='trade-stream'):
+        for _ in range(3):
+            asyncio.run(stream.handle(None, korean))   # no exception reaches connect()
+    assert len(calls) == 3 and 'KR:035720' not in stream.latest
+    assert 'market:trade:KR:035720' not in stream.cache.values and stream.cache.published == []
+    # One warning per outage window, not one per print.
+    assert [r.getMessage() for r in caplog.records if 'reference rate' in r.getMessage()] == [
+        'Korean trade print skipped: no reference rate']
+    asyncio.run(stream.handle(None, message('HDFSCNT0', us_frame())))
+    assert stream.latest['NVDA']['native_price'] == Decimal('223.9800')
+
+    class UpFX:
+        def krw_to_usd(self): return Decimal('0.0007'), '2026-09-24'
+    stream.fx = UpFX()
+    asyncio.run(stream.handle(None, korean))
+    assert stream.latest['KR:035720']['price'] == Decimal('197.0500')
+
+    class BrokenFX:
+        def krw_to_usd(self): raise RuntimeError('bug')
+    stream.fx = BrokenFX()
+    # Only the provider outage is isolated; a programming error still surfaces.
+    with pytest.raises(RuntimeError):
+        asyncio.run(stream.handle(None, korean))
