@@ -6,11 +6,10 @@ from typing import Literal
 from uuid import UUID
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select, delete, text, or_, func
-from .db import Session, User, Position, Wallet, Transaction, FxTransaction, LimitOrder, Watchlist, PopularityEvent, SeasonArchive, WeeklyState, WeeklyReport, AdminAudit, WalletTransfer, UserAdminNote
+from sqlalchemy import select, delete, text, or_
+from .db import Session, User, Position, Transaction, FxTransaction, LimitOrder, Watchlist, PopularityEvent, SeasonArchive, WeeklyState, WeeklyReport, AdminAudit, WalletTransfer, UserAdminNote
 from .accounts import delete_account_data
 from .money import wallets, initial_amount, rounded
-from .market import MarketError
 
 class ManagementInput(BaseModel):
     model_config=ConfigDict(extra='forbid')

@@ -1,6 +1,6 @@
 from decimal import Decimal
 from sqlalchemy import select, func
-from .db import Session, User, Position, Wallet, Transaction
+from .db import Session, User, Position, Transaction
 from .money import wallets
 from .instruments import instrument
 from .market import MarketError

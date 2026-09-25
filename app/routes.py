@@ -1,4 +1,3 @@
-import os
 import time
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
@@ -14,7 +13,6 @@ from .market import MarketError
 from .fx import preview, exchange
 from .money import wallets, initial_amount, bps, rounded
 from .trading import preview_order
-from .providers import RANGES
 from .branding import BRAND_NAME
 
 class Strict(BaseModel):

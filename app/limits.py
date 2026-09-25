@@ -1,5 +1,4 @@
 from datetime import datetime, timezone
-from decimal import Decimal
 from types import SimpleNamespace
 from uuid import uuid5, NAMESPACE_URL, UUID
 from fastapi import HTTPException
@@ -24,28 +23,6 @@ def create(uid,data):
         if len(pending)>=20: raise HTTPException(409,'미체결 주문은 최대 20개입니다.')
         row=LimitOrder(user_id=uid,request_id=str(data.request_id),symbol=data.symbol,side=data.side,quantity=data.quantity,limit_price=data.limit_price,order_type='limit',use_max=False,status='pending',created_at=datetime.now(timezone.utc))
         db.add(row); db.flush(); return {'id':row.id,'status':row.status}
-
-
-def pending_market(uid, data):
-    """Queue only a stale-price market order; never settle at the stale price."""
-    with Session.begin() as db:
-        user=db.scalar(select(User).where(User.id==uid).with_for_update())
-        if not user or not user.active: raise HTTPException(403,'정지된 계좌입니다.')
-        previous=db.scalar(select(LimitOrder).where(LimitOrder.user_id==uid,LimitOrder.request_id==str(data.request_id)))
-        if previous:
-            if previous.order_type!='market' or (previous.symbol,previous.side,previous.quantity,previous.use_max)!=(data.symbol,data.side,data.quantity,data.use_max):
-                raise HTTPException(409,'동일 요청 ID에 다른 주문입니다.')
-            return {'id':previous.id,'pending':previous.status=='pending','status':previous.status,'replayed':True}
-        filled=db.scalar(select(Transaction).where(Transaction.user_id==uid,Transaction.request_id==str(data.request_id)))
-        if filled: return {'id':filled.id,'quantity':filled.quantity,'replayed':True,'pending':False}
-        count=len(list(db.scalars(select(LimitOrder.id).where(LimitOrder.user_id==uid,LimitOrder.status=='pending'))))
-        if count>=20: raise HTTPException(409,'미체결 주문은 최대 20개입니다.')
-        # Positive sentinel satisfies the legacy limit-price constraint; it is never used as an execution price.
-        row=LimitOrder(user_id=uid,request_id=str(data.request_id),symbol=data.symbol,side=data.side,quantity=data.quantity,
-                       limit_price=Decimal(1),order_type='market',use_max=data.use_max,status='pending',
-                       reason='새로운 시세를 기다립니다.',created_at=datetime.now(timezone.utc))
-        db.add(row);db.flush()
-        return {'id':row.id,'pending':True,'status':'pending','replayed':False}
 
 
 def cancel(uid,order_id):
