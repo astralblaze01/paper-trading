@@ -4,20 +4,26 @@ let exchangePending = null;
 let detailChange = null, detailQuote=null, publicCache=null, detailCompany=null, watchCache=[];
 let orderPreview=null, previewVersion=0, previewTimer=null;
 function recentKey(){return storageNamespace+':recent:'+window.sessionUsername;}
+// Lists saved before the storage namespace existed are under the fixed 'paper-harbor' key.
+function readRecentStocks(){return JSON.parse(localStorage.getItem(recentKey())||localStorage.getItem('paper-harbor:recent:'+window.sessionUsername)||'[]');}
 window.renderRecentStocks=function(){
   $('searchResults').replaceChildren();
-  let rows=[];try{rows=JSON.parse(localStorage.getItem(recentKey())||localStorage.getItem('paper-harbor:recent:'+window.sessionUsername)||'[]');}catch{}
+  let rows=[];try{rows=readRecentStocks();}catch{}
   $('searchResults').append(node('p','최근 본 종목','field-help'));
   for(const r of rows.slice(0,8)){const b=node('button',r.name+' · '+r.symbol,'text-button');b.type='button';b.addEventListener('click',()=>openStock(r.symbol));$('searchResults').append(b);}
   if(!rows.length)$('searchResults').append(node('p','종목을 조회하면 여기에 표시됩니다.','field-help'));
 };
-function rememberStock(symbol,name){if(!window.sessionUsername)return;try{let rows=JSON.parse(localStorage.getItem(recentKey())||localStorage.getItem('paper-harbor:recent:'+window.sessionUsername)||'[]');rows=[{symbol,name:name||symbol},...rows.filter(r=>r.symbol!==symbol)].slice(0,8);localStorage.setItem(recentKey(),JSON.stringify(rows));}catch{}renderRecentStocks();}
+function rememberStock(symbol,name){if(!window.sessionUsername)return;try{let rows=readRecentStocks();rows=[{symbol,name:name||symbol},...rows.filter(r=>r.symbol!==symbol)].slice(0,8);localStorage.setItem(recentKey(),JSON.stringify(rows));}catch{}renderRecentStocks();}
 
+// Keep in step with the '30초' in #exploreNotice and the explore page copy.
+const EXPLORE_REFRESH_MS=30000;
 let exploreVersion = 0;
 let exploreMode = 'ranking';
 let exploreRowsCache = [], explorePopular = false, displayFx = null;
 function node(tag, text, cls) { const n = document.createElement(tag); if(text!=null)n.textContent=text; if(cls)n.className=cls; return n; }
 function uuid() { const b=crypto.getRandomValues(new Uint8Array(16)); b[6]=(b[6]&15)|64;b[8]=(b[8]&63)|128;const h=Array.from(b,x=>x.toString(16).padStart(2,'0')).join('');return `${h.slice(0,8)}-${h.slice(8,12)}-${h.slice(12,16)}-${h.slice(16,20)}-${h.slice(20)}`; }
+// A retry of the same payload keeps its request id, so the server applies it only once.
+function reuseRequestId(pending,sig){return pending&&pending.sig===sig?pending:{sig,id:uuid()};}
 window.routePage = async function() {
   disconnectQuoteStream();
   let [pageName, segment] = location.hash.slice(1).split('/');
@@ -103,7 +109,7 @@ async function explore(silent=false) {
   if(!silent){$('exploreNotice').textContent='목록을 불러오는 중입니다.';$('exploreRows').replaceChildren();}
   try{
     const [r]=await Promise.all([api('explore?'+new URLSearchParams({asset,kind})),loadDisplayFx()]);if(version!==exploreVersion)return;
-    const next=new Date(Date.now()+30000).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    const next=new Date(Date.now()+EXPLORE_REFRESH_MS).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
     $('exploreNotice').textContent=[r.scope,r.notice,`30초 자동 갱신 · 다음 확인 ${next}`].filter(Boolean).join(' · ');
     if($('status').textContent==='입력값을 확인하세요.')$('status').textContent='';
     exploreRowsCache=r.rows;explorePopular=kind==='popular';stockTable($('exploreRows'),r.rows,explorePopular);
@@ -114,7 +120,9 @@ $('exploreKinds').addEventListener('click',e=>{const b=e.target.closest('[data-k
 handle('exploreMarket','change',()=>explore());handle('exploreKind','change',()=>explore());
 window.addEventListener('displaycurrencychange',()=>{displayFx=viewFx;stockTable($('exploreRows'),exploreRowsCache,explorePopular);renderDetailQuote();renderOrderPreview();drawChart();renderPublic();renderWatchlist();});
 handle('discoverySearch','submit',async()=>{exploreMode='search';++exploreVersion;const query=$('discoveryQuery').value;const rows=await api('search?'+new URLSearchParams({q:query,category:$('exploreMarket').value}));exploreRowsCache=rows;explorePopular=false;stockTable($('exploreRows'),rows);$('exploreNotice').textContent='검색 결과 · 등록 종목 목록이며 가격은 종목 상세에서 확인합니다.';if(rows.length===1)await api('popularity',{symbol:rows[0].symbol,kind:'search'});});
-setInterval(()=>{if(document.hidden||(location.hash&&location.hash!=='#explore')||!$('dashboard').hidden||exploreMode!=='ranking')return;const asset=$('exploreMarket').value,markets=['kr','kr_bond'].includes(asset)?['KR']:['us','us_bond'].includes(asset)?['US']:['KR','US'];if(markets.every(m=>window.marketOpen?.[m]===false))return;explore(true);},30000);
+setInterval(()=>{if(document.hidden||(location.hash&&location.hash!=='#explore')||!$('dashboard').hidden||exploreMode!=='ranking')return;const asset=$('exploreMarket').value,markets=['kr','kr_bond'].includes(asset)?['KR']:['us','us_bond'].includes(asset)?['US']:['KR','US'];if(markets.every(m=>window.marketOpen?.[m]===false))return;explore(true);},EXPLORE_REFRESH_MS);
+// Keep REST_QUOTE_MS in step with the REST fallback's '30초 간격' status line.
+const MARKET_STATUS_MS=60000, REST_QUOTE_MS=30000;
 let quoteSource=null, quoteRetry=null, quoteWatch=null, marketTimer=null, restTimer=null;
 let quoteGeneration=0, quoteVersion=null, quoteBackoff=0, quoteReceived=0, marketRequest=null;
 function detailVisible(){return !document.hidden&&!$('dashboard').hidden&&location.hash==='#detail/'+encodeURIComponent(currentSymbol);}
@@ -157,12 +165,12 @@ window.connectQuoteStream=function(symbol){
   disconnectQuoteStream();
   if(!detailVisible())return;
   const generation=quoteGeneration;
-  refreshMarketStatus();marketTimer=setInterval(refreshMarketStatus,60000);
+  refreshMarketStatus();marketTimer=setInterval(refreshMarketStatus,MARKET_STATUS_MS);
   if(!window.quoteSseEnabled){
     streamState('서버 시세 · 30초 간격 확인');
     let restLoading=false;
     const refresh=async()=>{if(restLoading||!detailVisible())return;restLoading=true;try{const q=await api('quote/'+encodeURIComponent(symbol));if(generation===quoteGeneration)applyQuote(q);}catch(e){if(generation===quoteGeneration)streamState(e.message);}finally{restLoading=false;}};
-    refresh();restTimer=setInterval(refresh,30000);return;
+    refresh();restTimer=setInterval(refresh,REST_QUOTE_MS);return;
   }
   const valid=()=>generation===quoteGeneration&&detailVisible();
   const retry=()=>{
@@ -250,6 +258,8 @@ $('chartRanges').addEventListener('click',e=>{if(e.target.dataset.range){current
 function chartNativeCurrency(){return currentSymbol.startsWith('KR:')?'KRW':'USD';}
 // Shared by drawing and pointer mapping; the left side holds the price labels.
 function chartPlotX(width){return {left:Math.min(100,width*.25),right:width-15};}
+// Canvas cannot read the CSS .gain/.loss/--muted colours, so both charts repeat them here.
+function trendColor(value){return value>0?'#d94b57':value<0?'#367ae7':'#697580';}
 function drawChart(){
  const canvas=$('priceChart'),rect=canvas.getBoundingClientRect(),dpr=window.devicePixelRatio||1,w=Math.max(250,rect.width),h=320;canvas.width=w*dpr;canvas.height=h*dpr;const ctx=canvas.getContext('2d');ctx.scale(dpr,dpr);ctx.clearRect(0,0,w,h);
  const nativeCurrency=chartNativeCurrency(),currency=viewCurrency(nativeCurrency),convert=v=>viewValue(v,nativeCurrency);$('periodPerformance').replaceChildren();$('periodDates').textContent='';
@@ -264,7 +274,7 @@ function drawChart(){
  const lo=Math.min(...vals),hi=Math.max(...vals),span=hi-lo||Math.max(1,hi*.02),{left,right}=chartPlotX(w),top=20,bottom=275;
  const x=i=>left+i*(right-left)/Math.max(1,vals.length-1),y=v=>bottom-(v-lo)/span*(bottom-top);
  ctx.font='12px sans-serif';for(let n=0;n<5;n++){const v=lo+span*n/4,yy=y(v);ctx.strokeStyle='#e7ebef';ctx.beginPath();ctx.moveTo(left,yy);ctx.lineTo(right,yy);ctx.stroke();ctx.fillStyle='#697580';ctx.fillText(v.toLocaleString('ko-KR',{maximumFractionDigits:viewCurrency(currency)==='KRW'?0:2}),2,yy+4);}
- ctx.strokeStyle=change>0?'#d94b57':change<0?'#367ae7':'#697580';ctx.lineWidth=2.5;ctx.beginPath();vals.forEach((v,i)=>i?ctx.lineTo(x(i),y(v)):ctx.moveTo(x(i),y(v)));ctx.stroke();ctx.fillStyle='#697580';ctx.fillText(new Date(chartRows[0].time*1000).toLocaleDateString(),left,306);ctx.fillText(new Date(chartRows.at(-1).time*1000).toLocaleDateString(),Math.max(left,right-85),306);
+ ctx.strokeStyle=trendColor(change);ctx.lineWidth=2.5;ctx.beginPath();vals.forEach((v,i)=>i?ctx.lineTo(x(i),y(v)):ctx.moveTo(x(i),y(v)));ctx.stroke();ctx.fillStyle='#697580';ctx.fillText(new Date(chartRows[0].time*1000).toLocaleDateString(),left,306);ctx.fillText(new Date(chartRows.at(-1).time*1000).toLocaleDateString(),Math.max(left,right-85),306);
  const i=chartIndex===null?vals.length-1:Math.max(0,Math.min(vals.length-1,chartIndex)),r=chartRows[i],delta=convert(Number(r.close))-first;
  if(chartIndex!==null){ctx.strokeStyle='#748191';ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(x(i),top);ctx.lineTo(x(i),bottom);ctx.stroke();ctx.setLineDash([]);}
  $('chartTooltip').replaceChildren(node('span',`${date(r)} · 종가 ${nativeMoney(convert(Number(r.close)),currency)} `),signed(delta,`구간 시작 대비 ${delta>0?'+':''}${nativeMoney(delta,currency)} (${delta>0?'+':''}${pct(delta/first*100)})`),node('span',` · 고가 ${nativeMoney(convert(Number(r.high)),currency)} · 저가 ${nativeMoney(convert(Number(r.low)),currency)} · 거래량 ${Number(r.volume).toLocaleString()}`));
@@ -343,15 +353,17 @@ function renderWatchlist(){
 async function removeWatch(symbol){const r=await fetch('/api/watchlist/'+encodeURIComponent(symbol),{method:'DELETE',headers:{'X-CSRF-Token':csrf}});if(!r.ok)throw Error('관심종목을 삭제하지 못했습니다.');}
 async function fxEstimate(){const r=await api('fx/preview',{source:$('fxSource').value,amount:$('fxAmount').value});$('fxEstimate').textContent=`${r.date} 기준환율 ${r.rate} · 스프레드 ${r.spread_bps} bps · 수수료 ${nativeMoney(r.fee,r.source)}\n최종 수령 ${nativeMoney(r.received,r.target)}\n예상 잔액 ${money(r.balances_after.USD)} / ${nativeMoney(r.balances_after.KRW,'KRW')}`;}
 handle('fxPreview','click',fxEstimate);
-async function loadFxRate(){try{const r=await api('fx');const usd=Number(r.rate),next=new Date(Date.now()+1800000).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});$('fxRate').textContent=`1 USD = ${usd.toLocaleString('ko-KR',{maximumFractionDigits:2})} KRW  ·  1,000 KRW = ${(1000/usd).toLocaleString('ko-KR',{maximumFractionDigits:4})} USD  ·  ${r.date} 기준 · 30분마다 확인 (다음 ${next})`;}catch(e){$('fxRate').textContent='환율을 불러오지 못했습니다. '+e.message;}}
-setInterval(()=>{if(!document.hidden&&location.hash==='#fx'&&window.sessionUsername&&!window.isAdmin)loadFxRate();},1800000);
+// Keep in step with '30분마다 확인' in #fxRate.
+const FX_REFRESH_MS=30*60*1000;
+async function loadFxRate(){try{const r=await api('fx');const usd=Number(r.rate),next=new Date(Date.now()+FX_REFRESH_MS).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});$('fxRate').textContent=`1 USD = ${usd.toLocaleString('ko-KR',{maximumFractionDigits:2})} KRW  ·  1,000 KRW = ${(1000/usd).toLocaleString('ko-KR',{maximumFractionDigits:4})} USD  ·  ${r.date} 기준 · 30분마다 확인 (다음 ${next})`;}catch(e){$('fxRate').textContent='환율을 불러오지 못했습니다. '+e.message;}}
+setInterval(()=>{if(!document.hidden&&location.hash==='#fx'&&window.sessionUsername&&!window.isAdmin)loadFxRate();},FX_REFRESH_MS);
 window.updateFxBalance=function(){const source=$('fxSource').value,balance=window.walletBalances?.[source];$('fxAvailable').textContent=source==='USD'?`보유 달러 ${nativeMoney(balance,'USD')}`:`보유 원화 ${nativeMoney(balance,'KRW')}`;$('fxAmountUnit').textContent=source;$('fxAmount').step=source==='USD'?'0.0001':'1';$('fxAmount').min=source==='USD'?'0.0001':'1';};
 $('fxSource').addEventListener('change',()=>{exchangePending=null;$('fxAmount').value='';$('fxEstimate').textContent='';updateFxBalance();});
 $('fxAmount').addEventListener('input',()=>{$('fxEstimate').textContent='';});
 // Quick amounts as a share of the balance; the server rounds to the currency unit.
 document.querySelectorAll('[data-fx-share]').forEach(b=>b.addEventListener('click',async()=>{try{const r=await api('fx/share?'+new URLSearchParams({source:$('fxSource').value,percent:b.dataset.fxShare}));exchangePending=null;$('fxAmount').value=String(r.amount);if(Number(r.amount)<=0){$('fxEstimate').textContent=`${r.source} 보유 금액이 없어 환전할 수 있는 금액이 없습니다.`;return;}await fxEstimate();}catch(e){$('fxEstimate').textContent=e.message;}}));
 updateFxBalance();
-handle('fxForm','submit',async()=>{const data={source:$('fxSource').value,amount:$('fxAmount').value},sig=JSON.stringify(data);if(!exchangePending || exchangePending.sig!==sig)exchangePending={sig,id:uuid()};await api('fx/exchange',{...data,request_id:exchangePending.id});exchangePending=null;toast('모의 환전이 완료되었습니다.','success');await refresh();await fxHistory();});
+handle('fxForm','submit',async()=>{const data={source:$('fxSource').value,amount:$('fxAmount').value},sig=JSON.stringify(data);exchangePending=reuseRequestId(exchangePending,sig);await api('fx/exchange',{...data,request_id:exchangePending.id});exchangePending=null;toast('모의 환전이 완료되었습니다.','success');await refresh();await fxHistory();});
 async function fxHistory(){const rows=await api('fx/history');table($('fxHistory'),['시각','보낸 금액','받은 금액','수수료','환율 기준일'],rows.map(r=>[new Date(r.created_at).toLocaleString(),nativeMoney(r.amount,r.source),nativeMoney(r.received,r.target),nativeMoney(r.fee,r.source),r.rate_date]));}
 let adminUsers=[],adminSelectedId=null,adminPending=null,adminSearchTimer=null,adminSearchVersion=0;
 const adminLabel=u=>u.note?`${u.username} - ${u.note}`:u.username;
@@ -412,7 +424,7 @@ handle('adminNoteForm','submit',async()=>{const u=adminSelected();if(!u)return;c
 async function runAdminAction(action,extra={}){
  const u=adminSelected();if(!u)throw Error('대상 사용자를 먼저 선택하세요.');
  const body={action,currency:'USD',amount:'0',reason:$('adminReason').value.trim(),...extra},sig=JSON.stringify({target:u.id,...body});
- if(!adminPending||adminPending.sig!==sig)adminPending={sig,id:uuid()};
+ adminPending=reuseRequestId(adminPending,sig);
  const buttons=[...document.querySelectorAll('#adminSelected button')];buttons.forEach(b=>b.disabled=true);
  try{await api(`admin/users/${u.id}/manage`,{...body,request_id:adminPending.id});adminPending=null;
   const done={grant:'지원금을 지급했습니다.',rebase:'수익률 기준을 현재 평가금액으로 재설정했습니다.',clear:'회원가입 직후 상태로 초기화했습니다.',delete:'계정을 영구 삭제했습니다.'}[action];
@@ -447,7 +459,7 @@ $('noticeForm').addEventListener('submit',async e=>{
 });
 handle('noticeClear','click',async()=>{$('noticeClear').disabled=true;try{await api('admin/notice/clear',{});renderNoticeAdmin(null);toast('공지를 해제했습니다.','success');}catch(err){$('noticeClear').disabled=false;throw err;}});
 let adminBulkPending=null;
-handle('adminBulkForm','submit',async()=>{const body={action:'grant',currency:$('adminBulkCurrency').value,amount:$('adminBulkAmount').value,reason:$('adminReason').value.trim()},sig=JSON.stringify(body);if(!adminBulkPending||adminBulkPending.sig!==sig)adminBulkPending={sig,id:uuid()};const r=await api('admin/users/manage-all',{...body,request_id:adminBulkPending.id});adminBulkPending=null;$('adminResult').textContent=`${r.count}명에게 지원금을 지급했습니다.`;toast(`${r.count}명에게 지원금을 지급했습니다.`,'success');await admin();});
+handle('adminBulkForm','submit',async()=>{const body={action:'grant',currency:$('adminBulkCurrency').value,amount:$('adminBulkAmount').value,reason:$('adminReason').value.trim()},sig=JSON.stringify(body);adminBulkPending=reuseRequestId(adminBulkPending,sig);const r=await api('admin/users/manage-all',{...body,request_id:adminBulkPending.id});adminBulkPending=null;$('adminResult').textContent=`${r.count}명에게 지원금을 지급했습니다.`;toast(`${r.count}명에게 지원금을 지급했습니다.`,'success');await admin();});
 handle('initialForm','submit',async()=>{await api('admin/initial',{amount:$('initialAmount').value});message('이후 생성/초기화되는 계좌의 지급액을 저장했습니다.');});
 syncCurrency();routePage();
 
@@ -478,7 +490,7 @@ function drawPerformance(r){
   const vals=rows.map(x=>Number(x.cumulative_return_pct)),min=Math.min(...vals,0),max=Math.max(...vals,0),span=max-min||1;
   const left=8,right=canvas.width-8,top=12,bottom=canvas.height-24,x=i=>left+(right-left)*i/(rows.length-1),y=v=>bottom-(bottom-top)*(v-min)/span;
   ctx.strokeStyle='#d0d5db';ctx.beginPath();ctx.moveTo(left,y(0));ctx.lineTo(right,y(0));ctx.stroke();
-  const last=vals.at(-1);ctx.strokeStyle=last>0?'#d94b57':last<0?'#367ae7':'#697580';ctx.lineWidth=2.5;ctx.beginPath();vals.forEach((v,i)=>i?ctx.lineTo(x(i),y(v)):ctx.moveTo(x(i),y(v)));ctx.stroke();ctx.lineWidth=1;
+  const last=vals.at(-1);ctx.strokeStyle=trendColor(last);ctx.lineWidth=2.5;ctx.beginPath();vals.forEach((v,i)=>i?ctx.lineTo(x(i),y(v)):ctx.moveTo(x(i),y(v)));ctx.stroke();ctx.lineWidth=1;
   ctx.fillStyle='#697580';ctx.fillText(rows[0].date,left,canvas.height-6);ctx.fillText(rows.at(-1).date,Math.max(left,right-70),canvas.height-6);
   const period=r.period_return_pct==null?'':` · 기간 수익률 ${pct(r.period_return_pct)}`;
   $('performanceNotice').textContent=`누적 수익률 ${pct(last)}${period}${r.baseline_changed?' · 기간 중 수익률 기준 재설정 있음':''}${rows.some(x=>x.stale)?' · 일부 날짜는 마지막 확인 시세 기준':''}`;
