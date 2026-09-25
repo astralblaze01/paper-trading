@@ -170,6 +170,25 @@ def test_sse_lease_lifetime_follows_the_clamped_heartbeat(cache, monkeypatch):
 
 # SSE version gate ----------------------------------------------------------------
 
+E, F = 'e' * 32, 'f' * 32
+
+
+@pytest.mark.parametrize('previous,version,snapshot,quote_', [
+    (None, f'{E}:5', 'snapshot', 'quote'),          # nothing sent yet: anything passes as itself
+    ('', f'{E}:5', 'snapshot', 'quote'),
+    (f'{E}:5', f'{E}:6', 'snapshot', 'quote'),      # newer
+    (f'{E}:5', f'{E}:5', 'snapshot', None),         # the same version: only a snapshot again
+    (f'{E}:5', f'{E}:4', None, None),               # older
+    (f'{E}:10', f'{E}:9', None, None),              # numeric, not text order
+    (f'{E}:9', f'{E}:10', 'snapshot', 'quote'),
+    (f'{E}:5', f'{F}:1', 'snapshot', 'snapshot'),   # another epoch always resets, as a snapshot
+    (f'{F}:9', f'{E}:1', 'snapshot', 'snapshot'),
+])
+def test_version_gate_table(previous, version, snapshot, quote_):
+    from app.market_stream import version_gate
+    assert (version_gate('snapshot', version, previous), version_gate('quote', version, previous)) == (snapshot, quote_)
+
+
 def parse_event(text):
     fields = dict(line.split(': ', 1) for line in text.strip().split('\n'))
     data = json.loads(fields['data'])

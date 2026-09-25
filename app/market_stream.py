@@ -31,12 +31,36 @@ def enabled():
             and bool(os.getenv('REDIS_URL')))
 
 
+def heartbeat_seconds():
+    """Stream check period; a lease lives four of them, so it survives missed renewals."""
+    return max(5, min(30, int(os.getenv('QUOTE_SSE_HEARTBEAT', '15'))))
+
+
 def newer(version, previous):
     if not previous:
         return True
     epoch, sequence = version.split(':')
     old_epoch, old_sequence = previous.split(':')
     return epoch == old_epoch and int(sequence) > int(old_sequence)
+
+
+def version_gate(name, version, previous):
+    """Name to send a snapshot/quote under after version `previous`, or None to drop it.
+
+    Within an epoch a client only moves forward: older versions and a repeated
+    quote are dropped, a repeated snapshot is sent again. Another epoch means
+    Redis was reset, so that payload always passes, as a snapshot."""
+    if not previous:
+        return name
+    same_epoch = version.split(':')[0] == previous.split(':')[0]
+    if same_epoch and version != previous and not newer(version, previous):
+        return None
+    if name == 'quote' and version == previous:
+        return None
+    if not same_epoch:
+        # Payload was re-read from authoritative Redis, never replayed.
+        return 'snapshot'
+    return name
 
 
 def event(name, data):
@@ -207,7 +231,7 @@ class QuoteHub:
             self.metrics['invalid'] += 1
 
     async def lease(self, keys, token, renew=False):
-        heartbeat = max(5, min(30, int(os.getenv('QUOTE_SSE_HEARTBEAT', '15'))))
+        heartbeat = heartbeat_seconds()
         return await self.redis.eval(LEASE, 2, *keys, time.time(), token, heartbeat * 4,
                                      int(os.getenv('QUOTE_SSE_USER_LIMIT', '5')),
                                      int(os.getenv('QUOTE_SSE_IP_LIMIT', '30')), 'renew' if renew else 'new') == 1
@@ -219,7 +243,8 @@ class QuoteHub:
                     pipe.zrem(key, token)
                 await pipe.execute()
 
-    async def response(self, request, symbol, uid, authenticate):
+    def _validate(self, request, symbol):
+        """Refusals decided without Redis: feature gate, symbol, then Origin."""
         if not enabled() or not self.redis:
             raise HTTPException(503, '시세 스트림이 비활성 상태입니다.')
         if not valid_symbol(symbol):
@@ -227,6 +252,9 @@ class QuoteHub:
         origin = request.headers.get('origin')
         if origin and origin.split('://', 1)[-1] != request.headers.get('host'):
             raise HTTPException(403, '허용되지 않은 출처입니다.')
+
+    async def _admit(self, request, uid):
+        """Count the attempt, lease a user/IP slot and wait for the subscriber; returns (keys, token)."""
         ip = request.headers.get('x-real-ip') or (request.client.host if request.client else 'unknown')
         ip = hashlib.sha256(ip.encode()).hexdigest()
         keys = [f'market:sse:user:{uid}', f'market:sse:ip:{ip}']
@@ -244,8 +272,13 @@ class QuoteHub:
                 raise
         except (RedisError, asyncio.TimeoutError) as exc:
             raise HTTPException(503, '시세 연결을 준비 중입니다.') from exc
+        return keys, token
+
+    async def response(self, request, symbol, uid, authenticate):
+        self._validate(request, symbol)
+        keys, token = await self._admit(request, uid)
         queue = self.listen(symbol)
-        heartbeat = max(5, min(30, int(os.getenv('QUOTE_SSE_HEARTBEAT', '15'))))
+        heartbeat = heartbeat_seconds()
         cookie = request.cookies.get('paper_session', '')
         signer = TimestampSigner(os.environ['SESSION_SECRET'])
 
@@ -289,15 +322,9 @@ class QuoteHub:
                     except asyncio.TimeoutError:
                         continue
                     if name in ('snapshot', 'quote'):
-                        if previous:
-                            same_epoch = data['version'].split(':')[0] == previous.split(':')[0]
-                            if same_epoch and data['version'] != previous and not newer(data['version'], previous):
-                                continue
-                            if name == 'quote' and data['version'] == previous:
-                                continue
-                            if not same_epoch:
-                                # Payload was re-read from authoritative Redis, never replayed.
-                                name = 'snapshot'
+                        name = version_gate(name, data['version'], previous)
+                        if name is None:
+                            continue
                         previous = data['version']
                     yield event(name, data)
                     if name == 'status' and data['state'] == 'restart':
