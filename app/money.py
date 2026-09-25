@@ -6,6 +6,8 @@ from .db import Wallet, Settings
 from .instruments import currency_of
 
 D = Decimal
+# The most shares one order may trade, however its quantity is given (direct, share of max, use_max).
+MAX_ORDER_QUANTITY = 1000000
 
 
 class OrderRejected(HTTPException):
@@ -54,7 +56,7 @@ def costs(symbol, side, price, quantity):
     return dict(currency=currency,gross_amount=gross,fee=fee,tax=tax,net_amount=net,fee_bps=fee_bps,tax_bps=tax_bps)
 
 def maximum(symbol, price, balance):
-    lo, hi = 0, min(1000000, int(balance/price))
+    lo, hi = 0, min(MAX_ORDER_QUANTITY, int(balance/price))
     while lo < hi:
         mid = (lo+hi+1)//2
         if costs(symbol,'buy',price,mid)['net_amount'] <= balance: lo=mid

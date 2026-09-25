@@ -11,7 +11,7 @@ from .db import Session, User, FxTransaction, Watchlist, PopularityEvent, LimitO
 from .instruments import SYMBOL_PATTERN, valid_symbol, instrument, CATALOG, market_of
 from .market import MarketError
 from .fx import preview, exchange
-from .money import wallets, rounded
+from .money import MAX_ORDER_QUANTITY, wallets, rounded
 from .trading import preview_order
 from .admin_ops import admin_overview, set_initial_amount, set_account_active, season_reset, list_archives
 from .branding import BRAND_NAME
@@ -26,7 +26,7 @@ class SymbolInput(Strict): symbol: str=Field(pattern=SYMBOL_PATTERN)
 class EventInput(SymbolInput): kind: Literal['view','search']='view'
 class LimitInput(SymbolInput):
     side: Literal['buy','sell']
-    quantity: int=Field(gt=0,le=1000000,strict=True)
+    quantity: int=Field(gt=0,le=MAX_ORDER_QUANTITY,strict=True)
     limit_price: Decimal=Field(gt=0,le=1000000000,max_digits=16,decimal_places=4)
     request_id: UUID
 
@@ -113,7 +113,7 @@ def install(app,ctx):
         return ctx.market.providers[market_of(symbol)]
 
     @app.get('/api/order-preview')
-    def order_preview(symbol: str, side: Literal['buy','sell']='buy', quantity: int=Query(1,ge=1,le=1000000),share: int|None=Query(None),uid=Depends(user)):
+    def order_preview(symbol: str, side: Literal['buy','sell']='buy', quantity: int=Query(1,ge=1,le=MAX_ORDER_QUANTITY),share: int|None=Query(None),uid=Depends(user)):
         if not valid_symbol(symbol): raise HTTPException(422,'잘못된 종목코드입니다.')
         if share is not None and share not in (5,10,25,50,100): raise HTTPException(422,'지원하지 않는 수량 비율입니다.')
         from .redis_cache import redis_cache

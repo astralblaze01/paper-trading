@@ -24,7 +24,7 @@ from .multi_market import MultiMarket
 from .instruments import SYMBOL_PATTERN, valid_symbol, CATEGORIES, market_of
 from .migrations import migrate
 from .trading import execute_order, filled_replay
-from .money import wallets, initial_amount
+from .money import MAX_ORDER_QUANTITY, wallets, initial_amount
 from .fx import FxService
 from .portfolio import portfolio as wallet_portfolio, initialize_equity, RETURN_BASIS
 from .weekly import report_list, tick
@@ -187,7 +187,7 @@ class Order(BaseModel):
     model_config = ConfigDict(extra='forbid')
     symbol: str = Field(pattern=SYMBOL_PATTERN)
     side: Literal['buy', 'sell']
-    quantity: int = Field(gt=0, le=1000000, strict=True)
+    quantity: int = Field(gt=0, le=MAX_ORDER_QUANTITY, strict=True)
     request_id: UUID
     use_max: bool = False
 

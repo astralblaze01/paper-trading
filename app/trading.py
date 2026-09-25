@@ -4,7 +4,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from fastapi import HTTPException
 from .db import Session, Position, Transaction, lock_user
-from .money import OrderRejected, wallets, costs, maximum, native_cost_basis
+from .money import MAX_ORDER_QUANTITY, OrderRejected, wallets, costs, maximum, native_cost_basis
 from .instruments import market_of, currency_of
 from . import quote_policy
 
@@ -56,7 +56,7 @@ def preview_order(uid, symbol, side, quantity, market, share=None):
         p=db.get(Position,(uid,symbol))
         available=ws[currency].balance
         maximum_quantity=maximum(symbol,price,available) if side=='buy' else (p.quantity if p else 0)
-        maximum_quantity=min(maximum_quantity,1000000)
+        maximum_quantity=min(maximum_quantity,MAX_ORDER_QUANTITY)
         if share is not None:
             quantity=int(Decimal(maximum_quantity)*Decimal(share)/Decimal(100))
         c=costs(symbol,side,price,quantity)
@@ -131,7 +131,7 @@ def execute_order(user_id, order, market, db=None, requested_at=None):
         position=db.get(Position,(user_id,order.symbol))
         quantity=order.quantity
         if getattr(order,'use_max',False):
-            quantity=maximum(order.symbol,price,ws[currency].balance) if order.side=='buy' else (position.quantity if position else 0)
+            quantity=maximum(order.symbol,price,ws[currency].balance) if order.side=='buy' else min(position.quantity if position else 0,MAX_ORDER_QUANTITY)
         if quantity<=0: raise OrderRejected(409,'주문 가능한 수량이 없습니다.')
         c=costs(order.symbol,order.side,price,quantity)
         realized=Decimal(0)
