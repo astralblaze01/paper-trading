@@ -129,7 +129,9 @@ async function changeDisplayCurrency(value){displayMode=value;try{localStorage.s
 $('displayCurrency').addEventListener('change',e=>changeDisplayCurrency(e.target.value));
 // Theme: A 딥 틸 (light, default) or B 다크 아레나 (dark). Saved per browser; charts redraw.
 function themeColor(name){return getComputedStyle(document.documentElement).getPropertyValue(name).trim();}
-function syncThemeToggle(){const dark=document.documentElement.dataset.theme==='dark',b=$('themeToggle');b.textContent=dark?'☀':'☾';b.setAttribute('aria-label',dark?'라이트 모드로 전환':'다크 모드로 전환');b.title=dark?'라이트 모드':'다크 모드';b.setAttribute('aria-pressed',String(dark));}
+const THEME_ICONS={moon:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>',
+  sun:'<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M4.6 4.6l1.4 1.4M18 18l1.4 1.4M2.5 12h2M19.5 12h2M4.6 19.4 6 18M18 6l1.4-1.4"/></svg>'};
+function syncThemeToggle(){const dark=document.documentElement.dataset.theme==='dark',b=$('themeToggle');b.innerHTML=dark?THEME_ICONS.sun:THEME_ICONS.moon;b.setAttribute('aria-label',dark?'라이트 모드로 전환':'다크 모드로 전환');b.title=dark?'라이트 모드':'다크 모드';b.setAttribute('aria-pressed',String(dark));}
 $('themeToggle').addEventListener('click',()=>{
   const dark=document.documentElement.dataset.theme!=='dark';
   if(dark)document.documentElement.dataset.theme='dark';else delete document.documentElement.dataset.theme;

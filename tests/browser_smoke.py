@@ -373,13 +373,13 @@ with sync_playwright() as p:
         expect(page.locator('.brand-logo-light')).to_be_visible(); expect(page.locator('.brand-logo-dark')).to_be_hidden()
         page.locator('#themeToggle').click()
         expect(page.locator('html')).to_have_attribute('data-theme','dark')
-        assert page.evaluate("getComputedStyle(document.documentElement).backgroundColor")=='rgb(12, 22, 23)'
+        assert page.evaluate("getComputedStyle(document.documentElement).backgroundColor")=='rgb(18, 20, 23)'
         expect(page.locator('.brand-logo-dark')).to_be_visible(); expect(page.locator('.brand-logo-light')).to_be_hidden()
         page.reload(); expect(page.locator('html')).to_have_attribute('data-theme','dark')
         for hash_,shot in (('#portfolio','portfolio'),('#ranking','ranking'),('#detail/AAPL','detail')):
             page.goto('http://browserweb:8000/'+hash_);page.wait_for_load_state('networkidle')
             page.screenshot(path=f'/artifacts/dark-{shot}-{width}.png',full_page=True)
-        expect(page.locator('#detailPrice .gain').first).to_have_css('color','rgb(255, 107, 120)')
+        expect(page.locator('#detailPrice .gain').first).to_have_css('color','rgb(240, 97, 109)')
         page.locator('#themeToggle').click()
         expect(page.locator('html')).not_to_have_attribute('data-theme','dark')
         # Every page follows one amount format: "$1,000.00" and "1,000원".

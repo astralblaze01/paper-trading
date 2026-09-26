@@ -16,6 +16,7 @@
   --border: #dce6e3;
   --border-strong: #c6d4d0;
   --accent: #0f5b57;
+  --accent-fill: #0f5b57;
   --accent-soft: #e3f3ee;
   --accent-line: #b9e3d4;
   --mint: #1fc98a;
@@ -32,27 +33,29 @@
 /* B 다크 아레나: dark surfaces with the mint as the accent. */
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #0c1617;
-  --surface: #111f21;
-  --surface-2: #142527;
-  --surface-3: #1a2f31;
-  --ink: #d9e9e5;
-  --ink-strong: #eef7f4;
-  --muted: #8fa8a3;
-  --faint: #6c8581;
-  --border: #1f3335;
-  --border-strong: #2d4649;
-  --accent: #3bd9a0;
-  --accent-soft: #123a33;
-  --accent-line: #1f5e4f;
-  --mint: #2be39a;
-  --on-accent: #062a22;
-  --accent-hover: #2bc98a;
-  --solid: #1d3537;
-  --gain: #ff6b78;
-  --loss: #5b9bff;
-  --chart-grid: #1f3335;
-  --chart-axis: #3a5557;
+  /* Neutral charcoal like mainstream dark apps; color only where it means something. */
+  --bg: #121417;
+  --surface: #1a1d21;
+  --surface-2: #1f2328;
+  --surface-3: #262b31;
+  --ink: #e6e8eb;
+  --ink-strong: #f4f5f7;
+  --muted: #9aa1a9;
+  --faint: #6f767e;
+  --border: #2a2f35;
+  --border-strong: #3a4048;
+  --accent: #6cc3aa;
+  --accent-fill: #2e7d6c;
+  --accent-soft: #1d2a27;
+  --accent-line: #2b4a42;
+  --mint: #4fb592;
+  --on-accent: #ffffff;
+  --accent-hover: #36917c;
+  --solid: #2a2f35;
+  --gain: #f0616d;
+  --loss: #4d8ef5;
+  --chart-grid: #262b31;
+  --chart-axis: #3a4048;
   --shadow: rgba(0,0,0,.45);
 }
 * { box-sizing: border-box; }
@@ -88,7 +91,7 @@ input::placeholder { color: var(--faint); }
 input:focus, select:focus { border-color: var(--accent); }
 :focus-visible { outline: 2px solid #497ba9; outline-offset: 3px; }
 .field-help { font-size: 11px; color: var(--muted); margin: 6px 0 21px; }
-button { min-height: 40px; padding: 9px 16px; border: 1px solid transparent; border-radius: 4px; background: var(--accent); color: var(--on-accent); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+button { min-height: 40px; padding: 9px 16px; border: 1px solid transparent; border-radius: 4px; background: var(--accent-fill); color: var(--on-accent); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; }
 button:hover { background: var(--accent-hover); }
 button:disabled { opacity: .45; cursor: default; }
 .secondary { color: var(--muted); background: var(--surface); border-color: var(--border-strong); }
@@ -179,7 +182,7 @@ footer { max-width: 1280px; margin: 0 auto; padding: 8px 36px 28px; display: fle
 .chart-tooltip { min-height:24px; font-size:12px; color:var(--muted); }
 .range-buttons { display:flex; gap:8px; flex-wrap:wrap; }
 .range-buttons button { background:var(--surface-3); color:var(--accent); }
-.range-buttons button[aria-pressed="true"] { background:var(--accent); color: var(--on-accent); }
+.range-buttons button[aria-pressed="true"] { background:var(--accent-fill); color: var(--on-accent); }
 .watch-row { display:flex; gap:18px; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); padding:14px 0; flex-wrap:wrap; }
 .quote-info { white-space:pre-line; margin-bottom:16px; }
 .metric:nth-child(2) strong { font-size:18px; }
@@ -190,7 +193,7 @@ pre { white-space:pre-wrap; overflow-wrap:anywhere; background:var(--surface-2);
 .explore-options{display:grid;gap:10px;margin:14px 0 18px}
 .chip-row{display:flex;flex-wrap:wrap;gap:7px}
 .chip-row button{width:auto;padding:8px 13px;border:1px solid var(--border-strong);border-radius:999px;background:var(--surface);color:var(--accent);font-weight:600}
-.chip-row button[aria-pressed="true"]{background:var(--accent);color: var(--on-accent);border-color:var(--accent)}
+.chip-row button[aria-pressed="true"]{background:var(--accent-fill);color: var(--on-accent);border-color:var(--accent)}
 .fx-balance{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:2px 0 14px;color:var(--accent);font-weight:600}
 .display-currency{display:flex;align-items:center;gap:10px;max-width:250px;margin:0 0 8px}
 .display-currency select{width:165px;height:36px}
@@ -595,7 +598,7 @@ table { font-size:15px; }
 .admin-user-who small { margin:0; }
 .board-pages { display:flex; flex-wrap:wrap; justify-content:center; gap:6px; margin:14px 0 4px; }
 .board-pages button { width:auto; min-width:40px; padding:7px 11px; }
-.board-pages button[aria-current="page"] { background:var(--accent); border-color:var(--accent); color: var(--on-accent); }
+.board-pages button[aria-current="page"] { background:var(--accent-fill); border-color:var(--accent); color: var(--on-accent); }
 
 /* Order mode: 바로 주문 / 예약 주문, and reservation lists. */
 .order-mode { display:grid; grid-template-columns:1fr 1fr; margin:14px 0 4px; border:1px solid var(--border-strong); border-radius:4px; overflow:hidden; }
@@ -676,7 +679,7 @@ table { font-size:15px; }
 /* 다크 아레나: pale status and highlight fills become deep tints of the same hue. */
 :root[data-theme="dark"] #status, :root[data-theme="dark"] .market-closed-note,
 :root[data-theme="dark"] .site-notice[data-kind="maintenance"], :root[data-theme="dark"] .site-notice[data-kind="maintenance_now"] { background:#2b2414; border-color:#5a4722; color:#f0d9a8; }
-:root[data-theme="dark"] .site-notice { background:#12283a; border-color:#23445f; color:#cfe4f7; }
+:root[data-theme="dark"] .site-notice { background:#1c2530; border-color:#2e3b4a; color:#d6e2ee; }
 :root[data-theme="dark"] .site-notice[data-kind="update"], :root[data-theme="dark"] .site-notice[data-kind="maintenance_done"] { background:#11291f; border-color:#1f5a3f; color:#bfeed5; }
 :root[data-theme="dark"] .site-notice .notice-kind { background:transparent; }
 :root[data-theme="dark"] .side-toggle [data-side="buy"][aria-checked="true"] { background:#3a1b20; }
@@ -701,5 +704,7 @@ table { font-size:15px; }
   background:transparent; color:var(--muted); border:1px solid var(--border-strong); font-size:16px; }
 .theme-toggle:hover { background:var(--surface-3); color:var(--ink-strong); }
 .theme-toggle { margin-left:auto; }
-:root[data-theme="dark"] .order-submit[data-side="buy"] { background:#d8434f; }
+:root[data-theme="dark"] .order-submit[data-side="buy"] { background:#d64552; }
 :root[data-theme="dark"] .order-submit[data-side="sell"] { background:#3a7be8; }
+:root[data-theme="dark"] .range-buttons button:not([aria-pressed="true"]) { color:var(--ink); }
+.theme-toggle svg { width:17px; height:17px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
