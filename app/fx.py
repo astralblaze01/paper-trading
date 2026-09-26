@@ -17,7 +17,10 @@ class FxService:
         rate, day = self.provider.krw_to_usd()
         age = (datetime.now(timezone.utc).date()-date.fromisoformat(day)).days
         if not rate.is_finite() or rate<=0 or not 0<=age<=7: raise MarketError('기준환율이 오래되어 환전을 중단합니다.')
-        return {'source':source,'target':target,'rate':rate if source=='KRW' else Decimal(1)/rate,'date':day,'label':'ECB 일별 기준환율 · 실시간 환율 아님','stale':False}
+        failed = bool(getattr(self.provider, 'refresh_failed', False))
+        return {'source':source,'target':target,'rate':rate if source=='KRW' else Decimal(1)/rate,'date':day,
+                'label':'ECB 일별 기준환율 · 실시간 환율 아님','stale':failed, 'refresh_failed':failed,
+                'next_refresh_at':getattr(self.provider, 'next_refresh_at', None)}
 
 def preview(fx, source, amount):
     target='KRW' if source=='USD' else 'USD'

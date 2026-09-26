@@ -10,7 +10,7 @@ PUBLIC = ('symbol', 'price', 'native_price', 'currency', 'timestamp', 'stale', '
           'fx_rate', 'fx_date', 'name', 'category', 'cached_at',
           # US session state, added by quote_policy.assess at read time
           'session', 'trade_session', 'price_mode', 'realtime', 'session_tradeable', 'tradeable',
-          'market', 'venue')
+          'market', 'venue', 'display_only', 'refresh_failed')
 
 
 def max_age(symbol):
@@ -41,7 +41,7 @@ def normalize_quote(symbol, value, now=None):
             raise ValueError('invalid quote price')
     except (InvalidOperation, KeyError, TypeError) as exc:
         raise ValueError('invalid quote number') from exc
-    q['stale'] = bool(q.get('stale')) or now - stamp > max_age(symbol)
+    q['stale'] = bool(q.get('stale')) or bool(q.get('display_only')) or now - stamp > max_age(symbol)
     q['cached_at'] = q.get('_cached_at', q.get('cached_at'))
     return q
 

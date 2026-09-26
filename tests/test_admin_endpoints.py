@@ -21,7 +21,7 @@ def test_admin_overview_keys_values_and_permission(client, monkeypatch):
     monkeypatch.setenv('KR_SELL_TAX_BPS', '15')
     body = client.get('/api/admin').json()
     assert list(body) == ['users', 'initial_usd', 'notice', 'notice_templates', 'maintenance', 'fees', 'health',
-                          'providers', 'counts', 'us_market', 'kr_market']
+                          'quotes', 'providers', 'counts', 'us_market', 'kr_market']
     rows = {u['username']: u for u in body['users']}
     assert [u['id'] for u in body['users']] == sorted(u['id'] for u in body['users'])
     assert list(rows['noted']) == ['id', 'username', 'active', 'admin', 'initial_usd', 'initial_krw', 'note', 'wallets']

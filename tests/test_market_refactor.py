@@ -639,6 +639,9 @@ def test_reference_fx_shared_cache_repair_and_cooldown(monkeypatch):
             third.krw_to_usd()
         assert str(failure.value) == '환율 조회를 잠시 후 다시 시도하세요.' and len(calls) == 2
         answers.append(httpx.Response(503))
+        # The outage cooldown is now shared across processes. Expire it before
+        # simulating the next independent provider failure.
+        fake.data.pop(key+':retry', None)
         fourth = fx()
         with pytest.raises(MarketError) as failure:
             fourth.krw_to_usd()
@@ -646,6 +649,7 @@ def test_reference_fx_shared_cache_repair_and_cooldown(monkeypatch):
         with pytest.raises(MarketError, match='잠시 후'):
             fourth.krw_to_usd()
         answers.append(good | {'rate': 'x'})
+        fake.data.pop(key+':retry', None)
         with pytest.raises(MarketError) as failure:
             fx().krw_to_usd()
         assert str(failure.value) == none and key not in fake.data and len(calls) == 4

@@ -117,13 +117,20 @@ class ReferenceFX:
         self.cached = None
         self.expires = 0
         self.cooldown = 0
+        self.refresh_failed = False
+        self.next_refresh_at = None
 
     def krw_to_usd(self):
         with self.lock:
             now = time.monotonic()
-            if self.cached and now < self.expires: return self.cached
-            if now < self.cooldown: raise MarketError('환율 조회를 잠시 후 다시 시도하세요.')
+            from .fx_schedule import refresh_seconds
+            if self.cached and now < self.expires:
+                age = (datetime.now(timezone.utc).date()-date.fromisoformat(self.cached[1])).days
+                if 0 <= age <= 7:
+                    return self.cached
             cache_key = 'market:fx:USD:KRW:v2'
+            last_key = 'market:fx:USD:KRW:last-good'
+            fallback = None
             def load():
                 try:
                     # Request USD/KRW directly. The reverse endpoint is rounded
@@ -131,7 +138,9 @@ class ReferenceFX:
                     # when inverted for the user-facing USD/KRW quote.
                     r = self.client.get('/v2/providers/ecb/rate/USD/KRW')
                     r.raise_for_status()
-                    return r.json()
+                    value = r.json()
+                    parse(value)  # Never cache an unvalidated provider response.
+                    return value
                 except (httpx.HTTPError, ValueError) as exc:
                     raise MarketError(NO_REFERENCE_RATE) from exc
             def parse(data):
@@ -149,6 +158,16 @@ class ReferenceFX:
                     redis_cache.delete(cache_key)
                     raise
             try:
+                saved = redis_cache.get_json(last_key)
+                if saved is not None:
+                    try:
+                        fallback = parse(saved)
+                    except (KeyError, TypeError, ValueError, InvalidOperation):
+                        pass
+                if fallback is None and self.cached:
+                    age = (datetime.now(timezone.utc).date()-date.fromisoformat(self.cached[1])).days
+                    if 0 <= age <= 7:
+                        fallback = (self.cached[0], date.fromisoformat(self.cached[1]))
                 data=redis_cache.get_json(cache_key)
                 if data is not None:
                     try:
@@ -156,13 +175,32 @@ class ReferenceFX:
                     except (KeyError,TypeError,ValueError,InvalidOperation):
                         data=None
                 if data is None:
-                    rate,day=parse_or_drop(redis_cache.get_or_load(cache_key,1800,load))
+                    if now < self.cooldown or redis_cache.get_json(cache_key+':retry'):
+                        raise MarketError('환율 조회를 잠시 후 다시 시도하세요.')
+                    data = redis_cache.get_or_load(cache_key,1800,load)
+                    rate,day=parse_or_drop(data)
             except (KeyError, TypeError, ValueError, InvalidOperation, MarketError) as exc:
                 self.cooldown = now + 60
-                if isinstance(exc,MarketError): raise
-                raise MarketError(NO_REFERENCE_RATE) from exc
+                # Shared backoff prevents each web process retrying the outage.
+                if not redis_cache.get_json(cache_key+':retry'):
+                    redis_cache.set_json(cache_key+':retry', True, 60)
+                if fallback is None:
+                    if isinstance(exc,MarketError): raise
+                    raise MarketError(NO_REFERENCE_RATE) from exc
+                self.cached = (fallback[0], fallback[1].isoformat())
+                self.expires = now + 60
+                self.refresh_failed = True
+                self.next_refresh_at = time.time() + 60
+                return self.cached
+            self.refresh_failed = False
+            ttl = refresh_seconds(day)
+            # Preserve the previous exact payload where available. Seven-day
+            # usability is checked above; retention itself must outlive outages.
+            redis_cache.set_json(last_key, data, 30*86400)
+            redis_cache.set_json(cache_key, data, ttl)
             self.cached = (rate, day.isoformat())
-            self.expires = now + 1800
+            self.expires = now + ttl
+            self.next_refresh_at = time.time() + ttl
             return self.cached
 
 class MultiMarket:
@@ -235,7 +273,9 @@ class MultiMarket:
             if cached is None:
                 raise MarketError('시세 수집기가 가격을 준비 중입니다. 잠시 후 다시 시도하세요.')
             try:
-                return self.assess(symbol, normalize_quote(symbol, cached))
+                q = self.assess(symbol, normalize_quote(symbol, cached))
+                status = redis_cache.get_json(f'market:collection:{symbol}') or {}
+                return q | {'refresh_failed': status.get('state') == 'failed'}
             except (ValueError, TypeError, KeyError) as exc:
                 raise MarketError('유효한 서버 시세가 없습니다.') from exc
         return self.assess(symbol, self.quote_direct(symbol))

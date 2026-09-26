@@ -163,6 +163,8 @@ class QuoteHub:
             if not VERSION.fullmatch(version):
                 return None
             quote = await asyncio.to_thread(public_quote, symbol, q, self.assess) if self.assess else public_quote(symbol, q)
+            status = await self.redis.get(f'market:collection:{symbol}')
+            quote['refresh_failed'] = bool(status and json.loads(status).get('state') == 'failed')
             return {'schema_version': 1, 'symbol': symbol, 'version': version, 'quote': quote}
         except (ValueError, TypeError, KeyError, AttributeError):
             self.metrics['invalid'] += 1

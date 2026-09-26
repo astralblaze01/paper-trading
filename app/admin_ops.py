@@ -93,6 +93,7 @@ def _clear(db,u,ws,before,actor,reason,q,now):
 def admin_overview(market,health):
     """Everything the admin page shows: accounts, settings, the notice, provider diagnostics."""
     from .us_quotes import diagnostics as us_diagnostics
+    from .redis_cache import redis_cache
     names=['FX_FEE_BPS','FX_SPREAD_BPS','US_BUY_FEE_BPS','US_SELL_FEE_BPS','KR_BUY_FEE_BPS','KR_SELL_FEE_BPS','KR_SELL_TAX_BPS']
     with Session() as db:
         notes=dict(db.execute(select(UserAdminNote.user_id,UserAdminNote.note)).all())
@@ -101,7 +102,7 @@ def admin_overview(market,health):
         counts={'users':db.scalar(select(func.count()).select_from(User)),'transactions':db.scalar(select(func.count()).select_from(Transaction)),'positions':db.scalar(select(func.count()).select_from(Position)),'pending_orders':db.scalar(select(func.count()).select_from(LimitOrder).where(LimitOrder.status=='pending'))}
     from .notices import active_notice, public, TEMPLATES
     with Session() as db: notice=public(active_notice(db))
-    return {'users':users,'initial_usd':amount,'notice':notice,'notice_templates':TEMPLATES,'maintenance':bool(notice and notice['kind']=='maintenance'),'fees':{n:bps(n,'10' if n=='FX_FEE_BPS' else '5' if n=='FX_SPREAD_BPS' else '0') for n in names},'health':health(),'providers':market.status(),'counts':counts,'us_market':us_diagnostics(market),'kr_market':us_diagnostics(market,'KR')}
+    return {'users':users,'initial_usd':amount,'notice':notice,'notice_templates':TEMPLATES,'maintenance':bool(notice and notice['kind']=='maintenance'),'fees':{n:bps(n,'10' if n=='FX_FEE_BPS' else '5' if n=='FX_SPREAD_BPS' else '0') for n in names},'health':health(),'quotes':redis_cache.quote_health(),'providers':market.status(),'counts':counts,'us_market':us_diagnostics(market),'kr_market':us_diagnostics(market,'KR')}
 
 def set_initial_amount(actor,amount):
     with Session.begin() as db:

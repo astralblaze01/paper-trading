@@ -80,8 +80,9 @@ class RedisCache:
     def store_quote(self, symbol, value, ttl):
         """WATCH + MULTI commits authoritative snapshot, durable version and notification.
 
-        Metadata survives price expiry and worker restarts. A Redis reset creates
-        a new epoch; stream snapshots explicitly reset the client's version gate.
+        Keep the last validated price until a replacement arrives. Freshness is
+        assessed at read/order time, never by deleting the display snapshot.
+        The ttl argument remains for compatibility with existing publishers.
         """
         if not self.client:
             return False
@@ -99,17 +100,21 @@ class RedisCache:
                         old = json.loads(old) if old else {}
                         meta = json.loads(meta) if meta else {}
                         previous_stamp = max(float(meta.get('timestamp', 0)), float(old.get('timestamp', 0)))
-                        if float(quote['timestamp']) < previous_stamp:
+                        if old and float(quote['timestamp']) < float(old['timestamp']):
                             return False
+                        # Migration recovery: older deployments may have expired
+                        # the price while retaining a newer high-water mark. Fill
+                        # the empty display, but never trade that recovered value.
+                        quote['display_only'] = float(quote['timestamp']) < previous_stamp
                         epoch = meta.get('epoch') or uuid4().hex
                         sequence = int(meta.get('sequence', 0)) + 1
                         version = f'{epoch}:{sequence}'
                         quote['_version'] = version
                         payload = json.dumps(quote, default=_json_default, allow_nan=False, separators=(',', ':'))
-                        metadata = json.dumps({'epoch': epoch, 'sequence': sequence, 'timestamp': quote['timestamp']})
+                        metadata = json.dumps({'epoch': epoch, 'sequence': sequence, 'timestamp': max(previous_stamp, float(quote['timestamp']))})
                         event = json.dumps({'schema_version': 1, 'symbol': symbol, 'version': version})
                         pipe.multi()
-                        pipe.setex(key, ttl, payload)
+                        pipe.set(key, payload)
                         pipe.set(meta_key, metadata)
                         pipe.publish(QUOTE_UPDATES, event)
                         pipe.execute()
@@ -119,6 +124,24 @@ class RedisCache:
         except (RedisError, ValueError, TypeError, KeyError):
             pass
         return False
+
+    def quote_health(self):
+        """Read-only, bounded diagnostics for the administrator; no account data."""
+        if not self.client:
+            return {'state': 'unavailable'}
+        try:
+            symbols = self.client.zrangebyscore(SUBSCRIPTIONS_KEY, time.time()-600, '+inf', start=0, num=500)
+            if not symbols:
+                return {'state': 'idle', 'requested': 0, 'available': 0, 'failed': 0}
+            prices = self.client.mget([price_key(s) for s in symbols])
+            states = self.client.mget([f'market:collection:{s}' for s in symbols])
+            failed = sum(bool(v and json.loads(v).get('state') == 'failed') for v in states)
+            available = sum(v is not None for v in prices)
+            return {'state': 'degraded' if failed or available < len(symbols) else 'ok',
+                    'requested': len(symbols), 'available': available, 'failed': failed,
+                    'last_saved': max((float(json.loads(v).get('_cached_at') or 0) for v in prices if v), default=None)}
+        except (RedisError, ValueError, TypeError):
+            return {'state': 'unavailable'}
 
     def delete(self, key):
         if not self.client:

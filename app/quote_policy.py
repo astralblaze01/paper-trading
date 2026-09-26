@@ -58,6 +58,9 @@ def assess(q, session, stream=None, now=None):
 
     Quotes without `valid_sessions` come from test doubles or pre-upgrade
     caches; they keep their legacy behaviour and get no session fields."""
+    if q.get('display_only'):
+        return q | {'session': session, 'price_mode': 'cached', 'realtime': False,
+                    'session_tradeable': False, 'tradeable': False, 'stale': True}
     if 'valid_sessions' not in q:
         return q
     now = time.time() if now is None else now
@@ -99,6 +102,8 @@ def session_price_mode(session, stream, rest_ok, market='US'):
 
 def rejection(q):
     """User-facing reason a quote cannot fill an order now, or None."""
+    if q.get('display_only'):
+        return '복구한 참고 시세로는 주문할 수 없습니다. 새 시세를 기다려 주세요.'
     if q.get('session_tradeable', True):
         return None
     session, market = q.get('session'), q.get('market') or market_of(q)

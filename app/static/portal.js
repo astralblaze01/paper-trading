@@ -249,7 +249,8 @@ function renderDetailQuote(){
   $('detailPrice').className='detail-price';
   }
   const range=`고가 ${viewMoney(q.high,q.currency)} / 저가 ${viewMoney(q.low,q.currency)} · 거래량 ${q.volume==null?'미제공':Number(q.volume).toLocaleString()}`;
-  $('detailMeta').textContent=window.isAdmin?`${q.data_status||q.source||'공급자 시세'} · ${new Date(q.timestamp*1000).toLocaleString()}${q.stale?' · 오래된 시세':''} · ${range}`:range+(q.stale?' · 오래된 시세':'');
+  const lastPriceNote=` · 시세 시각 ${new Date(q.timestamp*1000).toLocaleString()}${q.display_only?' · 복구한 참고 시세 · 주문 불가':q.refresh_failed?' · 갱신 실패 · 마지막 가격 유지':q.stale?' · 마지막 제공 시세 기준':''}`;
+  $('detailMeta').textContent=(window.isAdmin?`${q.data_status||q.source||'공급자 시세'} · ${range}`:range)+lastPriceNote;
 }
 async function loadCompany(symbol){
   $('companyInfo').textContent='회사 정보를 불러오는 중입니다.';
@@ -404,13 +405,13 @@ async function fxEstimate(){
   $('fxEstimate').textContent=`${r.date} 기준환율 ${r.rate} · 스프레드 ${r.spread_bps} bps · 수수료 ${nativeMoney(r.fee,r.source)}\n최종 수령 ${nativeMoney(r.received,r.target)}\n예상 잔액 ${money(r.balances_after.USD)} / ${nativeMoney(r.balances_after.KRW,'KRW')}`;
 }
 handle('fxPreview','click',fxEstimate);
-// Keep in step with '30분마다 확인' in #fxRate.
+// Poll our cached reference; the server schedules external ECB refreshes.
 const FX_REFRESH_MS=30*60*1000;
 async function loadFxRate(){
   try{
     const r=await api('fx');
-    const usd=Number(r.rate),next=new Date(Date.now()+FX_REFRESH_MS).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});
-    $('fxRate').textContent=`1 USD = ${usd.toLocaleString('ko-KR',{maximumFractionDigits:2})} KRW  ·  1,000 KRW = ${(1000/usd).toLocaleString('ko-KR',{maximumFractionDigits:4})} USD  ·  ${r.date} 기준 · 30분마다 확인 (다음 ${next})`;
+    const usd=Number(r.rate),next=r.next_refresh_at?new Date(r.next_refresh_at*1000).toLocaleString('ko-KR'):null;
+    $('fxRate').textContent=`1 USD = ${usd.toLocaleString('ko-KR',{maximumFractionDigits:2})} KRW  ·  1,000 KRW = ${(1000/usd).toLocaleString('ko-KR',{maximumFractionDigits:4})} USD  ·  ${r.date} 기준${r.refresh_failed?' · 갱신 실패 · 마지막 정상 환율 사용':next?' · 다음 기준환율 확인 '+next:' · ECB 영업일 기준환율'}`;
   }catch(e){$('fxRate').textContent='환율을 불러오지 못했습니다. '+e.message;}
 }
 setInterval(()=>{if(!document.hidden&&location.hash==='#fx'&&window.sessionUsername&&!window.isAdmin)loadFxRate();},FX_REFRESH_MS);
@@ -454,6 +455,7 @@ function adminMarketText(name,m){
 function renderAdminStatus(r){
  $('adminHealth').textContent=`DB ${r.health.database} · Redis ${r.health.redis} · 국내 시세 ${r.providers.kr?'설정됨':'미설정'} · 미국 시세 ${r.providers.us?'설정됨':'미설정'}`;
  $('adminMarket').textContent=[adminMarketText('KR',r.kr_market),adminMarketText('US',r.us_market),r.us_market?`Queued: ${r.us_market.stream.queued.join(' ')||'—'} · Reconnects: ${r.us_market.stream.reconnects}${r.us_market.stream.last_error?' · Last error: '+r.us_market.stream.last_error:''} · Redis ${r.health.redis}`:''].filter(Boolean).join('\n');
+ if(r.quotes){const q=r.quotes;$('adminMarket').textContent+=`\n가격 저장 ${q.state} · 요청 ${q.requested??'—'}종목 / 보존 ${q.available??'—'}종목 / 갱신 실패 ${q.failed??'—'}종목${q.last_saved?' · 마지막 가격 수집 '+new Date(q.last_saved*1000).toLocaleString():''}`;}
  $('adminFees').textContent=Object.entries(r.fees).map(([k,v])=>k+': '+v+' bps').join(' · ');
  $('initialAmount').value=r.initial_usd;
 }

@@ -5,7 +5,8 @@ from pathlib import Path
 
 from .instruments import valid_symbol
 from .multi_market import MultiMarket
-from .redis_cache import redis_cache, trade_key
+from .redis_cache import redis_cache, trade_key, price_key
+from .quote_data import normalize_quote
 from .logging_config import configure_logging
 from .kr_symbols import refresh_master
 from .us_symbols import refresh_master as refresh_us_master
@@ -15,6 +16,27 @@ log=logging.getLogger('market-worker')
 HEARTBEAT = Path('/tmp/market-worker-heartbeat')  # compose healthcheck
 MASTER_REFRESH = 86400  # seconds between symbol-master downloads
 MASTER_RETRY = 3600     # a failed download is tried again after this instead
+
+
+def collect_quote(market, symbol, snapshot_ttl):
+    quote = market.quote_direct(symbol)
+    quote['_cached_at'] = time.time()
+    trade = redis_cache.get_json(trade_key(symbol))
+    if trade and float(trade.get('timestamp', 0)) > float(quote['timestamp']):
+        quote = trade
+    if redis_cache.store_quote(symbol, quote, snapshot_ttl):
+        state = 'stored'
+    else:
+        old = redis_cache.get_json(price_key(symbol))
+        # An older provider response is expected after changing sessions. It
+        # must not overwrite the last price, nor count as a collection outage.
+        if not old or float(old['timestamp']) <= float(quote['timestamp']):
+            raise ValueError('quote store rejected')
+        normalize_quote(symbol, old)
+        state = 'retained_newer'
+    redis_cache.set_json(f'market:collection:{symbol}',
+                         {'state': state, 'checked_at': time.time()}, 7*86400)
+    return quote, state
 
 
 def main():
@@ -54,24 +76,18 @@ def main():
                     continue
                 attempted[symbol] = time.monotonic()
                 try:
-                    quote = market.quote_direct(symbol)
-                    quote['_cached_at'] = time.time()
-                    # Publication is monotonic in trade time. When the trade
-                    # stream holds a newer print, republish that print so it
-                    # stays available, instead of failing on the older bar.
-                    trade = redis_cache.get_json(trade_key(symbol))
-                    if trade and float(trade.get('timestamp', 0)) > float(quote['timestamp']):
-                        quote = trade
-                    # Tradeability is judged at read time (quote_policy), so
-                    # the snapshot may outlive a slow provider cycle.
-                    if not redis_cache.store_quote(symbol, quote, snapshot_ttl):
-                        raise ValueError('quote store rejected')
+                    if (refreshed.get(symbol) and time.monotonic()-refreshed[symbol] < 600
+                            and market.providers['KR' if symbol.startswith('KR:') else 'US'].session() == 'closed'):
+                        continue
+                    quote, state = collect_quote(market, symbol, snapshot_ttl)
                     refreshed[symbol] = time.monotonic()
                     retry_after.pop(symbol, None)
-                    log.info('quote stored and published; quote_age_seconds=%s', round(time.time()-quote['timestamp'], 2), extra={'path': symbol})
+                    log.info('quote %s; quote_age_seconds=%s', state, round(time.time()-quote['timestamp'], 2), extra={'path': symbol})
                 except Exception as exc:
                     # Do not leak provider credentials or response bodies.
                     retry_after[symbol] = time.monotonic() + retry_delay
+                    redis_cache.set_json(f'market:collection:{symbol}',
+                                         {'state': 'failed', 'checked_at': time.time(), 'error': type(exc).__name__}, 7*86400)
                     log.warning('market refresh failed',extra={'path':symbol,'status_code':type(exc).__name__})
     finally:
         market.close()
