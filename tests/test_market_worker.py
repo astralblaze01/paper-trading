@@ -50,3 +50,22 @@ def test_failed_master_download_is_retried_after_an_hour(monkeypatch, tmp_path):
     start = 100.0
     calls = drive(monkeypatch, tmp_path, [start, start + mw.MASTER_RETRY - 1, start + mw.MASTER_RETRY + 1], kr=fail)
     assert [c for c in calls if c[0] == 'kr'] == [('kr', start), ('kr', start + mw.MASTER_RETRY + 1)]
+
+
+def test_an_empty_korean_master_keeps_the_old_one_and_is_retried_after_an_hour(monkeypatch, tmp_path, caplog):
+    import app.kr_symbols as kr
+    from test_kr_symbols import GOOD, KNOWN, Store, master_file, serve
+    store, seen = Store(list(KNOWN)), []
+    downloads = [{'kospi': master_file(), 'kosdaq': master_file()}, GOOD]
+    def refresh():
+        seen.append(store.values.get(kr.MASTER_KEY))
+        serve(monkeypatch, downloads.pop(0), store)
+        return kr.refresh_master()
+    start = 100.0
+    with caplog.at_level('INFO', logger='market-worker'):
+        calls = drive(monkeypatch, tmp_path, [start, start + mw.MASTER_RETRY - 1, start + mw.MASTER_RETRY + 1], kr=refresh)
+    # Failed at startup, kept the last good master for the retry hour, then recovered.
+    assert [c for c in calls if c[0] == 'kr'] == [('kr', start), ('kr', start + mw.MASTER_RETRY + 1)]
+    assert seen == [KNOWN, KNOWN] and len(store.values[kr.MASTER_KEY]) == 3
+    assert [r.getMessage() for r in caplog.records if r.getMessage().startswith('Korean symbol master')] == [
+        'Korean symbol master refresh failed', 'Korean symbol master refreshed (3 symbols)']

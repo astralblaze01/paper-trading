@@ -31,7 +31,11 @@ def refresh_master():
             response=client.get(url);response.raise_for_status()
             with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
                 name=archive.namelist()[0]
-                rows.extend(parse_master(archive.read(name),exchange))
+                listed=parse_master(archive.read(name),exchange)
+            # KOSPI and KOSDAQ always list stocks: an empty file is a broken download
+            # (or a format change), never a real market. Keep the last good master.
+            if not listed: raise ValueError(f'empty Korean symbol master: {exchange}')
+            rows.extend(listed)
     redis_cache.set_json(MASTER_KEY,rows,172800)
     return len(rows)
 
