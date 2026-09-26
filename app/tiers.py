@@ -3,9 +3,9 @@
 A tier is the share of ranked accounts at or above a place. Each cut-off is
 rounded up and lies at least one place below the tier above it (never past the
 last place), so the top tiers are not empty in a small field: with 10 accounts,
-1st is 마스터, 2nd 다이아몬드, 3rd 플래티넘, 4th-5th 골드, 6th-8th 실버 and 9th-10th
-브론즈. With 100 accounts: 2 마스터, 3 다이아몬드, 15 플래티넘, 25 골드, 30 실버,
-25 브론즈.
+1st is 그랜드마스터, 2nd 마스터, 3rd 다이아몬드, 4th 플래티넘, 5th 골드, 6th-8th 실버
+and 9th-10th 브론즈. With 100 accounts: 1 그랜드마스터, 1 마스터, 3 다이아몬드,
+15 플래티넘, 25 골드, 30 실버, 25 브론즈.
 
 The daily rank change compares today's place with the place in the latest daily
 performance snapshot (taken each morning, Korea time), ranked the same way:
@@ -18,7 +18,7 @@ from sqlalchemy import func, select
 from .db import PerformanceSnapshot
 
 # (key, label, cumulative share of ranked accounts)
-TIERS = (('master', '마스터', 0.02), ('diamond', '다이아몬드', 0.05), ('platinum', '플래티넘', 0.20), ('gold', '골드', 0.45),
+TIERS = (('grandmaster', '그랜드마스터', 0.01), ('master', '마스터', 0.02), ('diamond', '다이아몬드', 0.05), ('platinum', '플래티넘', 0.20), ('gold', '골드', 0.45),
          ('silver', '실버', 0.75), ('bronze', '브론즈', 1.0))
 
 

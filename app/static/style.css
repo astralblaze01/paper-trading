@@ -606,6 +606,7 @@ table { font-size:15px; }
 .tier-name { font-size:17px; font-weight:750; }
 .tier-text-bronze { color:#ad5600 !important; } .tier-text-silver { color:#435f7a !important; } .tier-text-gold { color:#d38a00 !important; }
 .tier-text-platinum { color:#1ca77a !important; } .tier-text-diamond { color:#0092d6 !important; } .tier-text-master { color:#9433e0 !important; }
+.tier-text-grandmaster { color:#d4143c !important; }
 .rank-user .tier-icon { margin-right:-2px; }
 .tier-ring { position:relative; padding:5px; border-radius:50%; }
 .tier-ring .avatar-large { display:block; border:3px solid #fff; }
@@ -615,3 +616,5 @@ table { font-size:15px; }
 .tier-ring-platinum { background:linear-gradient(135deg,#a9f7dc,#27c996 60%,#128a64); }
 .tier-ring-diamond { background:linear-gradient(135deg,#a8e6ff,#00a8f0 60%,#0068a8); }
 .tier-ring-master { background:linear-gradient(135deg,#e7b8ff,#a13ef0 60%,#6415a8); }
+/* 그랜드마스터: crimson ring with a gold edge, like its icon. */
+.tier-ring-grandmaster { background:linear-gradient(135deg,#ff9fb4,#e3173f 55%,#8f0624); box-shadow:0 0 0 2px #f2b830; }

@@ -14,11 +14,11 @@ from app.tiers import tier_for, cutoffs
 
 
 def test_tier_shares():
-    assert Counter(tier_for(r, 1) for r in range(1, 2)) == {'master': 1}
-    assert [tier_for(r, 10) for r in range(1, 11)] == ['master', 'diamond', 'platinum', 'gold', 'gold',
+    assert Counter(tier_for(r, 1) for r in range(1, 2)) == {'grandmaster': 1}
+    assert [tier_for(r, 10) for r in range(1, 11)] == ['grandmaster', 'master', 'diamond', 'platinum', 'gold',
                                                        'silver', 'silver', 'silver', 'bronze', 'bronze']
-    assert Counter(tier_for(r, 100) for r in range(1, 101)) == {'master': 2, 'diamond': 3, 'platinum': 15, 'gold': 25, 'silver': 30, 'bronze': 25}
-    assert cutoffs(3) == [('master', 1), ('diamond', 2), ('platinum', 3), ('gold', 3), ('silver', 3), ('bronze', 3)]
+    assert Counter(tier_for(r, 100) for r in range(1, 101)) == {'grandmaster': 1, 'master': 1, 'diamond': 3, 'platinum': 15, 'gold': 25, 'silver': 30, 'bronze': 25}
+    assert cutoffs(3) == [('grandmaster', 1), ('master', 2), ('diamond', 3), ('platinum', 3), ('gold', 3), ('silver', 3), ('bronze', 3)]
 
 
 def snap(uid, day, equity_usd, initial_usd=100000, contributions_usd=0):
@@ -41,7 +41,7 @@ def test_ranking_rows_carry_tier_and_morning_rank(client):
     snap(ids['alice'], today - timedelta(1), 200000)          # an older day is ignored
     rows = client.get('/api/ranking').json()['rows']
     assert [(r['username'], r['rank'], r['previous_rank'], r['tier']) for r in rows] == [
-        ('alice', 1, 3, 'master'), ('bob', 2, 2, 'diamond'), ('carol', 3, 1, 'platinum')]
+        ('alice', 1, 3, 'grandmaster'), ('bob', 2, 2, 'master'), ('carol', 3, 1, 'diamond')]
 
 
 def test_series_has_profit_amounts_per_basis():

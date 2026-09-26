@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 28" role="img" aria-label="grandmaster">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0.35" y2="1"><stop offset="0" stop-color="#ff8fa8"/><stop offset=".55" stop-color="#e3173f"/><stop offset="1" stop-color="#8f0624"/></linearGradient>
+    <linearGradient id="rim" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffe9a6"/><stop offset=".5" stop-color="#f2b830"/><stop offset="1" stop-color="#a86f06"/></linearGradient>
+  </defs>
+  <path d="M12 1 22.4 7v14L12 27 1.6 21V7z" fill="url(#g)" stroke="url(#rim)" stroke-width="1.4" stroke-linejoin="round"/>
+  <path d="M12 1 22.4 7 12 10.2 1.6 7z" fill="#fff" opacity=".28"/>
+  <path d="M1.6 21 12 17.8 22.4 21 12 27z" fill="#000" opacity=".16"/>
+  <path d="M12 3.6 20.1 8.3v11.4L12 24.4l-8.1-4.7V8.3z" fill="none" stroke="#ffe49a" stroke-opacity=".75" stroke-width=".7"/>
+  <text x="12" y="17.6" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="8.6" font-weight="900" letter-spacing="-.3" fill="#fff" stroke="#8f0624" stroke-width=".55" paint-order="stroke">GM</text>
+</svg>

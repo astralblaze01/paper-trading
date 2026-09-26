@@ -165,7 +165,7 @@ def test_ranking_prunes_ineligible_rows_in_the_cached_payload(client, monkeypatc
     monkeypatch.setattr(main, 'wallet_portfolio', no_revalue)
     second = client.get('/api/ranking').json()
     # The remaining account moves up to 1st, and its tier with it.
-    assert second['rows'] == [first['rows'][1] | {'rank': 1, 'tier': 'master'}] and list(second['rows'][0]) == ROW_KEYS
+    assert second['rows'] == [first['rows'][1] | {'rank': 1, 'tier': 'grandmaster'}] and list(second['rows'][0]) == ROW_KEYS
     assert main._ranking_cache[main.market]['payload']['rows'] == second['rows']  # pruned in place
 
 

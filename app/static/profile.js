@@ -12,7 +12,7 @@ window.avatar=function(username,version,size='large'){
 };
 
 // Tiers come with the ranking rows (server: app/tiers.py); emblems live in /static/tiers/.
-const TIER_LABELS={master:'마스터',diamond:'다이아몬드',platinum:'플래티넘',gold:'골드',silver:'실버',bronze:'브론즈'};
+const TIER_LABELS={grandmaster:'그랜드마스터',master:'마스터',diamond:'다이아몬드',platinum:'플래티넘',gold:'골드',silver:'실버',bronze:'브론즈'};
 // Tier icons (static/tiers/icons/*.svg): a cut gem in the tier's color with its letter, solved.ac style.
 window.tierIcon=function(tier,size='small'){
   const img=document.createElement('img');img.className='tier-icon tier-icon-'+size;img.src=`/static/tiers/icons/${tier}.svg`;
