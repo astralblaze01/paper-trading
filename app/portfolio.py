@@ -9,6 +9,10 @@ from .market import MarketError
 RETURN_BASIS = '초기 KRW 평가액 대비 (외부 입출금 반영)'
 
 
+class AccountGone(LookupError):
+    """The account was deleted (e.g. withdrawn) after the caller chose to value it."""
+
+
 def flow_adjusted_return(end, start, flow):
     """Percent return from `start` to `end` with external money `flow` taken out: (end - flow) / start - 1.
 
@@ -47,6 +51,7 @@ def initialize_equity(uid, fx):
     q=fx.current_rate('USD','KRW')
     with Session.begin() as db:
         user=lock_user(db,uid)
+        if user is None: raise AccountGone(uid)
         ensure_initial_krw(user,q['rate'],q['date'])
     return q
 
@@ -57,6 +62,7 @@ def portfolio(uid, market, fx):
     except MarketError as exc: errors.append(str(exc))
     with Session.begin() as db:
         user=lock_user(db,uid)
+        if user is None: raise AccountGone(uid)
         ws=wallets(db,user)
         balances={c:w.balance for c,w in ws.items()}
         positions=list(db.scalars(select(Position).where(Position.user_id==uid)))

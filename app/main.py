@@ -26,7 +26,7 @@ from .migrations import migrate
 from .trading import execute_order, filled_replay
 from .money import MAX_ORDER_QUANTITY, wallets, initial_amount
 from .fx import FxService
-from .portfolio import portfolio as wallet_portfolio, initialize_equity, RETURN_BASIS
+from .portfolio import portfolio as wallet_portfolio, initialize_equity, RETURN_BASIS, AccountGone
 from .weekly import report_list, tick
 from .limits import process as process_limit_orders
 from .accounts import membership_days, profile_of, profile_versions
@@ -406,7 +406,12 @@ def ranking(uid=Depends(current_user)):
                                      errors=[RANKING_HOLD], incomplete=True, stale=True)
 
         ids=[user_id for user_id,_ in eligible]
-        values=[wallet_portfolio(i,market,fx) for i in ids]
+        # An account withdrawn after the eligibility query is dropped, not a 500 for everyone.
+        valued=[]
+        for i in ids:
+            try: valued.append((i,wallet_portfolio(i,market,fx)))
+            except AccountGone: continue
+        ids=[i for i,_ in valued]; values=[v for _,v in valued]
         if any(v['return_pct'] is None or v.get('equity_usd') is None for v in values):
             if cached:
                 # Keep serving the last good rows; remember the failure for this window.

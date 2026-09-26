@@ -167,6 +167,23 @@ def test_ranking_prunes_ineligible_rows_in_the_cached_payload(client, monkeypatc
     assert main._ranking_cache[main.market]['payload']['rows'] == second['rows']  # pruned in place
 
 
+def test_ranking_skips_an_account_withdrawn_while_it_is_valued(client, monkeypatch):
+    main._ranking_cache.clear()
+    at_bucket(monkeypatch, B1)
+    register(client, 'alice'); register(client, 'bob')
+    bob, value = uid_of('bob'), main.wallet_portfolio
+    def withdraw_first(uid, *args):
+        # bob passed the eligibility query, then withdrew before his valuation.
+        if uid == bob:
+            from sqlalchemy import text
+            with Session.begin() as db:
+                for table in ('wallets', 'users'): db.execute(text(f"DELETE FROM {table} WHERE {'user_id' if table == 'wallets' else 'id'}=:u"), {'u': uid})
+        return value(uid, *args)
+    monkeypatch.setattr(main, 'wallet_portfolio', withdraw_first)
+    r = client.get('/api/ranking')
+    assert r.status_code == 200 and [row['username'] for row in r.json()['rows']] == ['alice']
+
+
 def test_ranking_failure_without_a_cache(client, monkeypatch):
     main._ranking_cache.clear()
     boundary = at_bucket(monkeypatch, B1)
