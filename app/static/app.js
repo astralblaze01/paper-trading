@@ -122,6 +122,7 @@ function renderRanking(){if(!rankingCache)return;
   table($('ranking'),['순위','사용자 · 프로필 보기','총 평가금액 ('+viewCurrency('USD')+')','평가 수익률 ('+basisLabel()+')'],rankingCache.rows.map(x=>[rankBadge(x.rank),person(x),equityTone(viewMoney(x.equity_usd,'USD',x.fx||viewFx),accountReturn(x),.01),signedPct(accountReturn(x))]));
   $('ranking').querySelectorAll('tbody tr').forEach((tr,i)=>{const rank=rankingCache.rows[i].rank;if(rank<=3)tr.classList.add('top-rank','top-rank-'+rank);});
   if(window.renderMyProfile)renderMyProfile();
+  window.renderHeaderUser?.();
 }
 function syncCurrency(){$('displayCurrency').value=displayMode;$('displayRateNote').textContent=viewFx?`${viewFx.date} 기준 · 1 USD = ${Number(viewFx.rate).toLocaleString('ko-KR',{maximumFractionDigits:2})} KRW`:'환율 확인 중';}
 async function changeDisplayCurrency(value){displayMode=value;try{localStorage.setItem(storageNamespace+':currency',value);}catch{}syncCurrency();renderPortfolio();renderRanking();renderHistory();if(weeklyCache)renderWeekly();window.dispatchEvent(new Event('displaycurrencychange'));}
@@ -162,6 +163,9 @@ async function boot() {
   window.quoteSseEnabled=!!s.quote_sse_enabled;window.quoteMaxAge=s.quote_max_age;
   window.sessionUsername=s.username; window.isAdmin=!!s.is_admin; $('auth').hidden = !!s.username; $('dashboard').hidden = !s.username; $('logout').hidden = !s.username; $('adminNav').hidden = !s.is_admin;
   if(!s.username)showAuthView();
+  // The header shows who is signed in; the photo version comes with the profile.
+  window.renderHeaderUser?.();
+  if(s.username&&!s.is_admin&&window.loadMyProfile)loadMyProfile().catch(()=>{});
   refreshNotice();
   document.querySelectorAll('.app-nav a').forEach(a=>{if(s.is_admin)a.hidden=a.id!=='adminNav';else if(a.id!=='adminNav')a.hidden=false;});
   const settings=document.querySelector('.view-settings');if(settings)settings.hidden=!!s.is_admin;

@@ -79,12 +79,21 @@ window.renderProfileCard=function(target,p,editable){
   target.append(media,info);
 };
 
-window.loadMyProfile=async function(){myProfile=await api('profile');renderMyProfile();};
+// Who is signed in, left of 로그아웃: photo, tier icon and ID in the tier color, linking to my portfolio.
+window.renderHeaderUser=function(){
+  const box=$('headerUser'),name=window.sessionUsername;
+  box.hidden=!name||!!window.isAdmin;if(box.hidden){box.replaceChildren();return;}
+  const tier=typeof rankRow==='function'?rankRow(name).tier:null;
+  const label=document.createElement('span');label.className='header-user-name'+(tier?' tier-text-'+tier:'');label.textContent=name;
+  box.replaceChildren(avatar(name,myProfile?.image_version,'small'),...(tier?[tierIcon(tier)]:[]),label);
+};
+window.loadMyProfile=async function(){myProfile=await api('profile');renderMyProfile();renderHeaderUser();};
 window.renderMyProfile=function(){
   const target=$('myProfile');if(!target||!myProfile||myProfile.username!==window.sessionUsername)return;
   // Keep an open bio editor untouched by periodic refreshes.
   if(bioEditing&&target.querySelector('#bioInput'))return;
   const p=portfolioCache||{};
+  renderHeaderUser();
   renderProfileCard(target,{username:window.sessionUsername,bio:myProfile.bio,image_version:myProfile.image_version,equity_usd:p.equity_usd,return_pct:p.return_pct,return_pct_usd:p.return_pct_usd,realized_pnl:p.realized_pnl,fx:p.fx,...(typeof rankRow==='function'?rankRow(window.sessionUsername):{}),member_days:myProfile.member_days,member_since:myProfile.member_since},true);
 };
 

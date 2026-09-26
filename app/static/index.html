@@ -5,16 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{BRAND_NAME}} · 모의투자</title>
   <link rel="icon" type="image/png" href="/static/brand/mark.png">
-  <link rel="stylesheet" href="/static/style.css?v=46">
-  <script src="/static/app.js?v=46" defer></script>
-  <script src="/static/portal.js?v=46" defer></script>
-  <script src="/static/profile.js?v=46" defer></script>
+  <link rel="stylesheet" href="/static/style.css?v=47">
+  <script src="/static/app.js?v=47" defer></script>
+  <script src="/static/portal.js?v=47" defer></script>
+  <script src="/static/profile.js?v=47" defer></script>
 </head>
 <body>
   <header>
     <div class="header-inner">
       <a href="/" class="brand"><img src="/static/brand/logo.webp" alt="{{BRAND_NAME}}" class="brand-logo" width="202" height="36"></a>
       <span class="service-label">주식 · 채권 ETF · 금 ETF</span>
+      <a id="headerUser" class="header-user" href="#portfolio" hidden aria-label="내 포트폴리오"></a>
       <button id="logout" class="text-button" hidden>로그아웃</button>
     </div>
   </header>
