@@ -328,7 +328,7 @@ def test_fx_share_amounts_use_currency_units(client):
 
 def test_maintenance_shortcut_posts_the_template_and_blocks_nothing(client):
     headers, uid = admin_and_user(client)
-    assert client.get('/api/notice').json() == {'notice': None, 'maintenance': False}
+    assert client.get('/api/notice').json() == {'notices': [], 'notice': None, 'maintenance': False}
     other, other_headers = second_client('plain')
     assert other.post('/api/admin/maintenance', headers=other_headers, json={'enabled': True}).status_code == 403
     assert client.post('/api/admin/maintenance', headers=headers, json={'enabled': True}).json() == {'maintenance': True}
@@ -341,7 +341,7 @@ def test_maintenance_shortcut_posts_the_template_and_blocks_nothing(client):
     assert other.get('/api/portfolio').status_code == 200
     assert other.post('/api/orders', headers=other_headers, json={'symbol': 'AAPL', 'side': 'buy', 'quantity': 1, 'request_id': str(uuid4())}).status_code == 200
     assert client.post('/api/admin/maintenance', headers=headers, json={'enabled': False}).json() == {'maintenance': False}
-    assert other.get('/api/notice').json() == {'notice': None, 'maintenance': False}
+    assert other.get('/api/notice').json() == {'notices': [], 'notice': None, 'maintenance': False}
     assert [r['action'] for r in client.get('/api/admin/audit').json()][:2] == ['notice_clear', 'notice_post']
     other.close()
 
@@ -357,13 +357,19 @@ def test_notices_from_templates_or_custom_text(client):
     assert posted['title'] == '이벤트 안내' and posted['body'] == '이번 주 수익률 1위에게\n가상 지원금을 드립니다.' and posted['label'] == '일반 공지'
     assert other.get('/api/notice').json()['notice']['title'] == '이벤트 안내'
     assert other.get('/api/notice').json()['maintenance'] is False
-    # Registering replaces the current notice; only one is active.
+    # A second notice goes up next to the first; the newest is listed first.
     client.post('/api/admin/notice', headers=headers, json={'kind': 'maintenance', 'title': templates['maintenance']['title'], 'body': templates['maintenance']['body']})
-    assert other.get('/api/notice').json()['maintenance'] is True
+    shown = other.get('/api/notice').json()
+    assert shown['maintenance'] is True and [n['title'] for n in shown['notices']] == ['서버 점검 예정', '이벤트 안내']
     from app.db import SiteNotice
     with Session() as db:
-        assert db.scalar(select(func.count()).select_from(SiteNotice).where(SiteNotice.active.is_(True))) == 1
-        assert db.scalar(select(func.count()).select_from(SiteNotice)) == 2
+        assert db.scalar(select(func.count()).select_from(SiteNotice).where(SiteNotice.active.is_(True))) == 2
+    # One notice can be taken down by id; the other stays.
+    maintenance_id = shown['notices'][0]['id']
+    assert other.post(f'/api/admin/notice/{maintenance_id}/clear', headers=other_headers).status_code == 403
+    left = client.post(f'/api/admin/notice/{maintenance_id}/clear', headers=headers).json()
+    assert left['cleared'] and [n['title'] for n in left['notices']] == ['이벤트 안내'] and left['maintenance'] is False
+    assert client.post(f'/api/admin/notice/{maintenance_id}/clear', headers=headers).status_code == 404
     # Markup is stored as text; the page renders it with textContent.
     client.post('/api/admin/notice', headers=headers, json={'kind': 'general', 'title': '<b>x</b>', 'body': '<script>alert(1)</script>'})
     assert other.get('/api/notice').json()['notice']['body'] == '<script>alert(1)</script>'
@@ -372,9 +378,9 @@ def test_notices_from_templates_or_custom_text(client):
                 {'kind': 'event', 'title': 'x', 'body': 'x'}):
         assert client.post('/api/admin/notice', headers=headers, json=bad).status_code == 422
     assert other.post('/api/admin/notice/clear', headers=other_headers).status_code == 403
-    assert client.post('/api/admin/notice/clear', headers=headers).json() == {'cleared': True, 'notice': None}
+    assert client.post('/api/admin/notice/clear', headers=headers).json() == {'cleared': True, 'notice': None, 'notices': [], 'maintenance': False}
     assert client.post('/api/admin/notice/clear', headers=headers).json()['cleared'] is False
-    assert other.get('/api/notice').json() == {'notice': None, 'maintenance': False}
+    assert other.get('/api/notice').json() == {'notices': [], 'notice': None, 'maintenance': False}
     other.close()
 
 

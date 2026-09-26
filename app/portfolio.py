@@ -46,6 +46,46 @@ def ensure_initial_krw(user, usd_krw, fx_date):
         user.initial_fx_date=fx_date
 
 
+def dual_costs(trades):
+    """Cost of each open holding in KRW and in USD, each fill converted at its own rate.
+
+    Moving average like the native cost: a buy adds its settled amount (fees
+    included), a sale removes its share of the cost. A holding with a fill of
+    unknown rate is left out, so it shows no converted return rather than a
+    wrong one."""
+    book = {}
+    for t in trades:
+        qty, krw, usd, known = book.get(t.symbol, (0, Decimal(0), Decimal(0), True))
+        rate = t.usd_krw
+        if rate is None or not rate > 0 or t.net_amount is None: known = False
+        if t.side == 'buy':
+            amount = t.net_amount or Decimal(0)
+            if known:
+                krw += amount * (rate if t.currency == 'USD' else 1)
+                usd += amount if t.currency == 'USD' else amount / rate
+            qty += t.quantity
+        else:
+            if qty: krw, usd = krw * (qty - t.quantity) / qty, usd * (qty - t.quantity) / qty
+            qty -= t.quantity
+            if qty <= 0: qty, krw, usd, known = 0, Decimal(0), Decimal(0), True
+        book[t.symbol] = (qty, krw, usd, known)
+    return {symbol: {'quantity': q, 'KRW': k, 'USD': u} for symbol, (q, k, u, known) in book.items() if known and q > 0}
+
+
+def basis_view(value, currency, quantity, cost, usd_krw):
+    """Average cost, P&L and return of one holding in KRW and USD at the current rate."""
+    out = {}
+    for basis in ('KRW', 'USD'):
+        now = None
+        if value is not None and usd_krw:
+            now = value if currency == basis else value * usd_krw if basis == 'KRW' else value / usd_krw
+        total = cost[basis] if cost else None
+        out[basis] = {'average_cost': total / quantity if total is not None and quantity else None,
+                      'pnl': now - total if now is not None and total is not None else None,
+                      'return_pct': (now / total - 1) * 100 if now is not None and total else None}
+    return out
+
+
 def initialize_equity(uid, fx):
     # New accounts: creation-time daily FX. Existing accounts: first verified migration-day rate.
     q=fx.current_rate('USD','KRW')
@@ -66,6 +106,7 @@ def portfolio(uid, market, fx):
         ws=wallets(db,user)
         balances={c:w.balance for c,w in ws.items()}
         positions=list(db.scalars(select(Position).where(Position.user_id==uid)))
+        both=dual_costs(db.scalars(select(Transaction).where(Transaction.user_id==uid).order_by(Transaction.id)))
         realized=dict(db.execute(select(Transaction.currency,func.sum(Transaction.realized_pnl)).where(Transaction.user_id==uid,Transaction.accounting_version==2,*([Transaction.created_at>=user.performance_since] if user.performance_since else [])).group_by(Transaction.currency)).all())
     rows=[]; equity=balances['KRW']+(balances['USD']*rate['rate'] if rate else 0)
     complete=rate is not None
@@ -79,8 +120,12 @@ def portfolio(uid, market, fx):
         pnl=value-average*p.quantity if value is not None else None
         if value is None: complete=False
         elif info['currency']=='KRW' or rate: equity+=krw_value(info['currency'],value,rate['rate'] if rate else None)
+        cost=both.get(p.symbol)
+        # Replayed fills must account for the whole holding, or neither basis is shown.
+        if cost and cost['quantity']!=p.quantity: cost=None
         rows.append(info | {'quantity':p.quantity,'average_cost':average,'quote':q,'value':value,'pnl':pnl,
-                            'return_pct':pnl/(average*p.quantity)*100 if pnl is not None and average else None})
+                            'return_pct':pnl/(average*p.quantity)*100 if pnl is not None and average else None,
+                            'basis':basis_view(value,info['currency'],p.quantity,cost,rate['rate'] if rate else None)})
     initial=user.initial_krw
     equity_usd=(equity/rate['rate']).quantize(Decimal('.0001')) if complete else None
     return {'username':user.username,'wallets':balances,'cash':balances['USD'],'positions':rows,

@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from .db import Session, Position, Transaction, lock_user
 from .money import MAX_ORDER_QUANTITY, OrderRejected, wallets, costs, maximum, native_cost_basis
 from .instruments import market_of, currency_of
+from .market import MarketError
 from . import quote_policy
 
 
@@ -110,6 +111,19 @@ def _sell_from(position, quantity, net_amount):
     return realized
 
 
+def fill_rate(q, market):
+    """KRW per USD at the fill: a KRW quote carries its conversion; otherwise the market's reference rate. None if unknown."""
+    try:
+        if q.get('currency')=='KRW' or (q.get('fx_rate') and Decimal(str(q['fx_rate']))!=1):
+            return (Decimal(1)/Decimal(str(q['fx_rate']))).quantize(Decimal('.000000000001'))
+        fx=getattr(market,'fx',None)
+        if fx is None: return None
+        rate,_=fx.krw_to_usd()
+        return (Decimal(1)/rate).quantize(Decimal('.000000000001'))
+    except (MarketError,ArithmeticError,TypeError,ValueError):
+        return None
+
+
 def execute_order(user_id, order, market, db=None, requested_at=None):
     if db is None:
         # Answer a replay before quoting, so a retry never costs a provider call.
@@ -149,6 +163,7 @@ def execute_order(user_id, order, market, db=None, requested_at=None):
             if position.quantity==0: db.delete(position)
         user.cash=ws['USD'].balance  # Legacy compatibility mirror; wallets are authoritative.
         trade=Transaction(user_id=user_id,request_id=str(order.request_id),symbol=order.symbol,side=order.side,quantity=quantity,
+                          usd_krw=fill_rate(q,market),
                           price=q['price'],native_price=price,fx_rate=q.get('fx_rate',Decimal(1)),fx_date=q.get('fx_date'),
                           quote_time=datetime.fromtimestamp(q['timestamp'],timezone.utc),created_at=datetime.now(timezone.utc),
                           realized_pnl=realized,accounting_version=2,

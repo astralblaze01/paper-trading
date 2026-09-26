@@ -101,9 +101,9 @@ def admin_overview(market,health):
         users=[{'id':u.id,'username':u.username,'active':u.active,'admin':u.is_admin,'initial_usd':u.initial_usd,'initial_krw':u.initial_krw,'note':notes.get(u.id,''),'wallets':{w.currency:w.balance for w in db.scalars(select(Wallet).where(Wallet.user_id==u.id))}} for u in db.scalars(select(User).order_by(User.id))]
         amount=initial_amount(db)
         counts={'users':db.scalar(select(func.count()).select_from(User)),'transactions':db.scalar(select(func.count()).select_from(Transaction)),'positions':db.scalar(select(func.count()).select_from(Position)),'pending_orders':db.scalar(select(func.count()).select_from(LimitOrder).where(LimitOrder.status=='pending'))}
-    from .notices import active_notice, public, TEMPLATES
-    with Session() as db: notice=public(active_notice(db))
-    return {'users':users,'initial_usd':amount,'notice':notice,'notice_templates':TEMPLATES,'maintenance':bool(notice and notice['kind']=='maintenance'),'fees':{n:bps(n,'10' if n=='FX_FEE_BPS' else '5' if n=='FX_SPREAD_BPS' else '0') for n in names},'health':health(),'quotes':redis_cache.quote_health(),'providers':market.status(),'counts':counts,'us_market':us_diagnostics(market),'kr_market':us_diagnostics(market,'KR')}
+    from .notices import listing, TEMPLATES
+    with Session() as db: notices=listing(db)
+    return {'users':users,'initial_usd':amount,**notices,'notice_templates':TEMPLATES,'fees':{n:bps(n) for n in names},'health':health(),'quotes':redis_cache.quote_health(),'providers':market.status(),'counts':counts,'us_market':us_diagnostics(market),'kr_market':us_diagnostics(market,'KR')}
 
 def set_initial_amount(actor,amount):
     with Session.begin() as db:

@@ -58,6 +58,8 @@ class Transaction(Base):
     native_price: Mapped[Decimal] = mapped_column(Numeric(20, 4))
     fx_rate: Mapped[Decimal] = mapped_column(Numeric(24, 12), default=Decimal(1), server_default='1')
     fx_date: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    # KRW per USD at the fill (reference rate); gives each holding a cost in both currencies.
+    usd_krw: Mapped[Decimal | None] = mapped_column(Numeric(24,12), nullable=True)
     quote_time: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     gross_amount: Mapped[Decimal | None] = mapped_column(Numeric(24,4), nullable=True)
@@ -233,7 +235,7 @@ class UserProfileImage(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 class SiteNotice(Base):
-    """Notice shown to users. At most one is active; past ones stay as a record."""
+    """Notice shown to users. Several can be active; taken-down ones stay as a record."""
     __tablename__ = 'site_notices'
     id: Mapped[int] = mapped_column(primary_key=True)
     kind: Mapped[str] = mapped_column(String(16))

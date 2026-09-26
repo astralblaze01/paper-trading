@@ -16,8 +16,15 @@ class OrderRejected(HTTPException):
     The HTTP answer is the same as any HTTPException; the type tells the queued-order worker to
     reject instead of retrying on the next pass."""
 
-def bps(name, default='0'):
-    value = D(os.getenv(name, default))
+# Toss Securities' standard rates, as of 2026: US stocks 0.1% each way;
+# Korean stocks 0.015% each way, plus the 0.20% securities transaction tax
+# (with the rural special tax) on sales. Korean ETFs/ETNs pay no transaction
+# tax. Each can be overridden by the environment variable of the same name.
+FEE_DEFAULTS = {'US_BUY_FEE_BPS': '10', 'US_SELL_FEE_BPS': '10', 'KR_BUY_FEE_BPS': '1.5', 'KR_SELL_FEE_BPS': '1.5',
+                'KR_SELL_TAX_BPS': '20', 'FX_FEE_BPS': '10', 'FX_SPREAD_BPS': '5'}
+
+def bps(name, default=None):
+    value = D(os.getenv(name) or (default if default is not None else FEE_DEFAULTS.get(name, '0')))
     if not value.is_finite() or not 0 <= value < 10000: raise ValueError('Invalid basis-point setting: ' + name)
     return value
 
@@ -43,11 +50,20 @@ def native_cost_basis(position):
     # Positions from before native-currency accounting only carry the USD-equivalent average.
     return position.native_average_cost if position.native_average_cost is not None else position.average_cost
 
+def tax_exempt(symbol):
+    """Korean ETFs/ETNs pay no securities transaction tax: the catalog's bond and gold
+    ETFs, and any symbol the quote path has already identified as an exchange-traded product."""
+    from .instruments import instrument
+    if instrument(symbol)['category'] in ('kr_bond', 'gold'): return True
+    from .redis_cache import redis_cache
+    cap = redis_cache.get_json(f'market:kr-capability:{symbol}') or {}
+    return bool(cap.get('known') and cap.get('etp'))
+
 def costs(symbol, side, price, quantity):
     currency = currency_of(symbol)
     prefix = 'KR' if currency == 'KRW' else 'US'
     fee_bps = bps(f'{prefix}_{side.upper()}_FEE_BPS')
-    tax_bps = bps('KR_SELL_TAX_BPS') if currency=='KRW' and side=='sell' else D(0)
+    tax_bps = bps('KR_SELL_TAX_BPS') if currency=='KRW' and side=='sell' and not tax_exempt(symbol) else D(0)
     gross = rounded(price*quantity,currency,up=side=='buy')
     fee = rounded(gross*fee_bps/D(10000),currency,up=True)
     tax = rounded(gross*tax_bps/D(10000),currency,up=True)

@@ -501,7 +501,7 @@ def test_initial_amount_and_account_status_audits(client):
 def test_notice_audits_use_the_notice_timestamps(client):
     headers, admin_id = admin(client)
     assert client.post('/api/admin/notice', headers=headers, json={'kind': 'update', 'title': '새 기능', 'body': '내용'}).status_code == 200
-    assert client.post('/api/admin/notice/clear', headers=headers).json() == {'cleared': True, 'notice': None}
+    assert client.post('/api/admin/notice/clear', headers=headers).json() == {'cleared': True, 'notice': None, 'notices': [], 'maintenance': False}
     posted, cleared = audits()
     with Session() as db: notice = db.scalar(select(SiteNotice))
     assert (posted.actor_id, posted.target_id, posted.action, posted.reason, posted.data) == (

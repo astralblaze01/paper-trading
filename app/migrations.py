@@ -140,3 +140,33 @@ def migrate(engine):
                                FROM users u WHERE s.user_id = u.id AND s.initial_equity_usd IS NULL
                                    AND u.initial_krw > 0 AND s.initial_equity_krw = u.initial_krw"""))
             db.execute(text('INSERT INTO schema_migrations(version) VALUES (12)'))
+
+        if not db.scalar(text('SELECT 1 FROM schema_migrations WHERE version=13')):
+            # KRW per USD at the fill, so each holding has a cost in both currencies.
+            db.execute(text('ALTER TABLE transactions ADD COLUMN IF NOT EXISTS usd_krw NUMERIC(24,12)'))
+            backfill_trade_rates(db)
+            db.execute(text('INSERT INTO schema_migrations(version) VALUES (13)'))
+
+
+def backfill_trade_rates(db):
+    """Give older fills the reference rate the app itself was using then.
+
+    Known daily rates come from the app's own records: daily snapshots, the
+    account starting rates, and KRW fills (their fx_rate is USD per KRW). The
+    ECB publishes day D's rate at about 14:00 UTC, so a fill at time t used
+    the latest rate dated on or before (t - 14h). Fills older than every known
+    rate take the earliest one."""
+    from datetime import timedelta
+    known = {}
+    for day, rate in db.execute(text("""SELECT fx_date, fx_rate FROM performance_snapshots WHERE fx_date IS NOT NULL
+                                        UNION ALL SELECT fx_date, 1/fx_rate FROM transactions WHERE currency='KRW' AND fx_rate > 0 AND fx_date IS NOT NULL
+                                        UNION ALL SELECT initial_fx_date, initial_krw/initial_usd FROM users
+                                            WHERE initial_fx_date IS NOT NULL AND initial_krw > 0 AND initial_usd > 0""")):
+        known.setdefault(str(day), rate)
+    if not known: return
+    days = sorted(known)
+    for trade_id, created_at in db.execute(text('SELECT id, created_at FROM transactions WHERE usd_krw IS NULL')).all():
+        cutoff = str((created_at - timedelta(hours=14)).date())
+        usable = [d for d in days if d <= cutoff]
+        rate = known[usable[-1] if usable else days[0]]
+        db.execute(text('UPDATE transactions SET usd_krw=:r WHERE id=:i'), {'r': rate, 'i': trade_id})

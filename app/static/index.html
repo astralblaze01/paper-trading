@@ -4,10 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{BRAND_NAME}} · 모의투자</title>
-  <link rel="stylesheet" href="/static/style.css?v=40">
-  <script src="/static/app.js?v=40" defer></script>
-  <script src="/static/portal.js?v=40" defer></script>
-  <script src="/static/profile.js?v=40" defer></script>
+  <link rel="stylesheet" href="/static/style.css?v=41">
+  <script src="/static/app.js?v=41" defer></script>
+  <script src="/static/portal.js?v=41" defer></script>
+  <script src="/static/profile.js?v=41" defer></script>
 </head>
 <body>
   <header>
@@ -18,7 +18,7 @@
     </div>
   </header>
   <main>
-    <div id="siteNotice" class="site-notice" role="status" aria-live="polite" hidden><span class="notice-new" aria-label="새 공지">새 공지</span><span class="notice-kind"></span><strong class="notice-title"></strong><p class="notice-body"></p></div>
+    <div id="siteNotices" class="site-notices" role="status" aria-live="polite" hidden></div>
     <p id="status" role="status" aria-live="polite"></p>
     <section id="auth">
       <div class="intro">
@@ -68,7 +68,7 @@
       </section>
       <section data-page="fx" class="panel"><h2>가상 환전</h2><details class="fx-details"><summary>환율 정보</summary><p class="field-help">ECB 일별 기준환율을 사용합니다. 수수료와 스프레드는 환전 견적에 표시합니다.</p></details><div id="fxRate" class="fx-rate" aria-live="polite">환율 확인 중…</div><form id="fxForm"><div class="toolbar"><label>보낼 통화<select id="fxSource"><option value="USD">USD → KRW</option><option value="KRW">KRW → USD</option></select></label><label>보낼 금액 (<span id="fxAmountUnit">USD</span>)<input id="fxAmount" type="number" min="0.0001" step="0.0001" required></label></div><div class="fx-balance"><span id="fxAvailable" aria-live="polite"></span></div><div class="order-quick" aria-label="환전 금액 비율 선택"><span>금액 빠른 선택</span><button type="button" class="secondary" data-fx-share="100">전액</button><button type="button" class="secondary" data-fx-share="50">50%</button><button type="button" class="secondary" data-fx-share="25">25%</button><button type="button" class="secondary" data-fx-share="10">10%</button><button type="button" class="secondary" data-fx-share="5">5%</button></div><p class="field-help">비율은 보낼 통화의 보유 금액 기준입니다. 환전 수수료는 보낸 금액에서 차감됩니다.</p><button id="fxPreview" type="button" class="secondary">환전 예상 확인</button><div id="fxEstimate" class="quote-info"></div><button class="full-width">모의 환전 실행</button></form><h3>환전내역</h3><div id="fxHistory" class="scroll"></div></section>
       <section data-page="watchlist" class="panel"><div class="section-heading"><h2>관심종목</h2><span class="unit">종목 상세에서 추가할 수 있습니다.</span></div><div id="watchRows" class="scroll"></div></section>
-      <section data-page="admin" class="panel"><h2>종합 관리자</h2><p id="adminHealth"></p><p id="adminMarket" class="field-help admin-market"></p><p id="adminSnapshots" class="field-help"></p><div id="adminOverview" class="metrics"></div><section class="admin-notice" aria-labelledby="noticeHeading"><div class="admin-notice-head"><div><h3 id="noticeHeading">공지</h3><p id="noticeStatus" class="field-help">상태 확인 중…</p></div><button id="noticeClear" type="button" class="secondary" disabled>공지 해제</button></div>
+      <section data-page="admin" class="panel"><h2>종합 관리자</h2><p id="adminHealth"></p><p id="adminMarket" class="field-help admin-market"></p><p id="adminSnapshots" class="field-help"></p><div id="adminOverview" class="metrics"></div><section class="admin-notice" aria-labelledby="noticeHeading"><div class="admin-notice-head"><div><h3 id="noticeHeading">공지</h3><p id="noticeStatus" class="field-help">상태 확인 중…</p></div><button id="noticeClear" type="button" class="secondary" disabled>전체 내리기</button></div><ul id="noticeList" class="notice-list"></ul>
 <form id="noticeForm" class="admin-notice-form" novalidate><label for="noticeKind">공지 유형</label><select id="noticeKind"><option value="maintenance">서버 점검 예고</option><option value="update">업데이트 안내</option><option value="general">일반 공지 (직접 작성)</option></select>
 <label for="noticeTitle">제목</label><input id="noticeTitle" maxlength="60" required placeholder="공지 제목">
 <label for="noticeBody">내용</label><textarea id="noticeBody" maxlength="500" rows="3" required placeholder="사용자에게 보여줄 안내 내용"></textarea><span id="noticeCount" class="field-help"></span>
@@ -93,7 +93,6 @@
       <section data-page="portfolio" id="myProfile" class="panel profile-card" aria-label="내 프로필"></section>
       <div data-page="portfolio" class="heading"><div><p class="section-label">내 계좌</p><h1 id="greeting">투자 현황</h1></div><button id="refresh" class="secondary">새로고침</button></div>
       <div data-page="portfolio" id="metrics" class="metrics"></div>
-      <section data-page="portfolio" class="panel"><div class="section-heading"><h2>내 성과</h2><span class="unit">평가 수익률 추이 · 하루 한 번 기록</span></div><div id="myPerformanceRanges" class="range-buttons"><button data-period="1W">1W</button><button data-period="1M" aria-pressed="true">1M</button><button data-period="3M">3M</button><button data-period="1Y">1Y</button><button data-period="ALL">ALL</button></div><canvas id="myPerformanceChart" height="220" aria-label="일별 평가 수익률 차트"></canvas><p id="myPerformanceNotice" class="field-help"></p></section>
       <section data-page="portfolio" class="panel allocation-panel"><div class="section-heading"><h2>자산 비중</h2><span class="unit">평가금액 기준 · 현금 포함</span></div><div id="allocation" class="allocation"></div></section>
       <section data-page="ranking" class="panel weekly-panel">
         <div class="section-heading"><h2>주간 순위</h2><span id="weeklySchedule" class="unit"></span></div>
@@ -103,6 +102,8 @@
         <div class="pagination"><button id="weeklyPrevious" class="secondary">이전</button><span id="weeklyPage"></span><button id="weeklyNext" class="secondary">다음</button></div>
       </section>
       <section data-page="portfolio" class="panel holdings-panel"><div class="section-heading"><h2>보유 종목</h2><span class="unit">상단 표시 통화 적용</span></div><div id="positions" class="scroll"></div></section>
+      <section data-page="portfolio" class="panel"><div class="section-heading"><h2>내 성과</h2><span class="unit">평가 수익률 추이 · 하루 한 번 기록</span></div><div id="myPerformanceRanges" class="range-buttons"><button data-period="1W">1W</button><button data-period="1M" aria-pressed="true">1M</button><button data-period="3M">3M</button><button data-period="1Y">1Y</button><button data-period="ALL">ALL</button></div><canvas id="myPerformanceChart" height="220" aria-label="일별 평가 수익률 차트"></canvas><p id="myPerformanceNotice" class="field-help"></p></section>
+      <section data-page="portfolio" class="panel fee-panel"><div class="section-heading"><h2>수수료</h2><span class="unit">지금까지 낸 금액 · 통화별</span></div><div id="feeSummary" class="fee-summary"></div><p id="feeRates" class="field-help"></p></section>
       <section data-page="portfolio" class="panel account-panel"><h2>계정 설정</h2><p class="field-help">회원 탈퇴 시 계정, 보유 종목, 현금, 거래·주문 기록, 프로필이 삭제되며 되돌릴 수 없습니다.</p><button id="withdrawOpen" type="button" class="danger-outline">회원 탈퇴</button></section>
         <div data-page="detail" class="detail-grid">
         <section class="panel chart-panel"><div class="section-heading"><h2 id="detailTitle">종목 상세</h2><button id="watchAdd" class="secondary">관심종목 추가</button></div><div id="detailPrice" class="detail-price"></div><p id="detailMeta" class="field-help"></p><p id="quoteConnection" class="field-help quote-connection" role="status"></p><p id="marketState" class="field-help"></p><div id="periodPerformance" class="period-performance" aria-live="polite"></div><p id="periodDates" class="field-help"></p><canvas id="priceChart" height="300" tabindex="0" aria-label="과거 가격 차트, 화살표 키로 시점 이동"></canvas><p id="chartTooltip" class="chart-tooltip" aria-live="polite"></p><div id="chartRanges" class="range-buttons"><button data-range="1D" aria-pressed="true">1D</button><button data-range="1W">1W</button><button data-range="3M">3M</button><button data-range="1Y">1Y</button><button data-range="5Y">5Y</button><button data-range="ALL">ALL</button></div><p id="chartNotice" class="field-help"></p><button id="chartRetry" type="button" class="secondary" hidden>차트 다시 불러오기</button><p class="field-help">현재 세션의 체결가가 확인될 때만 즉시 체결합니다. 미국: 데이마켓·프리장·정규장·애프터장. 한국(KRX+NXT 통합): 프리장(NXT 종목)·정규장·애프터장(ETF·ETN 제외). 이전 세션 가격으로는 다른 세션 주문을 체결하지 않습니다. 차트는 과거 가격 데이터이며 현재가와 출처가 다를 수 있습니다.</p></section>
@@ -129,7 +130,7 @@
         <section class="panel allocation-panel"><div class="section-heading"><h2>자산 비중</h2><span class="unit">평가금액 기준 · 현금 포함</span></div><div id="publicAllocation" class="allocation"></div></section>
         <section class="panel"><div class="section-heading"><h2>보유 종목</h2><span class="unit">공개 투자 현황</span></div><div id="publicPositions" class="scroll"></div><p id="publicNotice" class="field-help"></p></section>
         <p class="field-help">다른 사용자의 공개 투자 프로필입니다. 거래내역과 주문 권한은 공개하지 않습니다.</p></section>
-      <section data-page="history" class="panel"><div class="section-heading"><h2>거래내역</h2><span class="unit">최근 거래부터</span></div><div id="history" class="scroll"></div><details id="legacyMarkets" hidden><summary>이전 시장가 주문 기록</summary><p class="field-help">현재 시장가 주문은 최신 시세가 있을 때만 즉시 체결되며 대기열에 넣지 않습니다.</p><div id="limitRows" class="scroll"></div></details><details id="legacyLimits" hidden><summary>이전 지정가 주문 기록</summary><p class="field-help">기존 주문은 원래 조건으로 유지됩니다. 대기 중인 주문을 취소할 수 있습니다.</p><div id="legacyLimitRows"></div></details><div class="pagination"><button id="previous" class="secondary">이전</button><span id="page"></span><button id="next" class="secondary">다음</button></div></section>
+      <section data-page="history" class="panel"><div class="section-heading"><h2>거래내역</h2><span class="unit">최근 거래부터</span></div><div class="history-filters"><div id="historySide" class="chip-row" role="group" aria-label="매매 구분"><button type="button" data-side="" aria-pressed="true">전체</button><button type="button" data-side="buy" aria-pressed="false">매수</button><button type="button" data-side="sell" aria-pressed="false">매도</button></div><label class="history-month">기간 <select id="historyMonth" aria-label="거래 월"><option value="">전체 기간</option></select></label></div><div id="history" class="scroll"></div><details id="legacyMarkets" hidden><summary>이전 시장가 주문 기록</summary><p class="field-help">현재 시장가 주문은 최신 시세가 있을 때만 즉시 체결되며 대기열에 넣지 않습니다.</p><div id="limitRows" class="scroll"></div></details><details id="legacyLimits" hidden><summary>이전 지정가 주문 기록</summary><p class="field-help">기존 주문은 원래 조건으로 유지됩니다. 대기 중인 주문을 취소할 수 있습니다.</p><div id="legacyLimitRows"></div></details><div class="pagination"><button id="previous" class="secondary">이전</button><span id="page"></span><button id="next" class="secondary">다음</button></div></section>
       <section data-page="ranking" class="panel"><div class="section-heading"><h2>자산 순위</h2><span class="unit">일반 사용자 · 관리자 제외</span></div><p class="section-description">USD로 환산한 총 평가금액이 높은 순서입니다. 원화 자산은 현재 기준환율로 환산합니다. 평가 수익률은 아직 팔지 않은 종목을 현재가로 평가한 값이 포함된 참고 지표이며 순위에는 쓰지 않습니다. 표시 통화가 달러면 달러 기준, 그 외에는 원화 기준 수익률을 보여줍니다. 사용자를 누르면 프로필이 열립니다.</p><p id="rankingStatus" class="field-help"></p><div id="ranking" class="scroll"></div></section>
     </div>
     <div class="notice"><strong>모의투자 안내</strong><p>모든 자산은 가상이며 실제 돈이나 증권은 거래되지 않습니다. 설정된 모의 수수료가 적용됩니다. 배당·주식 분할은 자동 반영하지 않습니다.</p></div>

@@ -49,7 +49,7 @@ def process(market):
             try:
                 q,price=checked_quote(row.symbol,market)
                 if row.order_type=='limit' and ((row.side=='buy' and price>row.limit_price) or (row.side=='sell' and price<row.limit_price)): continue
-                fixed=SimpleNamespace(quote=lambda symbol:q,providers=getattr(market,'providers',{}))
+                fixed=SimpleNamespace(quote=lambda symbol:q,providers=getattr(market,'providers',{}),fx=getattr(market,'fx',None))
                 request_id=UUID(row.request_id) if row.order_type=='market' else uuid5(NAMESPACE_URL,f'paper-limit:{uid}:{order_id}')
                 order=SimpleNamespace(symbol=row.symbol,side=row.side,quantity=row.quantity,use_max=row.use_max,request_id=request_id)
                 execute_order(uid,order,fixed,db=db,requested_at=row.created_at)

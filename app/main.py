@@ -5,6 +5,7 @@ import logging
 import time
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
 from threading import RLock
 from typing import Literal
 from uuid import UUID
@@ -357,12 +358,60 @@ TRANSACTION_FIELDS = ('id', 'symbol', 'side', 'quantity', 'price', 'currency', '
                       'price_mode', 'quote_stale')
 TRANSACTIONS_PAGE_SIZE = 50
 
+def _month_bounds(month):
+    """[start, end) of a 'YYYY-MM' month in Korea time, as UTC instants."""
+    try: year, number = (int(part) for part in month.split('-'))
+    except ValueError: raise HTTPException(422, '월은 YYYY-MM 형식입니다.')
+    if not 1 <= number <= 12 or not 2000 <= year <= 2100: raise HTTPException(422, '월은 YYYY-MM 형식입니다.')
+    start = datetime(year, number, 1, tzinfo=SEOUL)
+    end = datetime(year + number // 12, number % 12 + 1, 1, tzinfo=SEOUL)
+    return start.astimezone(timezone.utc), end.astimezone(timezone.utc)
+
 @app.get('/api/transactions')
-def transactions(page: int = Query(1, ge=1), uid=Depends(current_user)):
+def transactions(page: int = Query(1, ge=1), side: Literal['buy', 'sell'] | None = None,
+                 month: str | None = Query(None, max_length=7), uid=Depends(current_user)):
+    where = [Transaction.user_id == uid]
+    if side: where.append(Transaction.side == side)
+    if month:
+        start, end = _month_bounds(month)
+        where += [Transaction.created_at >= start, Transaction.created_at < end]
     with Session() as db:
-        rows = db.scalars(select(Transaction).where(Transaction.user_id == uid).order_by(Transaction.id.desc())
+        rows = db.scalars(select(Transaction).where(*where).order_by(Transaction.id.desc())
                           .offset((page-1)*TRANSACTIONS_PAGE_SIZE).limit(TRANSACTIONS_PAGE_SIZE))
         return [{field: getattr(t, field) for field in TRANSACTION_FIELDS} for t in rows]
+
+@app.get('/api/transactions/months')
+def transaction_months(uid=Depends(current_user)):
+    """Months with fills, newest first, in Korea time: the choices of the history month filter."""
+    with Session() as db:
+        rows = db.execute(text("""SELECT to_char(created_at AT TIME ZONE 'Asia/Seoul', 'YYYY-MM') AS month, count(*)
+                                  FROM transactions WHERE user_id = :u GROUP BY 1 ORDER BY 1 DESC"""), {'u': uid}).all()
+    return [{'month': m, 'count': c} for m, c in rows]
+
+@app.get('/api/fees')
+def fee_summary(uid=Depends(current_user)):
+    """What this account has paid, per currency: trading fees (buy/sell), sell taxes and FX fees.
+
+    Amounts stay in the currency they were paid in; the KRW total converts USD at today's reference rate."""
+    with Session() as db:
+        trade = db.execute(text("""SELECT currency, side, coalesce(sum(fee),0), coalesce(sum(tax),0), count(*)
+                                   FROM transactions WHERE user_id = :u GROUP BY 1, 2"""), {'u': uid}).all()
+        exchange = db.execute(text("""SELECT source, coalesce(sum(fee),0), count(*) FROM fx_transactions
+                                      WHERE user_id = :u GROUP BY 1"""), {'u': uid}).all()
+    zero = Decimal(0)
+    paid = {c: {'buy_fee': zero, 'sell_fee': zero, 'tax': zero, 'fx_fee': zero, 'trades': 0, 'exchanges': 0} for c in ('USD', 'KRW')}
+    for currency, side, fee, tax, count in trade:
+        row = paid[currency]; row[side + '_fee'] += fee; row['tax'] += tax; row['trades'] += count
+    for currency, fee, count in exchange:
+        paid[currency]['fx_fee'] += fee; paid[currency]['exchanges'] += count
+    for row in paid.values(): row['total'] = row['buy_fee'] + row['sell_fee'] + row['tax'] + row['fx_fee']
+    try: rate = fx.current_rate('USD', 'KRW')
+    except (MarketError, HTTPException): rate = None
+    from .money import bps
+    return {'paid': paid, 'fx': rate,
+            'total_krw': (paid['KRW']['total'] + paid['USD']['total'] * rate['rate']).quantize(Decimal('.01')) if rate else None,
+            'rates': {name: bps(name) for name in ('US_BUY_FEE_BPS', 'US_SELL_FEE_BPS', 'KR_BUY_FEE_BPS',
+                                                   'KR_SELL_FEE_BPS', 'KR_SELL_TAX_BPS', 'FX_FEE_BPS', 'FX_SPREAD_BPS')}}
 
 RANKING_HOLD = '시세 또는 기준환율을 확인할 수 없어 랭킹을 보류합니다.'
 

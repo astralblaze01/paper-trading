@@ -53,7 +53,18 @@ function toast(text,kind='info',timeout=4500){
   setTimeout(dismiss,timeout);
 }
 function stockLink(x){const a=document.createElement('a');a.href='#detail/'+encodeURIComponent(x.symbol);a.textContent=x.name+' · '+x.symbol;a.className='text-button portfolio-stock-link';return a;}
-function renderPositions(target,p){table(target,['종목','수량','평균가','현재가','평가액','평가손익','종목 수익률'],p.positions.map(x=>[stockLink(x),x.quantity,viewMoney(x.average_cost,x.currency),viewMoney(x.quote?.native_price??x.quote?.price,x.currency),viewMoney(x.value,x.currency),signed(x.pnl,viewMoney(x.pnl,x.currency)),signedPct(x.return_pct)]));}
+// 거래 통화: each holding in its own currency, no FX. 원화/달러: cost at each fill's rate
+// against today's value, so a US stock in KRW also carries the USD/KRW move.
+function renderPositions(target,p){
+  const mode=displayMode==='native'?null:displayMode;
+  const suffix=mode?`(${basisLabel(mode)})`:'(거래 통화)';
+  table(target,['종목','수량','평균가','현재가','평가액','평가손익 '+suffix,'수익률 '+suffix],p.positions.map(x=>{
+    const now=x.quote?.native_price??x.quote?.price;
+    if(!mode)return [stockLink(x),x.quantity,nativeMoney(x.average_cost,x.currency),nativeMoney(now,x.currency),nativeMoney(x.value,x.currency),signed(x.pnl,nativeMoney(x.pnl,x.currency)),signedPct(x.return_pct)];
+    const b=x.basis?.[mode]||{};
+    return [stockLink(x),x.quantity,nativeMoney(b.average_cost,mode),viewMoney(now,x.currency),viewMoney(x.value,x.currency),signed(b.pnl,nativeMoney(b.pnl,mode)),signedPct(b.return_pct)];
+  }));
+}
 function renderPortfolio(){const p=portfolioCache;if(!p)return;
   $('metrics').replaceChildren();
   renderMetrics($('metrics'),p);
@@ -112,7 +123,7 @@ function renderRanking(){if(!rankingCache)return;
   $('ranking').querySelectorAll('tbody tr').forEach((tr,i)=>{const rank=rankingCache.rows[i].rank;if(rank<=3)tr.classList.add('top-rank','top-rank-'+rank);});
   if(window.renderMyProfile)renderMyProfile();
 }
-function syncCurrency(){$('displayCurrency').value=displayMode;$('displayRateNote').textContent=viewFx?`${viewFx.date} 기준 · 1 USD = ${Number(viewFx.rate).toLocaleString('ko-KR',{maximumFractionDigits:2})} KRW · 환산 표시만 변경`:'환율 확인 중';}
+function syncCurrency(){$('displayCurrency').value=displayMode;$('displayRateNote').textContent=viewFx?`${viewFx.date} 기준 · 1 USD = ${Number(viewFx.rate).toLocaleString('ko-KR',{maximumFractionDigits:2})} KRW`:'환율 확인 중';}
 async function changeDisplayCurrency(value){displayMode=value;try{localStorage.setItem(storageNamespace+':currency',value);}catch{}syncCurrency();renderPortfolio();renderRanking();renderHistory();if(weeklyCache)renderWeekly();window.dispatchEvent(new Event('displaycurrencychange'));}
 $('displayCurrency').addEventListener('change',e=>changeDisplayCurrency(e.target.value));
 function message(text) { $('status').textContent = text; }
@@ -193,24 +204,30 @@ setInterval(()=>{if(!document.hidden)refreshMarketSessions();},60000);
 // Notice posted by an administrator (e.g. the maintenance template): a banner only, nothing is blocked.
 // A notice that arrives while the page is open is marked "새 공지" with a toast;
 // notices already seen in this browser are not marked again after a reload.
-let noticeShownId=null;
-function noticeSeen(id){try{return localStorage.getItem(storageNamespace+':notice-seen')===String(id);}catch{return false;}}
-function markNoticeSeen(id){try{localStorage.setItem(storageNamespace+':notice-seen',String(id));}catch{}}
-function showSiteNotice(notice){
-  const box=$('siteNotice'),hide=!notice||!!window.isAdmin;
-  if(hide){box.hidden=true;box.classList.remove('is-new');noticeShownId=null;return;}
-  const arrived=notice.id!==noticeShownId&&!noticeSeen(notice.id);
-  box.hidden=false;box.dataset.kind=notice.kind;box.querySelector('.notice-kind').textContent=notice.label;
-  box.querySelector('.notice-title').textContent=notice.title;box.querySelector('.notice-body').textContent=notice.body;
-  if(arrived){
-    box.classList.remove('is-new');void box.offsetWidth;box.classList.add('is-new');
-    toast(`새 공지가 등록되었습니다.\n${notice.label} · ${notice.title}`,'info',7000);
-    markNoticeSeen(notice.id);
-  }
-  noticeShownId=notice.id;
+// Several notices can be up; each is marked new once per browser.
+function seenNotices(){try{const list=JSON.parse(localStorage.getItem(storageNamespace+':notices-seen')||'[]');const old=localStorage.getItem(storageNamespace+':notice-seen');return new Set(old?[...list,Number(old)]:list);}catch{return new Set();}}
+function markNoticesSeen(ids){try{localStorage.setItem(storageNamespace+':notices-seen',JSON.stringify([...ids].slice(-50)));}catch{}}
+function showSiteNotices(notices){
+  const box=$('siteNotices');notices=window.isAdmin?[]:notices||[];
+  box.hidden=!notices.length;
+  // Elements already on screen are kept, so a "새 공지" badge survives the 10-second refresh until clicked.
+  const seen=seenNotices(),existing=new Map([...box.children].map(n=>[Number(n.dataset.id),n])),arrived=[];
+  box.replaceChildren(...notices.map(notice=>{
+    let item=existing.get(notice.id);
+    if(!item){
+      item=document.createElement('div');item.className='site-notice';item.dataset.id=notice.id;
+      item.append(node('span','새 공지','notice-new'),node('span','','notice-kind'),node('strong','','notice-title'),node('p','','notice-body'));
+      if(!seen.has(notice.id)){item.classList.add('is-new');arrived.push(notice);}
+      item.addEventListener('click',()=>item.classList.remove('is-new'));
+    }
+    item.dataset.kind=notice.kind;item.querySelector('.notice-kind').textContent=notice.label;
+    item.querySelector('.notice-title').textContent=notice.title;item.querySelector('.notice-body').textContent=notice.body;
+    return item;
+  }));
+  for(const notice of arrived)toast(`새 공지가 등록되었습니다.\n${notice.label} · ${notice.title}`,'info',7000);
+  if(arrived.length)markNoticesSeen(new Set([...seen,...arrived.map(n=>n.id)]));
 }
-$('siteNotice').addEventListener('click',()=>$('siteNotice').classList.remove('is-new'));
-async function refreshNotice(){try{showSiteNotice((await api('notice')).notice);}catch{}}
+async function refreshNotice(){try{const r=await api('notice');showSiteNotices(r.notices||(r.notice?[r.notice]:[]));}catch{}}
 setInterval(()=>{if(!document.hidden)refreshNotice();},10000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshNotice();});
 window.addEventListener('focus',()=>refreshNotice());
@@ -246,13 +263,22 @@ async function refreshRankingOnly(){
   rankingRequest=(async()=>{try{rankingCache=await api('ranking');}catch(e){if(rankingCache)rankingCache={...rankingCache,incomplete:true,stale:true,errors:[e.message]};else throw e;}renderRanking();})();
   try{await rankingRequest;}finally{rankingRequest=null;}
 }
+// History filters: side (all/buy/sell) and a Korea-time month; both are applied by the server.
+let historySide='',historyMonth='';
 async function history() {
-  const rows = await api('transactions?page=' + page);
+  const query=new URLSearchParams({page});if(historySide)query.set('side',historySide);if(historyMonth)query.set('month',historyMonth);
+  const [rows]=await Promise.all([api('transactions?'+query),loadHistoryMonths()]);
   historyCache=rows;renderHistory();
-  $('page').textContent = page + ' 페이지'; $('previous').disabled = page === 1; $('next').disabled = rows.length < 50;
 }
+async function loadHistoryMonths(){
+  const months=await api('transactions/months'),select=$('historyMonth');
+  const options=[new Option('전체 기간','')];
+  for(const {month,count} of months){const [y,m]=month.split('-');options.push(new Option(`${y}년 ${Number(m)}월 (${count}건)`,month));}
+  select.replaceChildren(...options);select.value=months.some(x=>x.month===historyMonth)?historyMonth:'';
+}
+function sideLabel(side){const n=document.createElement('span');n.className='trade-side '+(side==='buy'?'gain':'loss');n.textContent=side==='buy'?'매수':'매도';return n;}
 function renderHistory(){const rows=historyCache;
-  table($('history'), ['체결 시각', '종목', '매매', '수량', '체결가', '총액', '수수료 / 세금', '정산 금액'], rows.map(t => [new Date(t.created_at).toLocaleString(), t.symbol, t.side === 'buy' ? '매수' : '매도', t.quantity, viewMoney(t.native_price,t.currency),viewMoney(t.gross_amount,t.currency),viewMoney(t.fee,t.currency)+' / '+viewMoney(t.tax,t.currency),viewMoney(t.net_amount,t.currency)]));
+  table($('history'), ['체결 시각', '종목', '매매', '수량', '체결가', '총액', '수수료 / 세금', '정산 금액'], rows.map(t => [new Date(t.created_at).toLocaleString(), t.symbol, sideLabel(t.side), t.quantity, viewMoney(t.native_price,t.currency),viewMoney(t.gross_amount,t.currency),viewMoney(t.fee,t.currency)+' / '+viewMoney(t.tax,t.currency),viewMoney(t.net_amount,t.currency)]));
   $('page').textContent = page + ' 페이지'; $('previous').disabled = page === 1; $('next').disabled = rows.length < 50;
 }
 async function search() {
@@ -314,6 +340,12 @@ handle('orderForm', 'submit', async () => {
 });
 handle('previous', 'click', async () => { page = Math.max(1, page - 1); await history(); });
 handle('next', 'click', async () => { page++; await history(); });
+document.querySelectorAll('#historySide button').forEach(b=>b.addEventListener('click',async()=>{
+  historySide=b.dataset.side;page=1;
+  document.querySelectorAll('#historySide button').forEach(x=>x.setAttribute('aria-pressed',String(x===b)));
+  try{await history();}catch(e){message(e.message);}
+}));
+$('historyMonth').addEventListener('change',async e=>{historyMonth=e.target.value;page=1;try{await history();}catch(err){message(err.message);}});
 const reportDate = value => new Date(value).toLocaleString('ko-KR', {timeZone: 'Asia/Seoul', year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'});
 async function weekly() {
   weeklyCache = await api('weekly?page=' + weeklyPage);renderWeekly();
@@ -327,14 +359,21 @@ function renderWeekly(){
   for (const report of data.reports) {
     const article = document.createElement('article'); article.className = 'weekly-report';
     const period = document.createElement('p'); period.className = 'weekly-period'; period.textContent = `${reportDate(report.period_start)} ~ ${reportDate(report.period_end)}`;
-    const title = document.createElement('h3'); const winners = report.rows.filter(row => row.rank === 1);
-    title.textContent = winners.length ? `${winners.length > 1 ? '공동 ' : ''}1위 · ${winners.map(row => row.username).join(', ')} (${pct(winners[0].return_pct)})` : '이번 집계에는 비교 가능한 참여자가 없습니다.';
+    // Ranked by the period's own return (not by assets); ranks 1-4 are shown up front, ties sharing a rank.
+    const title = document.createElement('h3'); const leaders = report.rows.filter(row => row.rank <= 4);
+    title.textContent = leaders.length ? '이번 주 수익률 상위' : '이번 집계에는 비교 가능한 참여자가 없습니다.';
+    const podium = document.createElement('ol'); podium.className = 'weekly-leaders';
+    for (const row of leaders) {
+      const item = document.createElement('li'); item.className = 'weekly-leader rank-' + row.rank;
+      const who = document.createElement('span'); who.className = 'weekly-leader-name'; who.append(userLink(row.username));
+      item.append(rankBadge(row.rank), who, signedPct(row.return_pct)); podium.append(item);
+    }
     const details = document.createElement('details'), summary = document.createElement('summary'), list = document.createElement('div'); list.className = 'scroll'; summary.textContent = `전체 순위 보기 · ${report.rows.length}명`;
     table(list, ['순위', '사용자', '기간 수익률', '기간 손익 ('+viewCurrency(report.base_currency)+')', '평가 수익률 (원화 기준)'], report.rows.map(row => [row.rank, userLink(row.username), signedPct(row.return_pct), signed(row.pnl,viewMoney(row.pnl,report.base_currency,report.fx_rate?{rate:report.fx_rate}:null)), signedPct(row.total_return_pct)]));
     details.append(summary, list);
     const note = document.createElement('p'); note.className = 'weekly-note';
     note.textContent = `시작 평가액이 없거나 0인 ${report.excluded_new_or_zero}명은 비교에서 제외됩니다.` + (report.oldest_quote ? ` 사용 시세 중 가장 오래된 시각: ${reportDate(report.oldest_quote)}.` : '') + (report.late ? ' 게시가 지연되어 실제 집계 시점까지의 성과입니다.' : '');
-    article.append(period, title, details, note); $('weeklyReports').append(article);
+    article.append(period, title, podium, details, note); $('weeklyReports').append(article);
   }
   if (!data.reports.length) { const p = document.createElement('p'); p.className = 'empty-state'; p.textContent = '아직 게시된 주간 순위가 없습니다. 첫 결과는 예정된 집계 후 표시됩니다.'; $('weeklyReports').append(p); }
   $('weeklyPage').textContent = weeklyPage + ' 페이지'; $('weeklyPrevious').disabled = weeklyPage === 1; $('weeklyNext').disabled = data.reports.length < 10;

@@ -122,9 +122,9 @@ docker compose exec web python -m app.admin_cli <아이디>
 | `ALPHAVANTAGE_API_KEY` | | 미국 순위 대체 공급자 |
 | `INITIAL_USD` | `100000` | 새 계좌 초기 지급액(USD). 관리자 화면에서 바꾼 값이 우선합니다. |
 | `FX_FEE_BPS` / `FX_SPREAD_BPS` | `10` / `5` | 환전 수수료 / 스프레드 |
-| `US_BUY_FEE_BPS` / `US_SELL_FEE_BPS` | `0` / `0` | 미국 종목 매수·매도 수수료 |
-| `KR_BUY_FEE_BPS` / `KR_SELL_FEE_BPS` | `0` / `0` | 국내 종목 매수·매도 수수료 |
-| `KR_SELL_TAX_BPS` | `0` | 국내 종목 매도 세금 |
+| `US_BUY_FEE_BPS` / `US_SELL_FEE_BPS` | `10` / `10` | 미국 종목 매수·매도 수수료 (토스증권 0.1%) |
+| `KR_BUY_FEE_BPS` / `KR_SELL_FEE_BPS` | `1.5` / `1.5` | 국내 종목 매수·매도 수수료 (토스증권 0.015%) |
+| `KR_SELL_TAX_BPS` | `20` | 국내 주식 매도 증권거래세+농특세 0.20% (ETF·ETN 면제) |
 | `QUOTE_TTL` | `15` | 시세 캐시·갱신 주기(초) |
 | `MAX_QUOTE_AGE` | `900` | 국내 시세의 주문 허용 최대 나이(초) |
 | `US_MAX_QUOTE_AGE` | `1800` | 미국 REST 시세의 주문 허용 최대 나이(초) |

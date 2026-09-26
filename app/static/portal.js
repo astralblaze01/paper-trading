@@ -42,9 +42,10 @@ window.routePage = async function() {
     if(selected==='detail' && segment)await openDetailPage(segment);
     if(selected==='fx'){await Promise.all([fxHistory(),loadFxRate()]);}
     if(selected==='watchlist')await watchlist();
+    if(selected==='history')await history();
     if(selected==='ranking')await refreshRankingOnly();
     if(selected==='admin')await admin();
-    if(selected==='portfolio'){window.loadMyPerformance?.();if(window.loadMyProfile)await loadMyProfile();}
+    if(selected==='portfolio'){window.loadMyPerformance?.();loadFees().catch(e=>{$('feeRates').textContent=e.message;});if(window.loadMyProfile)await loadMyProfile();}
   } catch(e){message(e.message);}
 };
 // segment is still URI-encoded: the missing-price retry compares it with the live hash.
@@ -410,8 +411,8 @@ const FX_REFRESH_MS=30*60*1000;
 async function loadFxRate(){
   try{
     const r=await api('fx');
-    const usd=Number(r.rate),next=r.next_refresh_at?new Date(r.next_refresh_at*1000).toLocaleString('ko-KR'):null;
-    $('fxRate').textContent=`1 USD = ${usd.toLocaleString('ko-KR',{maximumFractionDigits:2})} KRW  ·  1,000 KRW = ${(1000/usd).toLocaleString('ko-KR',{maximumFractionDigits:4})} USD  ·  ${r.date} 기준${r.refresh_failed?' · 갱신 실패 · 마지막 정상 환율 사용':next?' · 다음 기준환율 확인 '+next:' · ECB 영업일 기준환율'}`;
+    const usd=Number(r.rate);
+    $('fxRate').textContent=`1 USD = ${usd.toLocaleString('ko-KR',{maximumFractionDigits:2})} KRW  ·  1,000 KRW = ${(1000/usd).toLocaleString('ko-KR',{maximumFractionDigits:4})} USD  ·  ${r.date} 기준${r.refresh_failed?' · 갱신 실패 · 마지막 정상 환율 사용':''}`;
   }catch(e){$('fxRate').textContent='환율을 불러오지 못했습니다. '+e.message;}
 }
 setInterval(()=>{if(!document.hidden&&location.hash==='#fx'&&window.sessionUsername&&!window.isAdmin)loadFxRate();},FX_REFRESH_MS);
@@ -475,7 +476,7 @@ function renderAdminUsers(r){
 async function admin(){
  const r=await api('admin');adminUsers=r.users;
  renderAdminStatus(r);
- noticeTemplates=r.notice_templates||noticeTemplates;renderNoticeAdmin(r.notice);
+ noticeTemplates=r.notice_templates||noticeTemplates;renderNoticeAdmin(r.notices||[]);
  renderAdminOverview(r);
  renderAdminUsers(r);
  if(adminSelectedId!==null&&!adminSelected())adminSelectedId=null;
@@ -516,12 +517,18 @@ handle('adminGrantForm','submit',()=>runAdminAction('grant',{currency:$('adminCu
 document.querySelectorAll('[data-admin-action]').forEach(b=>b.addEventListener('click',()=>runAdminAction(b.dataset.adminAction).catch(e=>$('adminResult').textContent=e.message)));
 for(const [select,input] of [['adminCurrency','adminAmount'],['adminBulkCurrency','adminBulkAmount']])$(select).addEventListener('change',()=>{$(input).step=$(select).value==='KRW'?'1':'0.0001';$(input).min=$(input).step;});
 let noticeTemplates={},noticeKindShown=null;
-function renderNoticeAdmin(notice){
- $('noticeStatus').textContent=notice?`게시 중 · ${notice.label} · ${notice.title} · ${new Date(notice.posted_at).toLocaleString()}`:'게시 중인 공지가 없습니다. 등록하면 사용자 화면 상단에 표시됩니다.';
- $('noticeClear').disabled=!notice;$('noticePost').textContent=notice?'새 공지로 교체':'공지 등록';
+function renderNoticeAdmin(notices){
+ $('noticeStatus').textContent=notices.length?`게시 중 ${notices.length}개 · 최신 공지가 위에 표시됩니다.`:'게시 중인 공지가 없습니다. 등록하면 사용자 화면 상단에 표시됩니다.';
+ $('noticeClear').disabled=!notices.length;$('noticePost').textContent='공지 등록';
+ $('noticeList').replaceChildren(...notices.map(n=>{
+  const li=node('li',null,'notice-item'),text=node('div',null,'notice-item-text');
+  text.append(node('span',n.label,'notice-item-kind'),node('strong',n.title),node('small',new Date(n.posted_at).toLocaleString('ko-KR'),'field-help'));
+  const remove=node('button','내리기','secondary');remove.type='button';remove.setAttribute('aria-label',`${n.title} 공지 내리기`);
+  remove.addEventListener('click',async()=>{remove.disabled=true;try{const r=await api(`admin/notice/${n.id}/clear`,{});renderNoticeAdmin(r.notices);toast(`공지를 내렸습니다.\n${n.title}`,'success');}catch(err){remove.disabled=false;toast(err.message,'error');}});
+  li.append(text,remove);return li;
+ }));
  if(noticeKindShown===null)fillNoticeTemplate();
 }
-// Picking a type fills in its template, unless the text was already edited.
 function fillNoticeTemplate(){
  const previous=noticeTemplates[noticeKindShown],next=noticeTemplates[$('noticeKind').value]||{title:'',body:''};
  const untouched=!previous||($('noticeTitle').value===previous.title&&$('noticeBody').value===previous.body)||(!$('noticeTitle').value&&!$('noticeBody').value);
@@ -535,9 +542,9 @@ $('noticeForm').addEventListener('submit',async e=>{
  e.preventDefault();const body={kind:$('noticeKind').value,title:$('noticeTitle').value.trim(),body:$('noticeBody').value.trim()};
  if(!body.title||!body.body){$('noticeError').textContent='공지 제목과 내용을 입력하세요.';return;}
  $('noticePost').disabled=true;
- try{const r=await api('admin/notice',body);renderNoticeAdmin(r.notice);toast(`공지를 등록했습니다.\n${r.notice.label} · ${r.notice.title}`,'success');}catch(err){$('noticeError').textContent=err.message;}finally{$('noticePost').disabled=false;}
+ try{const r=await api('admin/notice',body);renderNoticeAdmin(r.notices);toast(`공지를 등록했습니다.\n${r.posted.label} · ${r.posted.title}`,'success');$('noticeTitle').value='';$('noticeBody').value='';noticeKindShown=null;fillNoticeTemplate();}catch(err){$('noticeError').textContent=err.message;}finally{$('noticePost').disabled=false;}
 });
-handle('noticeClear','click',async()=>{$('noticeClear').disabled=true;try{await api('admin/notice/clear',{});renderNoticeAdmin(null);toast('공지를 해제했습니다.','success');}catch(err){$('noticeClear').disabled=false;throw err;}});
+handle('noticeClear','click',async()=>{$('noticeClear').disabled=true;try{await api('admin/notice/clear',{});renderNoticeAdmin([]);toast('모든 공지를 내렸습니다.','success');}catch(err){$('noticeClear').disabled=false;throw err;}});
 let adminBulkPending=null;
 handle('adminBulkForm','submit',async()=>{const body={action:'grant',currency:$('adminBulkCurrency').value,amount:$('adminBulkAmount').value,reason:$('adminReason').value.trim()},sig=JSON.stringify(body);adminBulkPending=reuseRequestId(adminBulkPending,sig);const r=await api('admin/users/manage-all',{...body,request_id:adminBulkPending.id});adminBulkPending=null;$('adminResult').textContent=`${r.count}명에게 지원금을 지급했습니다.`;toast(`${r.count}명에게 지원금을 지급했습니다.`,'success');await admin();});
 handle('initialForm','submit',async()=>{await api('admin/initial',{amount:$('initialAmount').value});message('이후 생성/초기화되는 계좌의 지급액을 저장했습니다.');});
@@ -603,3 +610,22 @@ const myPerformance=performanceWidget({chart:'myPerformanceChart',notice:'myPerf
 function loadPerformance(username,period){return publicPerformance.load(username,period);}
 function drawPerformance(r){publicPerformance.draw(r);}
 window.loadMyPerformance=()=>myPerformance.load(window.sessionUsername);
+
+// Fees are paid in the wallet of the trade (US stocks in USD, Korean stocks in KRW; an
+// exchange in the currency sent), so each currency keeps its own column. The total
+// converts USD at today's reference rate into the display currency.
+let feeCache=null;
+async function loadFees(){feeCache=await api('fees');renderFees();}
+function renderFees(){
+  const r=feeCache;if(!r)return;
+  const rows=[['매수 수수료','buy_fee'],['매도 수수료','sell_fee'],['매도 세금 (증권거래세)','tax'],['환전 수수료','fx_fee']];
+  table($('feeSummary'),['항목','달러 (USD)','원화 (KRW)'],[...rows.map(([label,key])=>[label,nativeMoney(r.paid.USD[key],'USD'),nativeMoney(r.paid.KRW[key],'KRW')]),
+    ['통화별 합계',nativeMoney(r.paid.USD.total,'USD'),nativeMoney(r.paid.KRW.total,'KRW')]]);
+  $('feeSummary').querySelector('tbody tr:last-child')?.classList.add('fee-subtotal');
+  const shown=returnBasis(),total=r.total_krw==null?null:shown==='USD'&&r.fx?Number(r.total_krw)/Number(r.fx.rate):Number(r.total_krw);
+  const sum=node('div',null,'fee-total');sum.append(node('span',`총 수수료 (${shown==='USD'?'달러':'원화'} 환산)`),node('strong',nativeMoney(total,shown)));
+  $('feeSummary').prepend(sum);
+  const pctText=b=>`${Number(b)/100}%`,t=r.rates;
+  $('feeRates').textContent=`토스증권 기준 · 미국 주식 매수 ${pctText(t.US_BUY_FEE_BPS)} / 매도 ${pctText(t.US_SELL_FEE_BPS)} · 국내 주식 매수 ${pctText(t.KR_BUY_FEE_BPS)} / 매도 ${pctText(t.KR_SELL_FEE_BPS)} · 국내 주식 매도 세금 ${pctText(t.KR_SELL_TAX_BPS)} (ETF·ETN 면제) · 환전 ${pctText(t.FX_FEE_BPS)}`;
+}
+window.addEventListener('displaycurrencychange',renderFees);
