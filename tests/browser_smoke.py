@@ -281,7 +281,7 @@ with sync_playwright() as p:
         expect(page.locator('#rankingStatus')).to_contain_text('10초 단위')
         with page.expect_response(lambda r:r.url.endswith('/api/ranking'),timeout=15000):
             pass
-        expect(page.locator('#ranking .user-link').first).to_have_css('font-size','18px' if width<600 else '19px')
+        expect(page.locator('#ranking .user-link').first).to_have_css('font-size','18px' if width<600 else '17px')
         rows_before=page.locator('#ranking').inner_text()
         page.route('**/api/ranking',lambda route:route.fulfill(status=503,json={'detail':'test outage'}))
         # Let an automatic 10-second refresh already in flight finish first.

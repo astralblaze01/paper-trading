@@ -327,9 +327,9 @@ function trendColor(value){return value>0?themeColor('--gain'):value<0?themeColo
 function drawChart(){
  const canvas=$('priceChart'),rect=canvas.getBoundingClientRect(),dpr=window.devicePixelRatio||1,w=Math.max(250,rect.width),h=320;canvas.width=w*dpr;canvas.height=h*dpr;const ctx=canvas.getContext('2d');ctx.scale(dpr,dpr);ctx.clearRect(0,0,w,h);
  const nativeCurrency=chartNativeCurrency(),currency=viewCurrency(nativeCurrency),convert=v=>viewValue(v,nativeCurrency);$('periodPerformance').replaceChildren();$('periodDates').textContent='';
- if(!chartRows.length){ctx.fillStyle=themeColor('--muted');ctx.font='15px sans-serif';ctx.fillText('표시할 차트 데이터가 없습니다.',20,145);$('chartTooltip').textContent='';return;}
+ if(!chartRows.length){ctx.fillStyle=themeColor('--muted');ctx.font=cssFont('--fs-md');ctx.fillText('표시할 차트 데이터가 없습니다.',20,145);$('chartTooltip').textContent='';return;}
  const vals=chartRows.map(r=>convert(Number(r.close)));
- if(vals.some(v=>v===null||!Number.isFinite(v))){ctx.fillStyle=themeColor('--muted');ctx.font='15px sans-serif';ctx.fillText('환율 확인 대기',20,145);$('periodPerformance').textContent='환율 확인 대기 · —';$('chartTooltip').textContent='';return;}
+ if(vals.some(v=>v===null||!Number.isFinite(v))){ctx.fillStyle=themeColor('--muted');ctx.font=cssFont('--fs-md');ctx.fillText('환율 확인 대기',20,145);$('periodPerformance').textContent='환율 확인 대기 · —';$('chartTooltip').textContent='';return;}
  const first=vals[0],last=vals.at(-1),change=last-first,percent=first?change/first*100:null;
  const title=node('strong',`${currentRange} · ${change>0?'+':''}${nativeMoney(change,currency)} (${change>0?'+':''}${pct(percent)})`,change>0?'gain':change<0?'loss':'flat');
  $('periodPerformance').append(title,node('span',`${nativeMoney(first,currency)} → ${nativeMoney(last,currency)}`));
@@ -337,7 +337,7 @@ function drawChart(){
  $('periodDates').textContent=`${date(chartRows[0])} ~ ${date(chartRows.at(-1))}`;
  const lo=Math.min(...vals),hi=Math.max(...vals),span=hi-lo||Math.max(1,hi*.02),{left,right}=chartPlotBounds(w),top=20,bottom=275;
  const x=i=>left+i*(right-left)/Math.max(1,vals.length-1),y=v=>bottom-(v-lo)/span*(bottom-top);
- ctx.font='12px sans-serif';for(let n=0;n<5;n++){const v=lo+span*n/4,yy=y(v);ctx.strokeStyle=themeColor('--chart-grid');ctx.beginPath();ctx.moveTo(left,yy);ctx.lineTo(right,yy);ctx.stroke();ctx.fillStyle=themeColor('--muted');ctx.fillText(v.toLocaleString('ko-KR',{maximumFractionDigits:viewCurrency(currency)==='KRW'?0:2}),2,yy+4);}
+ ctx.font=cssFont('--fs-xs','--font-num');for(let n=0;n<5;n++){const v=lo+span*n/4,yy=y(v);ctx.strokeStyle=themeColor('--chart-grid');ctx.beginPath();ctx.moveTo(left,yy);ctx.lineTo(right,yy);ctx.stroke();ctx.fillStyle=themeColor('--muted');ctx.fillText(v.toLocaleString('ko-KR',{maximumFractionDigits:viewCurrency(currency)==='KRW'?0:2}),2,yy+4);}
  ctx.strokeStyle=trendColor(change);ctx.lineWidth=2.5;ctx.beginPath();vals.forEach((v,i)=>i?ctx.lineTo(x(i),y(v)):ctx.moveTo(x(i),y(v)));ctx.stroke();ctx.fillStyle=themeColor('--muted');ctx.fillText(new Date(chartRows[0].time*1000).toLocaleDateString(),left,306);ctx.fillText(new Date(chartRows.at(-1).time*1000).toLocaleDateString(),Math.max(left,right-85),306);
  const i=chartIndex===null?vals.length-1:Math.max(0,Math.min(vals.length-1,chartIndex)),r=chartRows[i],delta=convert(Number(r.close))-first;
  if(chartIndex!==null){ctx.strokeStyle=themeColor('--faint');ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(x(i),top);ctx.lineTo(x(i),bottom);ctx.stroke();ctx.setLineDash([]);}
@@ -676,7 +676,7 @@ function performanceWidget(ids,path){
     const vals=rows.map(x=>Number(x[field])),low=Math.min(...vals,0),high=Math.max(...vals,0),padding=Math.max((high-low)*.15,money?(basis==='USD'?1:1000):.1),min=low-padding,max=high+padding;
     const left=66,right=width-16,top=24,bottom=height-28,times=rows.map(row=>Date.parse(row.date)),duration=times.at(-1)-times[0];
     const x=i=>duration?left+(right-left)*(times[i]-times[0])/duration:(left+right)/2,y=v=>bottom-(bottom-top)*(v-min)/(max-min);
-    ctx.font='12px sans-serif';ctx.fillStyle=themeColor('--muted');ctx.textAlign='right';
+    ctx.font=cssFont('--fs-xs','--font-num');ctx.fillStyle=themeColor('--muted');ctx.textAlign='right';
     for(const value of new Set([min,0,max])){ctx.strokeStyle=value===0?themeColor('--chart-axis'):themeColor('--chart-grid');ctx.beginPath();ctx.moveTo(left,y(value));ctx.lineTo(right,y(value));ctx.stroke();ctx.fillText(fmt(value),left-8,y(value)+4);}
     const last=vals.at(-1);ctx.strokeStyle=trendColor(last);ctx.lineWidth=2.5;ctx.beginPath();vals.forEach((v,i)=>i?ctx.lineTo(x(i),y(v)):ctx.moveTo(x(i),y(v)));ctx.stroke();ctx.lineWidth=1;
     ctx.fillStyle=trendColor(last);ctx.beginPath();ctx.arc(x(vals.length-1),y(last),4,0,Math.PI*2);ctx.fill();

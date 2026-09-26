@@ -82,13 +82,12 @@ function renderMetrics(target,p){
   for(const [name,value,change,sub] of fields){const box=document.createElement('div');box.className='metric';const label=document.createElement('small');label.textContent=name;let v;if(value instanceof Node){v=document.createElement('span');v.append(value);}else v=signed(change,value);v.classList.add('metric-value');box.append(label,v);if(sub)box.append(node('small',sub,'metric-sub'));target.append(box);}
 }
 // Ranks 1-3 get a medal: ring, laurel wings, a star and a ribbon carrying 3/2/1 stars.
-const MEDALS={1:{rim:'#f2a31b',face:'#ffdc8e',ink:'#d98511',leaf:'#f7b638',ribbon:'#ea4a4f'},
-              2:{rim:'#aeb6bf',face:'#e8ecf0',ink:'#8e98a3',leaf:'#c3cad2',ribbon:'#8b5cf6'},
-              3:{rim:'#c8691c',face:'#f7c393',ink:'#b25714',leaf:'#e38b3c',ribbon:'#1f3a8a'}};
+// Colors come from the --medal-* tokens in style.css, so both themes and any palette change follow.
+function medalColors(rank){const c={};for(const part of ['rim','face','ink','leaf'])c[part]=themeColor(`--medal-${rank}-${part}`);c.ribbon=themeColor('--medal-ribbon');return c;}
 function starPath(cx,cy,r){let d='';for(let i=0;i<10;i++){const a=-Math.PI/2+i*Math.PI/5,k=i%2?r*.45:r;d+=(i?'L':'M')+(cx+k*Math.cos(a)).toFixed(2)+' '+(cy+k*Math.sin(a)).toFixed(2);}return d+'Z';}
 function medalSvg(rank){
   // Feathers start behind the ring and sweep outward and up, like the wings of a trophy medal.
-  const c=MEDALS[rank],leaves=[],u=deg=>[Math.cos(deg*Math.PI/180),Math.sin(deg*Math.PI/180)],f=n=>n.toFixed(2);
+  const c=medalColors(rank),leaves=[],u=deg=>[Math.cos(deg*Math.PI/180),Math.sin(deg*Math.PI/180)],f=n=>n.toFixed(2);
   for(const deg of rank===3?[128,158,188]:[118,144,170,196]){
     const [bx,by]=u(deg),[dx,dy]=u(deg+62),base=[24+12*bx,21+12*by],len=rank===3?13:14.5;
     const tip=[base[0]+len*dx,base[1]+len*dy],mid=[(base[0]+tip[0])/2,(base[1]+tip[1])/2],w=3.8;
@@ -99,7 +98,7 @@ function medalSvg(rank){
     <path d="M16.5 30h15v25l-7.5-5-7.5 5z" fill="${c.ribbon}"/><g fill="#fff">${ribbonStars}</g>
     <g fill="${c.leaf}">${leaves.join('')}</g><g fill="${c.leaf}" transform="matrix(-1 0 0 1 48 0)">${leaves.join('')}</g>
     <circle cx="24" cy="21" r="15" fill="${c.rim}"/><circle cx="24" cy="21" r="11.5" fill="${c.face}"/>
-    <text x="24" y="26.6" text-anchor="middle" font-size="16" font-weight="800" font-family="Arial, sans-serif" fill="${c.ink}">${rank}</text>
+    <text x="24" y="26.6" text-anchor="middle" font-size="16" font-weight="600" style="font-family:var(--font-num)" fill="${c.ink}">${rank}</text>
     <path d="${starPath(31.5,11.5,2.2)}" fill="#fff" opacity=".9"/>
     <path d="${starPath(24,35.5,4.6)}" fill="${c.leaf}" stroke="${c.rim}" stroke-width=".8"/></svg>`;
 }
@@ -129,6 +128,8 @@ async function changeDisplayCurrency(value){displayMode=value;try{localStorage.s
 $('displayCurrency').addEventListener('change',e=>changeDisplayCurrency(e.target.value));
 // Theme: A 딥 틸 (light, default) or B 다크 아레나 (dark). Saved per browser; charts redraw.
 function themeColor(name){return getComputedStyle(document.documentElement).getPropertyValue(name).trim();}
+// Canvas text uses the same type tokens as the page: cssFont('--fs-xs','--font-num').
+function cssFont(size,family='--font-sans'){return `${themeColor(size)} ${themeColor(family)}`;}
 const THEME_ICONS={moon:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>',
   sun:'<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M4.6 4.6l1.4 1.4M18 18l1.4 1.4M2.5 12h2M19.5 12h2M4.6 19.4 6 18M18 6l1.4-1.4"/></svg>'};
 function syncThemeToggle(){const dark=document.documentElement.dataset.theme==='dark',b=$('themeToggle');b.innerHTML=dark?THEME_ICONS.sun:THEME_ICONS.moon;b.setAttribute('aria-label',dark?'라이트 모드로 전환':'다크 모드로 전환');b.title=dark?'라이트 모드':'다크 모드';b.setAttribute('aria-pressed',String(dark));}
