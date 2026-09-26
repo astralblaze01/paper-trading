@@ -4,15 +4,16 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{BRAND_NAME}} · 모의투자</title>
-  <link rel="stylesheet" href="/static/style.css?v=43">
-  <script src="/static/app.js?v=43" defer></script>
-  <script src="/static/portal.js?v=43" defer></script>
-  <script src="/static/profile.js?v=43" defer></script>
+  <link rel="icon" type="image/png" href="/static/brand/mark.png">
+  <link rel="stylesheet" href="/static/style.css?v=44">
+  <script src="/static/app.js?v=44" defer></script>
+  <script src="/static/portal.js?v=44" defer></script>
+  <script src="/static/profile.js?v=44" defer></script>
 </head>
 <body>
   <header>
     <div class="header-inner">
-      <a href="/" class="brand"><span class="brand-mark" aria-hidden="true">◆</span> {{BRAND_NAME}}</a>
+      <a href="/" class="brand"><img src="/static/brand/logo.webp" alt="{{BRAND_NAME}}" class="brand-logo" width="202" height="36"></a>
       <span class="service-label">주식 · 채권 ETF · 금 ETF</span>
       <button id="logout" class="text-button" hidden>로그아웃</button>
     </div>
@@ -66,7 +67,7 @@
         <form id="discoverySearch" class="search-form"><input id="discoveryQuery" aria-label="종목명이나 코드" placeholder="종목명 또는 코드"><button>검색</button></form>
         <p id="exploreNotice" class="section-description"></p><details class="data-details"><summary>시세 정보</summary><p id="exploreFxNote" class="field-help"></p><p class="field-help">시장 목록은 화면을 보고 있을 때 30초마다 다시 확인합니다. 공급자 자체 갱신 주기와 시장 시간에 따라 가격은 그대로일 수 있습니다.</p></details><div id="exploreRows" class="scroll"></div>
       </section>
-      <section data-page="fx" class="panel fx-panel"><div class="fx-main"><h2>가상 환전</h2><details class="fx-details"><summary>환율 정보</summary><p class="field-help">ECB 일별 기준환율을 사용합니다. 수수료와 스프레드는 환전 견적에 표시합니다.</p></details><div id="fxRate" class="fx-rate" aria-live="polite">환율 확인 중…</div><form id="fxForm"><div class="toolbar"><label>보낼 통화<select id="fxSource"><option value="USD">USD → KRW</option><option value="KRW">KRW → USD</option></select></label><label>보낼 금액 (<span id="fxAmountUnit">USD</span>)<input id="fxAmount" type="number" min="0.0001" step="0.0001" required></label></div><div class="fx-balance"><span id="fxAvailable" aria-live="polite"></span></div><div class="order-quick" aria-label="환전 금액 비율 선택"><span>금액 빠른 선택</span><button type="button" class="secondary" data-fx-share="100">전액</button><button type="button" class="secondary" data-fx-share="50">50%</button><button type="button" class="secondary" data-fx-share="25">25%</button><button type="button" class="secondary" data-fx-share="10">10%</button><button type="button" class="secondary" data-fx-share="5">5%</button></div><p class="field-help">비율은 보낼 통화의 보유 금액 기준입니다. 환전 수수료는 보낸 금액에서 차감됩니다.</p><button id="fxPreview" type="button" class="secondary">환전 예상 확인</button><div id="fxEstimate" class="quote-info"></div><button class="full-width">모의 환전 실행</button></form></div><div class="fx-side"><h3>환전내역</h3><div id="fxHistory" class="scroll"></div></div></section>
+      <section data-page="fx" class="panel"><h2>가상 환전</h2><details class="fx-details"><summary>환율 정보</summary><p class="field-help">ECB 일별 기준환율을 사용합니다. 수수료와 스프레드는 환전 견적에 표시합니다.</p></details><div id="fxRate" class="fx-rate" aria-live="polite">환율 확인 중…</div><form id="fxForm"><div class="toolbar"><label>보낼 통화<select id="fxSource"><option value="USD">USD → KRW</option><option value="KRW">KRW → USD</option></select></label><label>보낼 금액 (<span id="fxAmountUnit">USD</span>)<input id="fxAmount" type="number" min="0.0001" step="0.0001" required></label></div><div class="fx-balance"><span id="fxAvailable" aria-live="polite"></span></div><div class="order-quick" aria-label="환전 금액 비율 선택"><span>금액 빠른 선택</span><button type="button" class="secondary" data-fx-share="100">전액</button><button type="button" class="secondary" data-fx-share="50">50%</button><button type="button" class="secondary" data-fx-share="25">25%</button><button type="button" class="secondary" data-fx-share="10">10%</button><button type="button" class="secondary" data-fx-share="5">5%</button></div><p class="field-help">비율은 보낼 통화의 보유 금액 기준입니다. 환전 수수료는 보낸 금액에서 차감됩니다.</p><button id="fxPreview" type="button" class="secondary">환전 예상 확인</button><div id="fxEstimate" class="quote-info"></div><button class="full-width">모의 환전 실행</button></form><h3>환전내역</h3><div id="fxHistory" class="scroll"></div></section>
       <section data-page="watchlist" class="panel"><div class="section-heading"><h2>관심종목</h2><span class="unit">종목 상세에서 추가할 수 있습니다.</span></div><div id="watchRows" class="scroll"></div></section>
       <section data-page="admin" class="panel"><h2>종합 관리자</h2><p id="adminHealth"></p><p id="adminMarket" class="field-help admin-market"></p><p id="adminSnapshots" class="field-help"></p><div id="adminOverview" class="metrics"></div><section class="admin-notice" aria-labelledby="noticeHeading"><div class="admin-notice-head"><div><h3 id="noticeHeading">공지</h3><p id="noticeStatus" class="field-help">상태 확인 중…</p></div><button id="noticeClear" type="button" class="secondary" disabled>전체 내리기</button></div><ul id="noticeList" class="notice-list"></ul>
 <form id="noticeForm" class="admin-notice-form" novalidate><label for="noticeKind">공지 유형</label><select id="noticeKind"><option value="maintenance">서버 점검 예고</option><option value="maintenance_now">서버 점검 중</option><option value="maintenance_done">서버 점검 완료</option><option value="update">업데이트 안내</option><option value="general">일반 공지 (직접 작성)</option></select>
@@ -135,7 +136,7 @@
         <p class="field-help">다른 사용자의 공개 투자 프로필입니다. 거래내역과 주문 권한은 공개하지 않습니다.</p></section>
       <section data-page="history" class="panel reserve-panel"><div class="section-heading"><h2>예약 주문</h2><span class="unit">조건이 맞으면 1분 안에 시장가로 체결</span></div><div id="reserveRows" class="reserve-rows"></div></section>
       <section data-page="history" class="panel"><div class="section-heading"><h2>거래내역</h2><span class="unit">최근 거래부터</span></div><div class="history-filters"><div id="historySide" class="chip-row" role="group" aria-label="매매 구분"><button type="button" data-side="" aria-pressed="true">전체</button><button type="button" data-side="buy" aria-pressed="false">매수</button><button type="button" data-side="sell" aria-pressed="false">매도</button></div><label class="history-month">기간 <select id="historyMonth" aria-label="거래 월"><option value="">전체 기간</option></select></label></div><div id="history" class="scroll"></div><div class="pagination"><button id="previous" class="secondary">이전</button><span id="page"></span><button id="next" class="secondary">다음</button></div></section>
-      <section data-page="ranking" class="panel"><div class="section-heading"><h2>자산 순위</h2><span class="unit">일반 사용자 · 관리자 제외</span></div><p class="section-description">USD로 환산한 총 평가금액이 높은 순서입니다. 원화 자산은 현재 기준환율로 환산합니다. 평가 수익률은 아직 팔지 않은 종목을 현재가로 평가한 값이 포함된 참고 지표이며 순위에는 쓰지 않습니다. 표시 통화가 달러면 달러 기준, 그 외에는 원화 기준 수익률을 보여줍니다. 사용자를 누르면 프로필이 열립니다.</p><p id="rankingStatus" class="field-help"></p><div id="ranking" class="scroll"></div></section>
+      <section data-page="ranking" class="panel"><div class="section-heading"><h2>자산 순위</h2></div><p class="section-description">총 평가금액(현금 + 보유 종목, 달러 환산)이 높은 순서입니다. 원화 자산은 현재 기준환율로 환산하고, 장이 열려 있는 동안 10초마다 갱신합니다. 이름 옆 배지는 순위 비율로 정한 티어, ▲▼는 오늘 아침 기록 대비 순위 변화입니다. 사용자를 누르면 프로필이 열립니다.</p><p id="rankingStatus" class="field-help"></p><div id="ranking" class="scroll"></div></section>
     </div>
     <div class="notice"><strong>모의투자 안내</strong><p>모든 자산은 가상이며 실제 돈이나 증권은 거래되지 않습니다. 설정된 모의 수수료가 적용됩니다. 배당·주식 분할은 자동 반영하지 않습니다.</p></div>
   </main>

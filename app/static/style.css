@@ -368,6 +368,13 @@ table { font-size:15px; }
 #ranking .top-rank td { padding-top:8px; padding-bottom:8px; }
 #ranking .top-rank .avatar-small { border:2px solid var(--rank-tone); }
 #ranking .top-rank .user-link { font-weight:700; }
+/* Top three rows: a flat wash of the medal's metal that fades out across the row. */
+#ranking tr.top-rank td { background:transparent; }
+#ranking tr.top-rank-1 { background:linear-gradient(90deg,#fbeccb 0%,#fdf6e6 38%,rgba(255,255,255,0) 82%); }
+#ranking tr.top-rank-2 { background:linear-gradient(90deg,#e7ebf0 0%,#f3f5f8 38%,rgba(255,255,255,0) 82%); }
+#ranking tr.top-rank-3 { background:linear-gradient(90deg,#f5e2d2 0%,#fbf1e9 38%,rgba(255,255,255,0) 82%); }
+#ranking tr.top-rank td:first-child { box-shadow:inset 3px 0 0 var(--rank-tone); }
+#ranking tr.top-rank:hover td { background:rgba(255,255,255,.35); }
 .metric .metric-sub { display:block; margin-top:4px; font-size:12px; color:var(--muted); }
 .cash-lines { display:grid; gap:2px; font-size:18px; }
 .metric .metric-value .cash-lines { font-size:18px; }
@@ -571,28 +578,6 @@ table { font-size:15px; }
 .detail-grid > .company-panel { grid-area:company; }
 @media(max-width:850px){ .detail-grid { grid-template-areas:"chart" "order" "company"; grid-template-rows:none; } }
 
-/* FX: exchange form and history side by side on wide screens. */
-.fx-panel { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:32px; align-items:start; }
-.fx-panel form { max-width:none; }
-.fx-side h3 { margin-top:4px; }
-@media(max-width:850px){ .fx-panel { grid-template-columns:1fr; gap:0; } .fx-side h3 { margin-top:24px; } }
-
-/* Tiers: emblem images, and the profile photo framed in the tier's metal. */
-.tier-emblem { display:block; flex-shrink:0; border-radius:8px; background:#111; object-fit:cover; }
-.tier-emblem-small { width:26px; height:26px; border-radius:6px; }
-.tier-emblem-large { width:56px; height:56px; border-radius:12px; box-shadow:0 2px 6px rgba(20,24,32,.25); }
-.profile-tier { display:flex; align-items:center; gap:10px; }
-.tier-name { font-size:15px; font-weight:750; letter-spacing:-.2px; }
-.tier-bronze { color:#a4622c; } .tier-silver { color:#6e7883; } .tier-gold { color:#b48512; }
-.tier-platinum { color:#2b8fa6; } .tier-diamond { color:#2f6fd6; } .tier-master { color:#8a3fd1; }
-.profile-card[data-tier] .avatar-large { border-width:4px; border-style:solid; padding:2px; background-clip:padding-box; }
-.profile-card[data-tier="bronze"] .avatar-large { border-color:#c07a3e; box-shadow:0 0 0 2px #f1d3b8; }
-.profile-card[data-tier="silver"] .avatar-large { border-color:#a9b2bc; box-shadow:0 0 0 2px #e6eaee; }
-.profile-card[data-tier="gold"] .avatar-large { border-color:#e0ad2a; box-shadow:0 0 0 2px #f8e7b3; }
-.profile-card[data-tier="platinum"] .avatar-large { border-color:#58bfd6; box-shadow:0 0 0 2px #cdeef5; }
-.profile-card[data-tier="diamond"] .avatar-large { border-color:#3f86f0; box-shadow:0 0 0 2px #cfe0fc, 0 0 12px rgba(63,134,240,.35); }
-.profile-card[data-tier="master"] .avatar-large { border-color:#a24ff0; box-shadow:0 0 0 2px #e7d2fb, 0 0 14px rgba(162,79,240,.4); }
-.profile-card[data-tier=""] .avatar-large { border-width:1px; padding:0; }
 
 /* Daily rank change: arrow colored (up green, down red), number in plain ink. */
 .rank-change { display:inline-flex; align-items:center; gap:2px; margin-left:8px; font-size:13px; font-weight:700; color:#26374a; font-variant-numeric:tabular-nums; white-space:nowrap; }
@@ -601,10 +586,39 @@ table { font-size:15px; }
 .rank-arrow { font-size:11px; }
 .rank-arrow.up { color:#1f9d55; }
 .rank-arrow.down { color:#d94b57; }
-.rank-user .tier-emblem { margin-left:-2px; }
 
 /* Performance chart: 수익률 / 수익금 switch next to the period buttons. */
 .chart-controls { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:10px; }
 .chart-metric { display:inline-flex; border:1px solid #cfd6dd; border-radius:999px; overflow:hidden; }
 .chart-metric button { width:auto; border:0; border-radius:0; background:#fff; color:#48545f; font-weight:600; padding:7px 14px; }
 .chart-metric button[aria-pressed="true"] { background:#26374a; color:#fff; }
+
+/* Brand logo in the header. */
+.brand-logo { display:block; height:36px; width:auto; }
+@media(max-width:600px){ .brand-logo { height:26px; } }
+
+/* Profile photo set in the tier emblem's ring (the ring's window is transparent). */
+.tier-frame { position:relative; width:176px; height:176px; margin:-18px -14px -10px; }
+.tier-frame .avatar-large { position:absolute; left:20.6%; top:18.3%; width:58.9%; height:58.9%; border:0; }
+.tier-frame-ring { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
+@media(max-width:600px){ .tier-frame { width:160px; height:160px; } }
+
+/* Tier badge: a small metal pill with a cut gem. */
+.tier-badge { position:relative; display:inline-flex; align-items:center; gap:4px; overflow:hidden; vertical-align:middle;
+  padding:2px 8px 2px 6px; border-radius:999px; font-size:10.5px; font-weight:800; letter-spacing:.8px; line-height:16px; color:#fff;
+  text-shadow:0 1px 0 rgba(0,0,0,.25); box-shadow:inset 0 1px 0 rgba(255,255,255,.55), inset 0 -1px 0 rgba(0,0,0,.15), 0 1px 2px rgba(20,24,32,.18); white-space:nowrap; }
+.tier-badge svg { width:10px; height:10px; fill:currentColor; flex-shrink:0; }
+.tier-badge-large { padding:4px 12px 4px 9px; font-size:14px; letter-spacing:0; line-height:20px; }
+.tier-badge-large svg { width:13px; height:13px; }
+.rank-user .tier-badge { margin-left:8px; }
+.tier-badge-bronze { background:linear-gradient(135deg,#e9b88f,#b76c38 55%,#8c4b22); }
+.tier-badge-silver { background:linear-gradient(135deg,#eef1f4,#a8b1bb 55%,#7b8691); }
+.tier-badge-gold { background:linear-gradient(135deg,#ffe28a,#dea11f 55%,#a87408); }
+.tier-badge-platinum { background:linear-gradient(135deg,#b9eef9,#3fb0c9 55%,#237388); }
+.tier-badge-diamond { background:linear-gradient(135deg,#b7d8ff,#3a86ff 55%,#1f4fc4); }
+.tier-badge-master { background:linear-gradient(135deg,#e6c7ff,#9b45ea 55%,#5f1fa8); }
+/* The top two tiers catch the light now and then. */
+.tier-badge-diamond::after, .tier-badge-master::after { content:""; position:absolute; top:0; bottom:0; left:-60%; width:40%;
+  background:linear-gradient(100deg,transparent,rgba(255,255,255,.55),transparent); transform:skewX(-18deg); animation:tier-shine 4.5s ease-in-out infinite; }
+@keyframes tier-shine { 0%,70% { left:-60%; } 100% { left:130%; } }
+@media (prefers-reduced-motion:reduce) { .tier-badge::after { animation:none; display:none; } }

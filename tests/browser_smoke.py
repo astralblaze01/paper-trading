@@ -21,7 +21,8 @@ with sync_playwright() as p:
         errors=[]
         page.on('pageerror',lambda e:errors.append(str(e)))
         page.goto('http://browserweb:8000/')
-        expect(page).to_have_title('VANTAGE · 모의투자')
+        expect(page).to_have_title('ALPHARENA · 모의투자')
+        expect(page.locator('header .brand-logo')).to_have_attribute('alt','ALPHARENA')
         name='browser_'+str(width)+'_'+str(int(time.time()))
         page.locator('#showSignup').click()
         expect(page.locator('#registerForm')).to_be_visible()
@@ -49,9 +50,6 @@ with sync_playwright() as p:
         expect(page.locator('#fxEstimate')).to_contain_text('998,500')
         page.locator('#fxForm button.full-width').click()
         expect(page.locator('#fxHistory')).to_contain_text('998,500')
-        # Wide screens: form and history side by side; phones: stacked.
-        form_box,side_box=page.locator('.fx-main').bounding_box(),page.locator('.fx-side').bounding_box()
-        assert (side_box['x']>form_box['x']+form_box['width']-1) if width>=900 else (side_box['y']>=form_box['y']+form_box['height']-1), (form_box,side_box)
         page.screenshot(path=f'/artifacts/fx-{width}.png',full_page=True)
         expect(page.locator('#fxAvailable')).to_contain_text('99,000')
         page.locator('#fxSource').select_option('KRW')
@@ -65,7 +63,7 @@ with sync_playwright() as p:
         expect(page.locator('#fxAmount')).to_have_value('99000')
         page.locator('a[href="#explore"]').click()
         expect(page.locator('#exploreMarkets button')).to_have_count(5)
-        expect(page.locator('#exploreKinds button')).to_have_text(['거래량','거래대금','급상승','급하락','VANTAGE 인기'])
+        expect(page.locator('#exploreKinds button')).to_have_text(['거래량','거래대금','급상승','급하락','ALPHARENA 인기'])
         expect(page.locator('[data-kind="shares"]')).to_have_attribute('aria-pressed','true')
         page.locator('[data-kind="volume"]').click()
         expect(page.locator('#exploreRows th')).to_contain_text(['#','종목','현재가','등락률','거래대금','거래량','시장'])
@@ -258,9 +256,10 @@ with sync_playwright() as p:
         expect(page.locator('#feeSummary .fee-total')).to_contain_text('총 수수료')
         expect(page.locator('#feeRates')).to_contain_text('토스증권 기준')
         # Profile line: tier emblem left of the rank, realized profit; the photo framed in the tier color.
-        expect(page.locator('#myProfile .profile-tier .tier-emblem')).to_be_visible()
+        expect(page.locator('#myProfile .profile-tier .tier-badge')).to_be_visible()
         expect(page.locator('#myProfile')).to_contain_text('실현 손익 (매도 확정)')
-        assert page.evaluate("getComputedStyle(document.querySelector('#myProfile .avatar-large')).borderTopWidth")=='4px'
+        # The photo sits inside the tier emblem's ring.
+        expect(page.locator('#myProfile .tier-frame .tier-frame-ring')).to_have_attribute('src',re.compile(r'^/static/tiers/\w+\.webp$'))
         # 수익률 / 수익금 switch on my performance chart.
         page.locator('#myPerformanceMetric [data-metric="pnl"]').click()
         expect(page.locator('#myPerformanceMetric [data-metric="pnl"]')).to_have_attribute('aria-pressed','true')
@@ -288,7 +287,8 @@ with sync_playwright() as p:
         expect(page.locator('#ranking th')).to_contain_text(['순위','사용자 · 프로필 보기','총 평가금액 (KRW)','평가 수익률 (원화 기준)'])
         expect(page.locator('#ranking td').nth(2)).to_contain_text('원')
         expect(page.locator('#ranking tbody tr').first).to_have_class(re.compile(r'\btop-rank-1\b'))
-        expect(page.locator('#ranking tbody tr').first.locator('.tier-emblem')).to_have_attribute('src','/static/tiers/master.webp')
+        expect(page.locator('#ranking tbody tr').first.locator('.tier-badge')).to_have_text('MASTER')
+        expect(page.locator('#ranking tbody tr').first).not_to_have_css('background-image','none')
         # The daily arrow: rendered from the row's morning place.
         page.evaluate("rankingCache={...rankingCache,rows:rankingCache.rows.map((r,i)=>i===0?{...r,previous_rank:3}:i===1?{...r,previous_rank:1}:r)};renderRanking()")
         expect(page.locator('#ranking tbody tr').first.locator('.rank-arrow.up')).to_have_text('▲')
