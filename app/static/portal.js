@@ -417,11 +417,16 @@ function renderWatchlist(){
   if(!watchCache.length)$('watchRows').append(node('p','종목 상세나 시장 탐색의 별 버튼으로 관심종목을 추가하세요.','empty-state'));
 }
 async function removeWatch(symbol){const r=await fetch('/api/watchlist/'+encodeURIComponent(symbol),{method:'DELETE',headers:{'X-CSRF-Token':csrf}});if(!r.ok)throw Error('관심종목을 삭제하지 못했습니다.');}
+// The estimate follows the amount as it is typed; only the latest request may write it.
+let fxPreviewSeq=0,fxPreviewTimer=null;
+function scheduleFxEstimate(){clearTimeout(fxPreviewTimer);fxPreviewSeq++;$('fxEstimate').textContent='';fxPreviewTimer=setTimeout(fxEstimate,400);}
 async function fxEstimate(){
-  const r=await api('fx/preview',{source:$('fxSource').value,amount:$('fxAmount').value});
+  clearTimeout(fxPreviewTimer);const seq=++fxPreviewSeq,amount=$('fxAmount').value;
+  if(!(Number(amount)>0)){$('fxEstimate').textContent='';return;}
+  let r;try{r=await api('fx/preview',{source:$('fxSource').value,amount});}catch(e){if(seq===fxPreviewSeq)$('fxEstimate').textContent=e.message;return;}
+  if(seq!==fxPreviewSeq)return;
   $('fxEstimate').textContent=`${r.date} 기준환율 ${r.rate} · 스프레드 ${r.spread_bps} bps · 수수료 ${nativeMoney(r.fee,r.source)}\n최종 수령 ${nativeMoney(r.received,r.target)}\n예상 잔액 ${money(r.balances_after.USD)} / ${nativeMoney(r.balances_after.KRW,'KRW')}`;
 }
-handle('fxPreview','click',fxEstimate);
 // Poll our cached reference; the server schedules external ECB refreshes.
 const FX_REFRESH_MS=30*60*1000;
 async function loadFxRate(){
@@ -438,8 +443,8 @@ window.updateFxBalance=function(){
   $('fxAmountUnit').textContent=source;
   $('fxAmount').step=source==='USD'?'0.0001':'1';$('fxAmount').min=source==='USD'?'0.0001':'1';
 };
-$('fxSource').addEventListener('change',()=>{exchangePending=null;$('fxAmount').value='';$('fxEstimate').textContent='';updateFxBalance();});
-$('fxAmount').addEventListener('input',()=>{$('fxEstimate').textContent='';});
+$('fxSource').addEventListener('change',()=>{exchangePending=null;$('fxAmount').value='';fxPreviewSeq++;$('fxEstimate').textContent='';updateFxBalance();});
+$('fxAmount').addEventListener('input',scheduleFxEstimate);
 // Quick amounts as a share of the balance; the server rounds to the currency unit.
 document.querySelectorAll('[data-fx-share]').forEach(b=>b.addEventListener('click',async()=>{
   try{
@@ -455,7 +460,7 @@ handle('fxForm','submit',async()=>{
   exchangePending=reuseRequestId(exchangePending,sig);
   await api('fx/exchange',{...data,request_id:exchangePending.id});
   exchangePending=null;toast('모의 환전이 완료되었습니다.','success');
-  await refresh();await fxHistory();
+  await refresh();await fxHistory();fxEstimate();
 });
 async function fxHistory(){
   const rows=await api('fx/history');

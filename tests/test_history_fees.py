@@ -42,6 +42,26 @@ def test_history_filters_by_side_and_korea_time_month(client):
     assert client.get('/api/transactions?side=hold').status_code == 422
 
 
+def test_history_summary_totals_a_korea_time_month_per_currency(client, monkeypatch):
+    token = register(client)
+    monkeypatch.setenv('US_BUY_FEE_BPS', '10'); monkeypatch.setenv('US_SELL_FEE_BPS', '10')
+    buy(client, token, quantity=10); buy(client, token, quantity=4, side='sell')
+    uid = uid_of()
+    with Session.begin() as db:
+        sale = db.scalar(select(Transaction).where(Transaction.user_id == uid, Transaction.side == 'sell'))
+        sale.created_at = datetime(2026, 8, 31, 14, 30, tzinfo=timezone.utc)   # 23:30 in Korea: August
+        buy_month = db.scalar(select(Transaction.created_at).where(Transaction.user_id == uid, Transaction.side == 'buy'))
+    month = buy_month.astimezone(main.SEOUL).strftime('%Y-%m')
+    everything = client.get('/api/transactions/summary').json()['currencies']
+    assert (everything['USD']['buy_count'], everything['USD']['sell_count']) == (1, 1)
+    assert {k: D(str(v)) for k, v in everything['KRW'].items()} == dict.fromkeys(everything['KRW'], D(0))
+    august = client.get('/api/transactions/summary?month=2026-08').json()['currencies']['USD']
+    assert (august['buy_count'], august['sell_count'], D(str(august['sell_gross'])), D(str(august['fee']))) == (0, 1, D(400), D('.4'))
+    current = client.get(f'/api/transactions/summary?month={month}').json()['currencies']['USD']
+    assert (current['buy_count'], D(str(current['buy_gross'])), D(str(current['fee']))) == (1, D(1000), 1)
+    assert client.get('/api/transactions/summary?month=2026-13').status_code == 422
+
+
 def test_fee_summary_keeps_each_currency_and_totals_in_krw(client, monkeypatch):
     token = register(client)
     monkeypatch.setenv('US_BUY_FEE_BPS', '10'); monkeypatch.setenv('US_SELL_FEE_BPS', '10')

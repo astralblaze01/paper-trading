@@ -389,6 +389,26 @@ def transaction_months(uid=Depends(current_user)):
                                   FROM transactions WHERE user_id = :u GROUP BY 1 ORDER BY 1 DESC"""), {'u': uid}).all()
     return [{'month': m, 'count': c} for m, c in rows]
 
+@app.get('/api/transactions/summary')
+def transaction_summary(month: str | None = Query(None, max_length=7), uid=Depends(current_user)):
+    """Totals of every fill in a Korea-time month (or all time), per settlement currency: the history side card.
+
+    Counted on the server over all pages, so the card never totals only the page on screen. Rows from before
+    gross amounts were recorded use price x quantity."""
+    params, bounds = {'u': uid}, ''
+    if month:
+        params['start'], params['end'] = _month_bounds(month)
+        bounds = 'AND created_at >= :start AND created_at < :end'
+    with Session() as db:
+        rows = db.execute(text(f"""SELECT currency, side, count(*), coalesce(sum(coalesce(gross_amount, native_price * quantity)), 0),
+                                          coalesce(sum(fee), 0), coalesce(sum(tax), 0)
+                                   FROM transactions WHERE user_id = :u {bounds} GROUP BY 1, 2"""), params).all()
+    zero = Decimal(0)
+    totals = {c: {'buy_count': 0, 'buy_gross': zero, 'sell_count': 0, 'sell_gross': zero, 'fee': zero, 'tax': zero} for c in ('USD', 'KRW')}
+    for currency, side, count, gross, fee, tax in rows:
+        row = totals[currency]; row[side + '_count'] += count; row[side + '_gross'] += gross; row['fee'] += fee; row['tax'] += tax
+    return {'month': month, 'currencies': totals}
+
 @app.get('/api/fees')
 def fee_summary(uid=Depends(current_user)):
     """What this account has paid, per currency: trading fees (buy/sell), sell taxes and FX fees.

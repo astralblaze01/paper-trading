@@ -719,14 +719,28 @@ footer { max-width: 1280px; margin: 0 auto; padding: 8px 36px 28px; display: fle
 @media (max-width: 900px) { .weekly-leaders { grid-template-columns: repeat(2, minmax(0,1fr)); } }
 @media (max-width: 600px) { .weekly-leaders { grid-template-columns: 1fr; } }
 
-/* ---- History: side chips and a month picker on one line ---- */
+/* ---- History: the fills table, with reservations and the period's totals beside it ---- */
+.history-grid { display: grid; grid-template-columns: minmax(0,1fr) 340px; grid-template-areas: "history reserve" "history summary"; grid-template-rows: auto 1fr; gap: 0 24px; align-items: start; }
+.history-grid > .history-panel { grid-area: history; }
+.history-grid > .reserve-panel { grid-area: reserve; }
+.history-grid > .history-summary { grid-area: summary; }
+.summary-list { margin: 0; display: grid; gap: 8px; }
+.summary-list div { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.summary-list dt { color: var(--muted); font-size: var(--fs-sm); }
+.summary-list dd { margin: 0; font-family: var(--font-num); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; text-align: right; }
+.history-summary .field-help { margin: 12px 0 0; font-size: var(--fs-xs); }
+@media (max-width: 1000px) { .history-grid { grid-template-columns: 1fr; grid-template-areas: "reserve" "history" "summary"; grid-template-rows: none; } }
 .history-filters { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; margin: 14px 0 6px; }
 .history-month { display: inline-flex; align-items: center; gap: 8px; margin: 0; font-weight: 600; color: var(--muted); }
 .history-month select { width: auto; min-width: 170px; height: 38px; }
 .trade-side { font-weight: 700; font-family: var(--font-sans); }
 
 /* ---- Virtual FX ---- */
-[data-page="fx"] form { max-width: 620px; }
+/* Form on the left, the exchange log beside it on wide screens. */
+.fx-page { display: grid; grid-template-columns: minmax(0,460px) minmax(0,1fr); gap: 32px; align-items: start; }
+.fx-side h3 { margin: 0 0 12px; font-size: var(--fs-base); font-weight: 700; }
+#fxEstimate:empty { display: none; }
+@media (max-width: 1000px) { .fx-page { grid-template-columns: 1fr; gap: 24px; } }
 .fx-balance { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 2px 0 14px; color: var(--accent); font-weight: 600; font-family: var(--font-num); }
 .fx-rate { padding: 14px 16px; margin-top: 18px; border: 1px solid var(--border-strong); border-left: 3px solid var(--accent); border-radius: var(--radius-control); background: var(--surface-2); color: var(--ink-strong); font-weight: 650; font-family: var(--font-num); font-variant-numeric: tabular-nums; }
 

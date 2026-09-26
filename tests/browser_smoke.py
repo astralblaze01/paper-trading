@@ -50,7 +50,8 @@ with sync_playwright() as p:
         expect(page.locator('#fxAmountUnit')).to_have_text('USD')
         expect(page.locator('#fxAvailable')).to_contain_text('100,000')
         page.locator('#fxAmount').fill('1000')
-        page.locator('#fxPreview').click()
+        # The estimate follows the typed amount; there is no separate preview button.
+        expect(page.locator('#fxPreview')).to_have_count(0)
         expect(page.locator('#fxEstimate')).to_contain_text('998,500')
         page.locator('#fxForm button.full-width').click()
         expect(page.locator('#fxHistory')).to_contain_text('998,500')
@@ -364,6 +365,9 @@ with sync_playwright() as p:
         assert page.locator('#historyMonth option').count()>=2 and '년' in page.locator('#historyMonth option').nth(1).inner_text()
         page.locator('#historyMonth').select_option(index=1)
         expect(page.locator('#history .trade-side.loss').first).to_be_visible()
+        # The side card totals the chosen month on the server, whatever the side filter shows.
+        expect(page.locator('#historySummaryTitle')).to_contain_text('월 합계')
+        expect(page.locator('#historySummary dt').first).to_contain_text('매수 체결')
         page.screenshot(path=f'/artifacts/history-{width}.png',full_page=True)
         page.locator('#historySide button[data-side=""]').click();page.locator('#historyMonth').select_option('')
         # The rate note is just the date and the rate.

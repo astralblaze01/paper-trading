@@ -284,8 +284,19 @@ async function refreshRankingOnly(){
 let historySide='',historyMonth='';
 async function history() {
   const query=new URLSearchParams({page});if(historySide)query.set('side',historySide);if(historyMonth)query.set('month',historyMonth);
-  const [rows]=await Promise.all([api('transactions?'+query),loadHistoryMonths()]);
-  historyCache=rows;renderHistory();
+  const [rows,summary]=await Promise.all([api('transactions?'+query),api('transactions/summary'+(historyMonth?'?month='+historyMonth:'')),loadHistoryMonths()]);
+  historyCache=rows;renderHistory();renderHistorySummary(summary);
+}
+// The side card: server totals for the chosen month (all pages, both sides), each in its settlement currency.
+function renderHistorySummary(summary){
+  const [y,m]=(summary.month||'').split('-');
+  $('historySummaryTitle').textContent=summary.month?`${y}년 ${Number(m)}월 합계`:'전체 기간 합계';
+  const c=summary.currencies,both=(pick,has)=>['USD','KRW'].filter(k=>has(c[k])).map(k=>nativeMoney(pick(c[k]),k)).join(' · ')||'—';
+  const count=side=>c.USD[side+'_count']+c.KRW[side+'_count'];
+  const lines=[[`매수 체결 · ${count('buy')}건`,both(r=>r.buy_gross,r=>r.buy_count>0)],
+               [`매도 체결 · ${count('sell')}건`,both(r=>r.sell_gross,r=>r.sell_count>0)],
+               ['수수료 · 세금',both(r=>Number(r.fee)+Number(r.tax),r=>r.buy_count+r.sell_count>0)]];
+  $('historySummary').replaceChildren(...lines.map(([label,value])=>{const row=document.createElement('div'),dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=label;dd.textContent=value;row.append(dt,dd);return row;}));
 }
 async function loadHistoryMonths(){
   const months=await api('transactions/months'),select=$('historyMonth');
