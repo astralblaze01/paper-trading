@@ -117,7 +117,7 @@ function renderRanking(){if(!rankingCache)return;
         ? `장이 닫혀 마지막 랭킹을 유지합니다 · 기준 ${asOf}${markets?' · '+markets:''}`
         : `기준 ${asOf} · 다음 갱신 ${next}${markets?' · '+markets:''} · 10초 단위`);
   }
-  const person=x=>{const box=document.createElement('span');box.className='rank-user';if(window.avatar)box.append(avatar(x.username,x.image_version,'small'));box.append(userLink(x.username));return box;};
+  const person=x=>{const box=document.createElement('span');box.className='rank-user';if(x.tier)box.dataset.tier=x.tier;if(window.avatar)box.append(avatar(x.username,x.image_version,'small'));if(x.tier&&window.tierEmblem)box.append(tierEmblem(x.tier));box.append(userLink(x.username));if(window.rankChange)box.append(rankChange(x.rank,x.previous_rank));return box;};
   // Ranked by USD value; shown in the selected display currency at the snapshot's rate.
   table($('ranking'),['순위','사용자 · 프로필 보기','총 평가금액 ('+viewCurrency('USD')+')','평가 수익률 ('+basisLabel()+')'],rankingCache.rows.map(x=>[rankBadge(x.rank),person(x),equityTone(viewMoney(x.equity_usd,'USD',x.fx||viewFx),accountReturn(x),.01),signedPct(accountReturn(x))]));
   $('ranking').querySelectorAll('tbody tr').forEach((tr,i)=>{const rank=rankingCache.rows[i].rank;if(rank<=3)tr.classList.add('top-rank','top-rank-'+rank);});

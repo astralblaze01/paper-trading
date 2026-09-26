@@ -562,3 +562,49 @@ table { font-size:15px; }
 .reserve-row.status-rejected .reserve-state { color:#b03a44; }
 .reserve-row button { width:auto; }
 .reserve-rows .empty-state { margin:8px 0; }
+
+/* Stock page: on wide screens company info sits right under the chart, the order
+   panel runs down the right; narrow screens keep chart, order, company in order. */
+.detail-grid { grid-template-areas:"chart order" "company order"; grid-template-rows:auto 1fr; align-items:start; }
+.detail-grid > .chart-panel { grid-area:chart; }
+.detail-grid > .order-panel { grid-area:order; }
+.detail-grid > .company-panel { grid-area:company; }
+@media(max-width:850px){ .detail-grid { grid-template-areas:"chart" "order" "company"; grid-template-rows:none; } }
+
+/* FX: exchange form and history side by side on wide screens. */
+.fx-panel { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:32px; align-items:start; }
+.fx-panel form { max-width:none; }
+.fx-side h3 { margin-top:4px; }
+@media(max-width:850px){ .fx-panel { grid-template-columns:1fr; gap:0; } .fx-side h3 { margin-top:24px; } }
+
+/* Tiers: emblem images, and the profile photo framed in the tier's metal. */
+.tier-emblem { display:block; flex-shrink:0; border-radius:8px; background:#111; object-fit:cover; }
+.tier-emblem-small { width:26px; height:26px; border-radius:6px; }
+.tier-emblem-large { width:56px; height:56px; border-radius:12px; box-shadow:0 2px 6px rgba(20,24,32,.25); }
+.profile-tier { display:flex; align-items:center; gap:10px; }
+.tier-name { font-size:15px; font-weight:750; letter-spacing:-.2px; }
+.tier-bronze { color:#a4622c; } .tier-silver { color:#6e7883; } .tier-gold { color:#b48512; }
+.tier-platinum { color:#2b8fa6; } .tier-diamond { color:#2f6fd6; } .tier-master { color:#8a3fd1; }
+.profile-card[data-tier] .avatar-large { border-width:4px; border-style:solid; padding:2px; background-clip:padding-box; }
+.profile-card[data-tier="bronze"] .avatar-large { border-color:#c07a3e; box-shadow:0 0 0 2px #f1d3b8; }
+.profile-card[data-tier="silver"] .avatar-large { border-color:#a9b2bc; box-shadow:0 0 0 2px #e6eaee; }
+.profile-card[data-tier="gold"] .avatar-large { border-color:#e0ad2a; box-shadow:0 0 0 2px #f8e7b3; }
+.profile-card[data-tier="platinum"] .avatar-large { border-color:#58bfd6; box-shadow:0 0 0 2px #cdeef5; }
+.profile-card[data-tier="diamond"] .avatar-large { border-color:#3f86f0; box-shadow:0 0 0 2px #cfe0fc, 0 0 12px rgba(63,134,240,.35); }
+.profile-card[data-tier="master"] .avatar-large { border-color:#a24ff0; box-shadow:0 0 0 2px #e7d2fb, 0 0 14px rgba(162,79,240,.4); }
+.profile-card[data-tier=""] .avatar-large { border-width:1px; padding:0; }
+
+/* Daily rank change: arrow colored (up green, down red), number in plain ink. */
+.rank-change { display:inline-flex; align-items:center; gap:2px; margin-left:8px; font-size:13px; font-weight:700; color:#26374a; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.rank-change:empty { display:none; }
+.rank-change.same { color:#9aa4ae; font-weight:600; }
+.rank-arrow { font-size:11px; }
+.rank-arrow.up { color:#1f9d55; }
+.rank-arrow.down { color:#d94b57; }
+.rank-user .tier-emblem { margin-left:-2px; }
+
+/* Performance chart: 수익률 / 수익금 switch next to the period buttons. */
+.chart-controls { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:10px; }
+.chart-metric { display:inline-flex; border:1px solid #cfd6dd; border-radius:999px; overflow:hidden; }
+.chart-metric button { width:auto; border:0; border-radius:0; background:#fff; color:#48545f; font-weight:600; padding:7px 14px; }
+.chart-metric button[aria-pressed="true"] { background:#26374a; color:#fff; }

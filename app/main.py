@@ -38,6 +38,7 @@ from .redis_cache import redis_cache
 from .market_stream import QuoteHub, enabled as quote_sse_enabled
 from .quote_policy import max_age as quote_max_age
 from .kr_session import SEOUL
+from .tiers import tier_for, previous_ranks
 from .logging_config import configure_logging
 from .security import limiter, worker_token, WORKER_TOKEN_HEADER, SESSION_COOKIE, SESSION_MAX_AGE
 
@@ -338,7 +339,7 @@ def _public_user(db, username):
 PUBLIC_PORTFOLIO_FIELDS = ('username', 'wallets', 'positions', 'equity', 'equity_usd', 'base_currency', 'pnl',
                            'return_pct', 'return_basis', 'fx', 'errors', 'stale',
                            'initial_equity', 'initial_fx_date', 'initial_fx_effect', 'other_pnl',
-                           'pnl_usd', 'return_pct_usd', 'initial_usd')
+                           'pnl_usd', 'return_pct_usd', 'initial_usd', 'realized_pnl')
 
 @app.get('/api/portfolios/{username}')
 def public_portfolio(username: str, uid=Depends(current_user)):
@@ -427,7 +428,8 @@ def _ranking_response(payload, state, next_boundary, refreshed, **overrides):
 
 def _drop_ineligible(payload, names):
     """Remove suspended, promoted or deleted accounts from a snapshot in place and renumber the rest."""
-    payload['rows'] = [row | {'rank': i + 1} for i, row in enumerate(row for row in payload['rows'] if row['username'] in names)]
+    kept = [row for row in payload['rows'] if row['username'] in names]
+    payload['rows'] = [row | {'rank': i + 1, 'tier': tier_for(i + 1, len(kept))} for i, row in enumerate(kept)]
 
 @app.get('/api/ranking')
 def ranking(uid=Depends(current_user)):
@@ -474,10 +476,13 @@ def ranking(uid=Depends(current_user)):
             return _ranking_response(payload, state, next_boundary, True)
         # Rank by total value in USD; the cumulative return is display only.
         ranked=sorted(zip(ids,values),key=lambda pair:(-pair[1]['equity_usd'],pair[1]['username']))
-        with Session() as db: versions=profile_versions(db,ids)
+        with Session() as db:
+            versions=profile_versions(db,ids)
+            # Place at the day's baseline (the morning snapshot), for the ▲/▼ next to each name.
+            before,_=previous_ranks(db,ids,now.astimezone(SEOUL).date())
         rows=[{'rank':i+1,'username':v['username'],'equity':v['equity'],'equity_usd':v['equity_usd'],
                'return_pct':v['return_pct'],'return_pct_usd':v['return_pct_usd'],'stale':v['stale'],'fx':v['fx'],
-               'image_version':versions.get(i_id,0)}
+               'image_version':versions.get(i_id,0),'tier':tier_for(i+1,len(ranked)),'previous_rank':before.get(i_id)}
               for i,(i_id,v) in enumerate(ranked)]
         payload=_ranking_payload(rows, [], incomplete=False, updated_at=now.isoformat(), stale=any(v['stale'] for v in values))
         _ranking_cache[cache_key] = {'bucket': bucket, 'payload': payload}

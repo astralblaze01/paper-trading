@@ -336,9 +336,11 @@ $('priceChart').addEventListener('keydown',e=>{if(['ArrowLeft','ArrowRight'].inc
 new ResizeObserver(drawChart).observe($('priceChart'));
 
 function renderPublic(){if(!publicCache)return;const p=publicCache;$('publicTitle').textContent=p.username+'님의 투자 현황';
-  if(window.renderProfileCard)renderProfileCard($('publicProfile'),{username:p.username,bio:p.profile?.bio,image_version:p.profile?.image_version,equity_usd:p.equity_usd,return_pct:p.return_pct,return_pct_usd:p.return_pct_usd,rank:rankOf(p.username),member_days:p.member_days,member_since:p.member_since},false);
+  if(window.renderProfileCard)renderProfileCard($('publicProfile'),{username:p.username,bio:p.profile?.bio,image_version:p.profile?.image_version,equity_usd:p.equity_usd,return_pct:p.return_pct,return_pct_usd:p.return_pct_usd,realized_pnl:p.realized_pnl,fx:p.fx,...rankRow(p.username),member_days:p.member_days,member_since:p.member_since},false);
   renderMetrics($('publicMetrics'),p);if(window.renderAllocation)renderAllocation($('publicAllocation'),p);renderPositions($('publicPositions'),p);
   $('publicNotice').textContent=(p.return_basis||'초기 KRW 평가액 대비 (외부 입출금 반영)')+(p.errors.length?' · '+p.errors.join(' · '):'')+(p.stale?' · 마지막 시세 기준 평가':'');}
+// rank, tier and morning rank of a user from the current ranking, for profile cards.
+function rankRow(username){const row=rankOf(username)!=null?(rankingCache.rows||[]).find(r=>r.username===username):null;return row?{rank:row.rank,tier:row.tier,previous_rank:row.previous_rank}:{rank:null};}
 function rankOf(username){if(!rankingCache||rankingCache.incomplete&&!rankingCache.rows?.length)return null;const row=(rankingCache.rows||[]).find(r=>r.username===username);return row?row.rank:null;}
 function renderOrderPreview(){
   const r=orderPreview;if(!r)return;
@@ -628,8 +630,15 @@ window.addEventListener('displaycurrencychange',renderReserves);
 // One chart widget, used on the public profile and on my own portfolio page.
 // The return basis follows the display currency: USD shows the dollar-basis
 // return, everything else the KRW-basis one (the account's base currency).
+// Axis labels for money: 만/억 for won, K/M for dollars, sign kept.
+function compactMoney(v,currency){
+  const n=Number(v),a=Math.abs(n),sign=n<0?'-':'';
+  if(currency==='KRW'){if(a>=1e8)return sign+(a/1e8).toFixed(a>=1e9?0:1)+'억원';if(a>=1e4)return sign+(a/1e4).toFixed(a>=1e5?0:1)+'만원';return sign+Math.round(a)+'원';}
+  if(a>=1e6)return sign+'$'+(a/1e6).toFixed(1)+'M';if(a>=1e3)return sign+'$'+(a/1e3).toFixed(1)+'K';return sign+'$'+a.toFixed(a>=100?0:2);
+}
 function performanceWidget(ids,path){
-  const w={user:null,period:'1M',version:0,data:null};
+  // metric: 'return' (평가 수익률 %) or 'pnl' (평가손익 in money, same basis).
+  const w={user:null,period:'1M',version:0,data:null,metric:'return'};
   const canvas=$(ids.chart),notice=$(ids.notice);
   w.load=async function(username,period=w.period){
     w.user=username;w.period=period;const version=++w.version;
@@ -640,7 +649,9 @@ function performanceWidget(ids,path){
   };
   w.draw=function(r){
     w.data=r;
-    const basis=returnBasis(),field=basis==='USD'?'cumulative_return_usd_pct':'cumulative_return_pct';
+    const basis=returnBasis(),money=w.metric==='pnl';
+    const field=money?(basis==='USD'?'pnl_usd':'pnl_krw'):(basis==='USD'?'cumulative_return_usd_pct':'cumulative_return_pct');
+    const fmt=v=>money?compactMoney(v,basis):pct(v),what=money?'평가손익':'평가 수익률';
     // Days recorded before the dollar bookkeeping have no USD value; they are left out, not guessed.
     const all=r.snapshots||[],rows=all.filter(x=>x[field]!=null),ctx=canvas.getContext('2d');
     canvas.hidden=!rows.length;
@@ -648,28 +659,31 @@ function performanceWidget(ids,path){
     const width=canvas.clientWidth,height=canvas.clientHeight,dpr=Math.min(window.devicePixelRatio||1,2);
     if(!width||!height)return; // ResizeObserver redraws when the page becomes visible.
     canvas.width=Math.round(width*dpr);canvas.height=Math.round(height*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,width,height);
-    const vals=rows.map(x=>Number(x[field])),low=Math.min(...vals,0),high=Math.max(...vals,0),padding=Math.max((high-low)*.15,.1),min=low-padding,max=high+padding;
+    const vals=rows.map(x=>Number(x[field])),low=Math.min(...vals,0),high=Math.max(...vals,0),padding=Math.max((high-low)*.15,money?(basis==='USD'?1:1000):.1),min=low-padding,max=high+padding;
     const left=66,right=width-16,top=24,bottom=height-28,times=rows.map(row=>Date.parse(row.date)),duration=times.at(-1)-times[0];
     const x=i=>duration?left+(right-left)*(times[i]-times[0])/duration:(left+right)/2,y=v=>bottom-(bottom-top)*(v-min)/(max-min);
     ctx.font='12px sans-serif';ctx.fillStyle='#697580';ctx.textAlign='right';
-    for(const value of new Set([min,0,max])){ctx.strokeStyle=value===0?'#a8b4c0':'#e7ebef';ctx.beginPath();ctx.moveTo(left,y(value));ctx.lineTo(right,y(value));ctx.stroke();ctx.fillText(pct(value),left-8,y(value)+4);}
+    for(const value of new Set([min,0,max])){ctx.strokeStyle=value===0?'#a8b4c0':'#e7ebef';ctx.beginPath();ctx.moveTo(left,y(value));ctx.lineTo(right,y(value));ctx.stroke();ctx.fillText(fmt(value),left-8,y(value)+4);}
     const last=vals.at(-1);ctx.strokeStyle=trendColor(last);ctx.lineWidth=2.5;ctx.beginPath();vals.forEach((v,i)=>i?ctx.lineTo(x(i),y(v)):ctx.moveTo(x(i),y(v)));ctx.stroke();ctx.lineWidth=1;
     ctx.fillStyle=trendColor(last);ctx.beginPath();ctx.arc(x(vals.length-1),y(last),4,0,Math.PI*2);ctx.fill();
-    ctx.textAlign=rows.length===1?'center':'right';ctx.fillText(pct(last),x(vals.length-1),Math.max(14,y(last)-10));
+    ctx.textAlign=rows.length===1?'center':'right';ctx.fillText(fmt(last),x(vals.length-1),Math.max(14,y(last)-10));
     ctx.fillStyle='#697580';ctx.textAlign=rows.length===1?'center':'left';ctx.fillText(rows[0].date,rows.length===1?x(0):left,height-6);
     if(rows.length>1){ctx.textAlign='right';ctx.fillText(rows.at(-1).date,right,height-6);}
-    canvas.setAttribute('aria-label',`${rows[0].date}부터 ${rows.at(-1).date}까지 ${basisLabel(basis)} 평가 수익률, 마지막 ${pct(last)}, ${rows.length}일 기록`);
+    canvas.setAttribute('aria-label',`${rows[0].date}부터 ${rows.at(-1).date}까지 ${basisLabel(basis)} ${what}, 마지막 ${fmt(last)}, ${rows.length}일 기록`);
     const periodValue=basis==='USD'?r.period_return_usd_pct:r.period_return_pct;
     const period=periodValue==null?'':` · 기간 수익률 ${pct(periodValue)}`;
-    notice.textContent=`${rows.at(-1).date} 기록 · 평가 수익률 ${pct(last)} (${basisLabel(basis)})${period}${rows.length===1?' · 첫 기록을 점으로 표시했습니다. 두 번째 기록부터 선으로 연결합니다.':''} · 하루 한 번 저장한 값으로, 현재 계좌 수익률과 다를 수 있습니다.${r.baseline_changed?' · 기간 중 수익률 기준 재설정 있음':''}${rows.some(x=>x.stale)?' · 일부 날짜는 마지막 확인 시세 기준':''}`;
+    notice.textContent=`${rows.at(-1).date} 기록 · ${what} ${money?nativeMoney(last,basis):pct(last)} (${basisLabel(basis)})${money?'':period}${rows.length===1?' · 첫 기록을 점으로 표시했습니다. 두 번째 기록부터 선으로 연결합니다.':''} · 하루 한 번 저장한 값으로, 현재 계좌 수익률과 다를 수 있습니다.${r.baseline_changed?' · 기간 중 수익률 기준 재설정 있음':''}${rows.some(x=>x.stale)?' · 일부 날짜는 마지막 확인 시세 기준':''}`;
   };
   new ResizeObserver(()=>{if(w.data&&canvas.clientWidth)w.draw(w.data);}).observe(canvas);
   document.querySelectorAll('#'+ids.ranges+' button').forEach(b=>b.addEventListener('click',()=>{if(w.user)w.load(w.user,b.dataset.period);}));
+  document.querySelectorAll('#'+ids.metric+' button').forEach(b=>b.addEventListener('click',()=>{
+    w.metric=b.dataset.metric;document.querySelectorAll('#'+ids.metric+' button').forEach(x=>x.setAttribute('aria-pressed',String(x===b)));
+    if(w.data)w.draw(w.data);}));
   window.addEventListener('displaycurrencychange',()=>{if(w.data)w.draw(w.data);});
   return w;
 }
-const publicPerformance=performanceWidget({chart:'performanceChart',notice:'performanceNotice',ranges:'performanceRanges'},name=>'performance/'+encodeURIComponent(name));
-const myPerformance=performanceWidget({chart:'myPerformanceChart',notice:'myPerformanceNotice',ranges:'myPerformanceRanges'},()=>'performance/me');
+const publicPerformance=performanceWidget({chart:'performanceChart',notice:'performanceNotice',ranges:'performanceRanges',metric:'performanceMetric'},name=>'performance/'+encodeURIComponent(name));
+const myPerformance=performanceWidget({chart:'myPerformanceChart',notice:'myPerformanceNotice',ranges:'myPerformanceRanges',metric:'myPerformanceMetric'},()=>'performance/me');
 function loadPerformance(username,period){return publicPerformance.load(username,period);}
 function drawPerformance(r){publicPerformance.draw(r);}
 window.loadMyPerformance=()=>myPerformance.load(window.sessionUsername);

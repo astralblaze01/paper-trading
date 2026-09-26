@@ -326,6 +326,10 @@ def series(uid, start, end):
         points.append({'date': row.snapshot_date, 'equity_krw': row.equity_krw, 'equity_usd': row.equity_usd,
                        'cumulative_return_pct': row.cumulative_return_pct, 'daily_return_pct': daily,
                        'cumulative_return_usd_pct': cumulative_usd(row), 'fx_rate': row.fx_rate,
+                       # Profit in money since the baseline (outside money excluded), per basis.
+                       'pnl_krw': row.equity_krw - row.initial_equity_krw - row.net_contributions_krw,
+                       'pnl_usd': None if row.initial_equity_usd is None or row.net_contributions_usd is None
+                                  else row.equity_usd - row.initial_equity_usd - row.net_contributions_usd,
                        'stale': row.stale})
     result = {'snapshots': points, 'period_return_pct': None, 'period_return_usd_pct': None,
               'period_start': None, 'period_end': None, 'baseline_changed': rebased, 'benchmarks': {}}

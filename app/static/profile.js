@@ -11,12 +11,36 @@ window.avatar=function(username,version,size='large'){
   return img;
 };
 
+// Tiers come with the ranking rows (server: app/tiers.py); emblems live in /static/tiers/.
+const TIER_LABELS={master:'마스터',diamond:'다이아몬드',platinum:'플래티넘',gold:'골드',silver:'실버',bronze:'브론즈'};
+window.tierEmblem=function(tier,size='small'){
+  const img=document.createElement('img');img.className='tier-emblem tier-emblem-'+size;img.src=`/static/tiers/${tier}.webp`;
+  img.alt=size==='small'?'':TIER_LABELS[tier]+' 티어';img.title=TIER_LABELS[tier]+' 티어';img.decoding='async';return img;
+};
+// Daily place change: ▲n green when up, ▼n red when down, the number in plain ink.
+window.rankChange=function(rank,previous){
+  const box=document.createElement('span');box.className='rank-change';
+  if(previous==null||rank==null)return box;
+  const n=previous-rank;
+  if(!n){box.classList.add('same');box.textContent='–';box.title='어제와 같은 순위';return box;}
+  const arrow=document.createElement('span');arrow.className='rank-arrow '+(n>0?'up':'down');arrow.textContent=n>0?'▲':'▼';
+  box.append(arrow,document.createTextNode(String(Math.abs(n))));
+  box.title=`오늘 아침 ${previous}위 → 지금 ${rank}위`;box.setAttribute('aria-label',`${Math.abs(n)}계단 ${n>0?'상승':'하락'}`);
+  return box;
+};
+// Realized P&L (sells since the return baseline) summed in the displayed basis.
+function realizedTotal(p){
+  const r=p.realized_pnl,rate=Number(p.fx?.rate);if(!r||!Number.isFinite(rate)||rate<=0)return null;
+  return returnBasis()==='USD'?Number(r.USD)+Number(r.KRW)/rate:Number(r.KRW)+Number(r.USD)*rate;
+}
 function profileStat(label,value){const d=node('div');d.append(node('dt',label));const v=node('dd');v.append(value instanceof Node?value:document.createTextNode(value));d.append(v);return d;}
 
 // Shared by the own portfolio (editable) and other users' profiles (read-only).
 window.renderProfileCard=function(target,p,editable){
   target.replaceChildren();
   const media=node('div',null,'profile-media');media.append(avatar(p.username,p.image_version,'large'));
+  // The photo frame takes the tier's metal.
+  target.dataset.tier=p.tier||'';
   if(editable){
     const tools=node('div',null,'profile-photo-tools');
     const pick=node('label','사진 변경','button-link secondary');pick.htmlFor='profileImageInput';
@@ -39,7 +63,12 @@ window.renderProfileCard=function(target,p,editable){
     if(editable){const edit=node('button','소개 수정','text-button');edit.type='button';edit.addEventListener('click',()=>{bioEditing=true;bioDraft=myProfile?.bio||'';renderMyProfile();});info.append(edit);}
   }
   const stats=node('dl',null,'profile-stats');
-  stats.append(profileStat('랭킹',p.rank?`${p.rank}위`:'—'),profileStat(`평가 수익률 (${basisLabel()})`,signedPct(accountReturn(p))),profileStat('총 평가금액',viewMoney(p.equity_usd,'USD')));
+  if(p.tier){const t=node('div',null,'profile-tier');t.append(tierEmblem(p.tier,'large'),node('span',TIER_LABELS[p.tier],'tier-name tier-'+p.tier));stats.append(t);}
+  const rank=node('span');rank.append(p.rank?`${p.rank}위`:'—',rankChange(p.rank,p.previous_rank));
+  const realized=realizedTotal(p);
+  stats.append(profileStat('랭킹',rank),profileStat(`평가 수익률 (${basisLabel()})`,signedPct(accountReturn(p))),
+    profileStat('실현 손익 (매도 확정)',realized==null?'—':signed(realized,(realized>0?'+':'')+nativeMoney(realized,returnBasis()))),
+    profileStat('총 평가금액',viewMoney(p.equity_usd,'USD')));
   // Days since sign-up in Korea time, the sign-up day counting as day 1 (own and public profiles).
   if(p.member_days){const since=profileStat('가입 기간',`${p.member_days.toLocaleString()}일`);since.classList.add('member-days');if(p.member_since)since.title=new Date(p.member_since).toLocaleDateString('ko-KR',{timeZone:'Asia/Seoul'})+' 가입';stats.append(since);}
   info.append(stats);
@@ -52,7 +81,7 @@ window.renderMyProfile=function(){
   // Keep an open bio editor untouched by periodic refreshes.
   if(bioEditing&&target.querySelector('#bioInput'))return;
   const p=portfolioCache||{};
-  renderProfileCard(target,{username:window.sessionUsername,bio:myProfile.bio,image_version:myProfile.image_version,equity_usd:p.equity_usd,return_pct:p.return_pct,return_pct_usd:p.return_pct_usd,rank:typeof rankOf==='function'?rankOf(window.sessionUsername):null,member_days:myProfile.member_days,member_since:myProfile.member_since},true);
+  renderProfileCard(target,{username:window.sessionUsername,bio:myProfile.bio,image_version:myProfile.image_version,equity_usd:p.equity_usd,return_pct:p.return_pct,return_pct_usd:p.return_pct_usd,realized_pnl:p.realized_pnl,fx:p.fx,...(typeof rankRow==='function'?rankRow(window.sessionUsername):{}),member_days:myProfile.member_days,member_since:myProfile.member_since},true);
 };
 
 async function uploadProfileImage(file){

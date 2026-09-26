@@ -116,7 +116,8 @@ def test_request_id_cache_control_and_access_log(client, caplog):
 
 RANKING_KEYS = ['rows', 'errors', 'incomplete', 'base_currency', 'updated_at', 'return_basis', 'stale',
                 'refresh_interval_seconds', 'refreshed', 'market_open', 'market_status', 'next_refresh_at']
-ROW_KEYS = ['rank', 'username', 'equity', 'equity_usd', 'return_pct', 'return_pct_usd', 'stale', 'fx', 'image_version']
+ROW_KEYS = ['rank', 'username', 'equity', 'equity_usd', 'return_pct', 'return_pct_usd', 'stale', 'fx', 'image_version',
+            'tier', 'previous_rank']
 HOLD = '시세 또는 기준환율을 확인할 수 없어 랭킹을 보류합니다.'
 SEOUL = ZoneInfo('Asia/Seoul')
 B1 = datetime(2026, 9, 24, 9, 0, 10, tzinfo=SEOUL)
@@ -163,7 +164,8 @@ def test_ranking_prunes_ineligible_rows_in_the_cached_payload(client, monkeypatc
     with Session.begin() as db: db.scalar(select(User).where(User.username == 'alice')).active = False
     monkeypatch.setattr(main, 'wallet_portfolio', no_revalue)
     second = client.get('/api/ranking').json()
-    assert second['rows'] == [first['rows'][1] | {'rank': 1}] and list(second['rows'][0]) == ROW_KEYS
+    # The remaining account moves up to 1st, and its tier with it.
+    assert second['rows'] == [first['rows'][1] | {'rank': 1, 'tier': 'master'}] and list(second['rows'][0]) == ROW_KEYS
     assert main._ranking_cache[main.market]['payload']['rows'] == second['rows']  # pruned in place
 
 
@@ -416,7 +418,7 @@ def test_transactions_projection_and_pages(client):
 
 PUBLIC_KEYS = ['username', 'wallets', 'positions', 'equity', 'equity_usd', 'base_currency', 'pnl', 'return_pct',
                'return_basis', 'fx', 'errors', 'stale', 'initial_equity', 'initial_fx_date',
-               'initial_fx_effect', 'other_pnl', 'pnl_usd', 'return_pct_usd', 'initial_usd',
+               'initial_fx_effect', 'other_pnl', 'pnl_usd', 'return_pct_usd', 'initial_usd', 'realized_pnl',
                'profile', 'member_since', 'member_days']
 
 

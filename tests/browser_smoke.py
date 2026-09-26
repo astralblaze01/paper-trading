@@ -49,6 +49,10 @@ with sync_playwright() as p:
         expect(page.locator('#fxEstimate')).to_contain_text('998,500')
         page.locator('#fxForm button.full-width').click()
         expect(page.locator('#fxHistory')).to_contain_text('998,500')
+        # Wide screens: form and history side by side; phones: stacked.
+        form_box,side_box=page.locator('.fx-main').bounding_box(),page.locator('.fx-side').bounding_box()
+        assert (side_box['x']>form_box['x']+form_box['width']-1) if width>=900 else (side_box['y']>=form_box['y']+form_box['height']-1), (form_box,side_box)
+        page.screenshot(path=f'/artifacts/fx-{width}.png',full_page=True)
         expect(page.locator('#fxAvailable')).to_contain_text('99,000')
         page.locator('#fxSource').select_option('KRW')
         expect(page.locator('#fxAmountUnit')).to_have_text('KRW')
@@ -162,6 +166,10 @@ with sync_playwright() as p:
         page.locator('#watchAdd').click()
         expect(page.locator('#toasts')).to_contain_text('관심종목')
         expect(page.locator('#companyInfo')).to_contain_text('배당률')
+        # Wide screens: company info right under the chart, beside the order panel. Phones: after the order panel.
+        chart_box,order_box,company_box=(page.locator(s).bounding_box() for s in ('.chart-panel','.order-panel','.company-panel'))
+        if width>=900: assert abs(company_box['x']-chart_box['x'])<2 and company_box['y']<order_box['y']+order_box['height'], (chart_box,order_box,company_box)
+        else: assert company_box['y']>order_box['y']+order_box['height']-1 and order_box['y']>chart_box['y'], (chart_box,order_box,company_box)
         page.screenshot(path=f'/artifacts/detail-{width}.png',full_page=True)
         page.locator('a[href="#watchlist"]').click()
         expect(page.locator('#watchRows .watch-name')).to_contain_text('Apple')
@@ -249,6 +257,17 @@ with sync_playwright() as p:
         expect(page.locator('#feeSummary th')).to_have_text(['항목','달러 (USD)','원화 (KRW)'])
         expect(page.locator('#feeSummary .fee-total')).to_contain_text('총 수수료')
         expect(page.locator('#feeRates')).to_contain_text('토스증권 기준')
+        # Profile line: tier emblem left of the rank, realized profit; the photo framed in the tier color.
+        expect(page.locator('#myProfile .profile-tier .tier-emblem')).to_be_visible()
+        expect(page.locator('#myProfile')).to_contain_text('실현 손익 (매도 확정)')
+        assert page.evaluate("getComputedStyle(document.querySelector('#myProfile .avatar-large')).borderTopWidth")=='4px'
+        # 수익률 / 수익금 switch on my performance chart.
+        page.locator('#myPerformanceMetric [data-metric="pnl"]').click()
+        expect(page.locator('#myPerformanceMetric [data-metric="pnl"]')).to_have_attribute('aria-pressed','true')
+        page.evaluate("myPerformance.draw({snapshots:[{date:'2026-09-24',cumulative_return_pct:0,pnl_krw:0},{date:'2026-09-25',cumulative_return_pct:1.5,pnl_krw:1500000}]})")
+        expect(page.locator('#myPerformanceNotice')).to_contain_text('평가손익 1,500,000원')
+        page.locator('#myPerformanceMetric [data-metric="return"]').click()
+        expect(page.locator('#myPerformanceNotice')).to_contain_text('평가 수익률 1.50%')
         # My own daily performance chart sits on the portfolio page.
         page.wait_for_function("(t=>t&&!t.includes('조회 중'))(document.getElementById('myPerformanceNotice').textContent)")
         page.screenshot(path=f'/artifacts/portfolio-{width}.png',full_page=True)
@@ -269,6 +288,12 @@ with sync_playwright() as p:
         expect(page.locator('#ranking th')).to_contain_text(['순위','사용자 · 프로필 보기','총 평가금액 (KRW)','평가 수익률 (원화 기준)'])
         expect(page.locator('#ranking td').nth(2)).to_contain_text('원')
         expect(page.locator('#ranking tbody tr').first).to_have_class(re.compile(r'\btop-rank-1\b'))
+        expect(page.locator('#ranking tbody tr').first.locator('.tier-emblem')).to_have_attribute('src','/static/tiers/master.webp')
+        # The daily arrow: rendered from the row's morning place.
+        page.evaluate("rankingCache={...rankingCache,rows:rankingCache.rows.map((r,i)=>i===0?{...r,previous_rank:3}:i===1?{...r,previous_rank:1}:r)};renderRanking()")
+        expect(page.locator('#ranking tbody tr').first.locator('.rank-arrow.up')).to_have_text('▲')
+        expect(page.locator('#ranking tbody tr').first.locator('.rank-change')).to_have_text('▲2')
+        expect(page.locator('#ranking tbody tr').nth(1).locator('.rank-arrow.down')).to_have_css('color','rgb(217, 75, 87)')
         expect(page.locator('#ranking tbody tr .rank-medal svg')).to_have_count(min(3,page.locator('#ranking tbody tr').count()))
         expect(page.locator('#ranking tbody tr').first.locator('.rank-medal')).to_have_attribute('aria-label','1위')
         # Every account in the fixture is even or down, so the total is default ink or blue, never red.
