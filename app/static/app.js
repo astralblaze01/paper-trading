@@ -43,18 +43,25 @@ function toast(text,kind='info',timeout=4500){
   setTimeout(dismiss,timeout);
 }
 function stockLink(x){const a=document.createElement('a');a.href='#detail/'+encodeURIComponent(x.symbol);a.textContent=x.name+' · '+x.symbol;a.className='text-button portfolio-stock-link';return a;}
-function renderPositions(target,p){table(target,['종목','수량','평균가','현재가','평가액','미실현 손익','수익률'],p.positions.map(x=>[stockLink(x),x.quantity,viewMoney(x.average_cost,x.currency),viewMoney(x.quote?.native_price??x.quote?.price,x.currency),viewMoney(x.value,x.currency),signed(x.pnl,viewMoney(x.pnl,x.currency)),signedPct(x.return_pct)]));}
+function renderPositions(target,p){table(target,['종목','수량','평균가','현재가','평가액','미실현 손익','종목 수익률'],p.positions.map(x=>[stockLink(x),x.quantity,viewMoney(x.average_cost,x.currency),viewMoney(x.quote?.native_price??x.quote?.price,x.currency),viewMoney(x.value,x.currency),signed(x.pnl,viewMoney(x.pnl,x.currency)),signedPct(x.return_pct)]));}
+function returnExplanation(p){
+  // The account return is always KRW-based, even when display currency changes.
+  const basis='계좌 누적 수익률은 기준 원금 대비 원화 평가액의 변화이며, 외부 입출금을 제외하고 환율·매매·환전 비용을 포함합니다.';
+  const holdings='종목 수익률은 해당 거래통화의 평균 매입가 대비 현재가 변화로, 환율 변동은 포함하지 않습니다.';
+  if(p.initial_equity==null||p.pnl==null)return `${basis} ${holdings}`;
+  return `${basis} 기준 원금 ${nativeMoney(p.initial_equity,'KRW')}${p.initial_fx_date?' ('+p.initial_fx_date+' 기준)':''} · 초기 달러 원금의 환율 효과 ${nativeMoney(p.initial_fx_effect,'KRW')} + 그 외 손익(매매·환전·수수료 등) ${nativeMoney(p.other_pnl,'KRW')} = 총 손익 ${nativeMoney(p.pnl,'KRW')}. ${holdings}`;
+}
 function renderPortfolio(){const p=portfolioCache;if(!p)return;
   $('metrics').replaceChildren();
   renderMetrics($('metrics'),p);
   renderPositions($('positions'),p);
   if(window.renderAllocation)renderAllocation($('allocation'),p);
   if(window.renderMyProfile)renderMyProfile();
-  $('realized').textContent='누적 실현손익: '+viewMoney(p.realized_pnl.USD,'USD')+' / '+viewMoney(p.realized_pnl.KRW,'KRW')+' · 초기 달러 원금의 환율 변동 효과: '+viewMoney(p.initial_fx_effect,'KRW')+' · 그 외 손익: '+viewMoney(p.other_pnl,'KRW')+' · '+(p.return_basis||'초기 KRW 평가액 대비 (외부 입출금 반영)');
+  $('realized').textContent=returnExplanation(p)+' 누적 실현손익: '+viewMoney(p.realized_pnl.USD,'USD')+' / '+viewMoney(p.realized_pnl.KRW,'KRW');
 }
 function renderMetrics(target,p){
   target.replaceChildren();
-  const fields=[['총 평가금액',viewMoney(p.equity,'KRW')],['현금',cashLines(p.wallets)],['총 손익',viewMoney(p.pnl,'KRW'),p.pnl],['누적 수익률',p.return_pct==null?'—':(Number(p.return_pct)>0?'+':'')+pct(p.return_pct),p.return_pct]];
+  const fields=[['총 평가금액',viewMoney(p.equity,'KRW')],['현금',cashLines(p.wallets)],['총 손익',viewMoney(p.pnl,'KRW'),p.pnl],['누적 수익률 (환율 포함)',p.return_pct==null?'—':(Number(p.return_pct)>0?'+':'')+pct(p.return_pct),p.return_pct]];
   for(const [name,value,change] of fields){const box=document.createElement('div');box.className='metric';const label=document.createElement('small');label.textContent=name;let v;if(value instanceof Node){v=document.createElement('span');v.append(value);}else v=signed(change,value);v.classList.add('metric-value');box.append(label,v);target.append(box);}
 }
 function renderRanking(){if(!rankingCache)return;

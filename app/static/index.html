@@ -4,10 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{BRAND_NAME}} · 모의투자</title>
-  <link rel="stylesheet" href="/static/style.css?v=37">
-  <script src="/static/app.js?v=37" defer></script>
-  <script src="/static/portal.js?v=37" defer></script>
-  <script src="/static/profile.js?v=37" defer></script>
+  <link rel="stylesheet" href="/static/style.css?v=38">
+  <script src="/static/app.js?v=38" defer></script>
+  <script src="/static/portal.js?v=38" defer></script>
+  <script src="/static/profile.js?v=38" defer></script>
 </head>
 <body>
   <header>
@@ -97,6 +97,7 @@
       <section data-page="portfolio" class="panel allocation-panel"><div class="section-heading"><h2>자산 비중</h2><span class="unit">평가금액 기준 · 현금 포함</span></div><div id="allocation" class="allocation"></div></section>
       <section data-page="ranking" class="panel weekly-panel">
         <div class="section-heading"><h2>주간 순위</h2><span id="weeklySchedule" class="unit"></span></div>
+        <p class="section-description">직전 집계의 원화 평가금액 대비 수익률로 순위를 매깁니다. 환율 변동과 거래 비용을 포함하고, 기간 중 외부 입출금은 손익에서 제외합니다. 관리자는 제외하며, 시작 평가액이 없는 신규 계좌는 다음 집계부터 비교합니다. 같은 수익률은 공동 순위입니다.</p>
         <p id="weeklyStatus" class="section-description"></p>
         <div id="weeklyReports"></div>
         <div class="pagination"><button id="weeklyPrevious" class="secondary">이전</button><span id="weeklyPage"></span><button id="weeklyNext" class="secondary">다음</button></div>
@@ -124,6 +125,7 @@
         <div id="publicProfile" class="panel profile-card" aria-label="사용자 프로필"></div>
         <div class="heading"><h1 id="publicTitle">투자 현황</h1></div>
         <div id="publicMetrics" class="metrics"></div>
+        <p id="publicReturns" class="field-help return-explanation"></p>
         <section class="panel"><div class="section-heading"><h2>성과</h2><span class="unit">누적 수익률 · 하루 한 번 기록</span></div><div id="performanceRanges" class="range-buttons"><button data-period="1W">1W</button><button data-period="1M" aria-pressed="true">1M</button><button data-period="3M">3M</button><button data-period="1Y">1Y</button><button data-period="ALL">ALL</button></div><canvas id="performanceChart" height="220" aria-label="일별 누적 수익률 차트"></canvas><p id="performanceNotice" class="field-help"></p></section>
         <section class="panel allocation-panel"><div class="section-heading"><h2>자산 비중</h2><span class="unit">평가금액 기준 · 현금 포함</span></div><div id="publicAllocation" class="allocation"></div></section>
         <section class="panel"><div class="section-heading"><h2>보유 종목</h2><span class="unit">공개 투자 현황</span></div><div id="publicPositions" class="scroll"></div><p id="publicNotice" class="field-help"></p></section>

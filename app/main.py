@@ -333,7 +333,8 @@ def _public_user(db, username):
 # Explicit read-only projection. No internal IDs, credentials, admin memo,
 # transactions or order IDs.
 PUBLIC_PORTFOLIO_FIELDS = ('username', 'wallets', 'positions', 'equity', 'equity_usd', 'base_currency', 'pnl',
-                           'return_pct', 'return_basis', 'fx', 'errors', 'stale')
+                           'return_pct', 'return_basis', 'fx', 'errors', 'stale',
+                           'initial_equity', 'initial_fx_date', 'initial_fx_effect', 'other_pnl')
 
 @app.get('/api/portfolios/{username}')
 def public_portfolio(username: str, uid=Depends(current_user)):

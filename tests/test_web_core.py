@@ -398,7 +398,8 @@ def test_transactions_projection_and_pages(client):
 
 
 PUBLIC_KEYS = ['username', 'wallets', 'positions', 'equity', 'equity_usd', 'base_currency', 'pnl', 'return_pct',
-               'return_basis', 'fx', 'errors', 'stale', 'profile', 'member_since', 'member_days']
+               'return_basis', 'fx', 'errors', 'stale', 'initial_equity', 'initial_fx_date',
+               'initial_fx_effect', 'other_pnl', 'profile', 'member_since', 'member_days']
 
 
 def test_public_lookups_share_visibility_but_keep_their_messages(client):
@@ -415,6 +416,37 @@ def test_public_lookups_share_visibility_but_keep_their_messages(client):
         assert r.status_code == 404 and r.json() == {'detail': '공개 포트폴리오를 찾을 수 없습니다.'}, name
         r = client.get(f'/api/performance/{name}')
         assert r.status_code == 404 and r.json() == {'detail': '공개 성과 기록을 찾을 수 없습니다.'}, name
+
+
+def test_public_account_return_explains_fx_difference_from_holding(client, monkeypatch):
+    register(client, 'owner')
+    uid = uid_of('owner')
+    with Session.begin() as db:
+        u = db.get(User, uid)
+        u.initial_krw = D('136860000')
+        u.initial_fx_date = '2026-09-24'
+    class FX:
+        def current_rate(self, *args):
+            return {'rate': D('1355.05'), 'date': '2026-09-25', 'stale': False}
+    class Prices(FakeMarket):
+        price = D('148.7')
+        def quote(self, symbol):
+            return super().quote(symbol) | {'price': self.price, 'native_price': self.price, 'currency': 'USD'}
+    prices = Prices()
+    monkeypatch.setattr(main, 'fx', FX())
+    monkeypatch.setattr(main, 'market', prices)
+    monkeypatch.setenv('US_BUY_FEE_BPS', '0')
+    execute_order(uid, order(quantity=672), prices)
+    prices.price = D('148.6602')
+    own = client.get('/api/portfolio').json()
+    public = client.get('/api/portfolios/owner').json()
+    for key in ('pnl', 'return_pct', 'initial_equity', 'initial_fx_date', 'initial_fx_effect', 'other_pnl'):
+        assert public[key] == own[key]
+    assert round(public['positions'][0]['return_pct'], 2) == -0.03
+    assert round(public['return_pct'], 2) == -1.02
+    assert public['initial_fx_effect'] == -1355000
+    assert public['other_pnl'] == pytest.approx(-36241.62528)
+    assert public['pnl'] == pytest.approx(public['initial_fx_effect'] + public['other_pnl'])
 
 
 def test_public_lookups_ignore_username_case_like_login_and_avatars(client):

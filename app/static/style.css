@@ -204,6 +204,10 @@ table { font-size:15px; }
 }
 .cost-row { display:flex; justify-content:space-between; flex-wrap:wrap; gap:12px; padding:8px 0; border-bottom:1px solid var(--border); font-size:15px; }
 #publicMetrics { margin-top:24px; }
+.return-explanation { margin:-12px 0 24px; line-height:1.8; }
+#performanceChart { display:block; width:100%; max-width:100%; height:240px; }
+#performanceChart[hidden] { display:none; }
+@media(max-width:600px) { #performanceChart { height:200px; } }
 #publicMetrics .metric>span { display:block; font-size:23px; }
 @media(max-width:600px){.detail-price strong{font-size:28px}.period-performance strong{font-size:21px}.view-settings{align-items:flex-start}.header-inner{gap:12px}.service-label{display:none}.metric-value{font-size:21px}}
 .admin-manage { max-width:720px; padding:24px; margin:28px 0; background:#f6f8fa; border:1px solid var(--border); border-radius:10px; }

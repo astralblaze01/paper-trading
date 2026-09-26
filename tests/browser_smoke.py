@@ -241,6 +241,33 @@ with sync_playwright() as p:
         expect(page.locator('#publicProfile')).not_to_contain_text('소개 수정')
         expect(page.locator('#publicProfile')).not_to_contain_text('사진 변경')
         expect(page.locator('#publicAllocation .allocation-legend')).to_be_visible()
+        expect(page.locator('#publicReturns')).to_contain_text('환율 효과')
+        expect(page.locator('#publicReturns')).to_contain_text('종목 수익률')
+        page.wait_for_function("!document.getElementById('performanceNotice').textContent.includes('조회 중')")
+        # No invented history; one real observation must still be visible.
+        page.evaluate('drawPerformance({snapshots:[]})')
+        expect(page.locator('#performanceChart')).not_to_be_visible()
+        page.evaluate("drawPerformance({snapshots:[{date:'2026-09-25',cumulative_return_pct:-1.02}]})")
+        expect(page.locator('#performanceChart')).to_be_visible()
+        expect(page.locator('#performanceNotice')).to_contain_text('첫 기록을 점으로')
+        expect(page.locator('#performanceChart')).to_have_attribute('aria-label',re.compile('1일 기록'))
+        def chart_fits():
+            return page.evaluate("""() => {const c=document.getElementById('performanceChart'),p=c.parentElement;
+              return c.clientWidth>p.clientWidth-60 && c.clientWidth<=p.clientWidth &&
+                c.width===Math.round(c.clientWidth*Math.min(devicePixelRatio||1,2)) &&
+                c.height===Math.round(c.clientHeight*Math.min(devicePixelRatio||1,2)) &&
+                c.getContext('2d').getImageData(0,0,c.width,c.height).data.some((v,i)=>i%4===3&&v>0); }""")
+        assert chart_fits()
+        page.screenshot(path=f'/artifacts/performance-single-{width}.png',full_page=True)
+        page.evaluate("drawPerformance({snapshots:[{date:'2026-09-24',cumulative_return_pct:0},{date:'2026-09-25',cumulative_return_pct:-1.02},{date:'2026-09-28',cumulative_return_pct:.5}],period_return_pct:.5})")
+        page.set_viewport_size({'width':1000 if width==1440 else 430,'height':height})
+        page.wait_for_function("Math.abs(document.getElementById('performanceChart').width-document.getElementById('performanceChart').clientWidth*Math.min(devicePixelRatio||1,2))<1")
+        assert chart_fits()
+        expect(page.locator('#performanceNotice')).to_contain_text('기간 수익률 0.50%')
+        page.set_viewport_size({'width':width,'height':height})
+        page.wait_for_function("Math.abs(document.getElementById('performanceChart').width-document.getElementById('performanceChart').clientWidth*Math.min(devicePixelRatio||1,2))<1")
+        assert chart_fits()
+        page.screenshot(path=f'/artifacts/performance-multi-{width}.png',full_page=True)
         # Transfers were removed: no menu entry, and an old link falls back to 시장 탐색.
         expect(page.locator('a[href="#transfer"]')).to_have_count(0)
         page.goto('http://browserweb:8000/#transfer')
