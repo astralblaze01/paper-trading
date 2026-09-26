@@ -251,18 +251,32 @@ class KRProvider:
         try: return self.cache.get(('candles',s,period),30 if period=='1D' else 900,load)
         except (KeyError,TypeError,ValueError): raise MarketError('국내 차트 데이터 형식 오류입니다.')
     def _minute_rows(self,s,now):
-        """Today's 1-minute bars, paging back from now (at most 14 pages) until 09:00 or no older bar."""
-        rows=[]; cursor=now.strftime('%H%M%S')
-        for _ in range(14):
-            d=self.adapter.get(self.adapter.PATH,'FHKST03010200',{'FID_COND_MRKT_DIV_CODE':'J','FID_INPUT_ISCD':s[3:],'FID_INPUT_HOUR_1':cursor,'FID_PW_DATA_INCU_YN':'Y','FID_ETC_CLS_CODE':''},60)
-            bars=d.get('output2',[])
-            if not bars: break
-            rows.extend(_kr_minute_bar(b) for b in bars)
-            earliest=min(r['time'] for r in rows)
-            before=datetime.fromtimestamp(earliest,SEOUL)-timedelta(minutes=1)
-            if before.date()!=now.date() or before.hour<9 or before.strftime('%H%M%S')>=cursor: break
-            cursor=before.strftime('%H%M%S')
-        return rows
+        """The latest session's 1-minute bars, 09:00 to now (or to the close).
+
+        KIS returns 30 bars ending at the requested time, so the day is fetched as
+        fixed half-hour blocks (09:00-09:29, 09:30-09:59, ...). A block that has
+        ended never changes: it is cached until midnight and only the newest part
+        of the day is fetched again. On a closed day (weekend, holiday, before
+        09:00) the provider answers with the last session, which is shown whole."""
+        def page(cursor,ttl):
+            d=self.adapter.get(self.adapter.PATH,'FHKST03010200',{'FID_COND_MRKT_DIV_CODE':'J','FID_INPUT_ISCD':s[3:],'FID_INPUT_HOUR_1':cursor,'FID_PW_DATA_INCU_YN':'Y','FID_ETC_CLS_CODE':''},ttl)
+            return [_kr_minute_bar(b) for b in d.get('output2',[])]
+        clock=now.strftime('%H%M%S')
+        live=min(clock,'153000') if clock>='090000' else '153000'
+        latest=page(live,30)
+        if not latest: return []
+        session=datetime.fromtimestamp(max(r['time'] for r in latest),SEOUL).date()
+        earliest=datetime.fromtimestamp(min(r['time'] for r in latest),SEOUL)
+        midnight=datetime.combine(now.date()+timedelta(days=1),datetime.min.time(),SEOUL)
+        until_midnight=max(60,int((midnight-now).total_seconds()))
+        rows={r['time']:r for r in latest}
+        block_end=datetime.combine(session,datetime.min.time(),SEOUL).replace(hour=9,minute=29)
+        # Every block starting before the newest page; such a block has already ended.
+        while block_end-timedelta(minutes=29)<earliest:
+            for r in page(block_end.strftime('%H%M%S'),until_midnight):
+                if datetime.fromtimestamp(r['time'],SEOUL).date()==session: rows.setdefault(r['time'],r)
+            block_end+=timedelta(minutes=30)
+        return sorted(rows.values(),key=lambda r:r['time'])
     def _daily_rows(self,s,res,end,days):
         """Bars of resolution res covering `days` up to `end`, paging back by end date (at most 10 pages)."""
         rows=[]; start=end-timedelta(days=days)

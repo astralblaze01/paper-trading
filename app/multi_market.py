@@ -85,8 +85,11 @@ class KoreaPrices:
                 try:
                     if now>=self.expires: self._access_token(now)
                     # The KIS overseas historical endpoints rejected consecutive
-                    # 0.5s requests in live verification; serialize at 1.1s.
-                    delay=1.1-(time.monotonic()-self.last_call)
+                    # 0.5s requests in live verification; serialize those at 1.1s.
+                    # Domestic quotations are well inside the live limit (20/s per
+                    # app key, shared with the workers) at 0.2s.
+                    gap=1.1 if path.startswith('/uapi/overseas-') else 0.2
+                    delay=gap-(time.monotonic()-self.last_call)
                     if delay>0: time.sleep(delay)
                     self.last_call=time.monotonic()
                     headers={'authorization':'Bearer '+self.token,'appkey':self.key,'appsecret':self.secret,'tr_id':tr_id,'custtype':'P'}

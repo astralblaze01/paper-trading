@@ -704,42 +704,48 @@ def yesterday_at(zone, hour):
     return (datetime.now(zone) - timedelta(days=1)).replace(hour=hour, minute=0, second=0, microsecond=0)
 
 
-def test_korean_minute_chart_pages_back_until_a_stop(monkeypatch):
+def session_pages(day):
+    """KIS minute answers for `day`: the 30 bars ending at the cursor, within 09:00-15:30."""
+    def answer(path, params, tr_cont):
+        end = datetime.combine(day, datetime.strptime(params['FID_INPUT_HOUR_1'], '%H%M%S').time())
+        end = min(end, datetime.combine(day, datetime.strptime('1530', '%H%M').time()))
+        bars = [end - timedelta(minutes=i) for i in range(30)]
+        return {'output2': [kr_bar(day, t.strftime('%H%M')) for t in bars if t.hour >= 9]}
+    return answer
+
+
+def test_korean_minute_chart_fetches_fixed_half_hour_blocks(monkeypatch):
     from app.providers import KRProvider
     now = yesterday_at(SEOUL, 14)
     freeze_providers_clock(monkeypatch, now)
     day = now.date()
-    pages = {'140000': [kr_bar(day, '1359'), kr_bar(day, '1358'), kr_bar(day, '1357')],
-             '135600': [kr_bar(day, '1356'), kr_bar(day, '1355'), kr_bar(day, '1354')],
-             '135300': [kr_bar(day, '1356'), kr_bar(day, '1355'), kr_bar(day, '1354', 101)]}
-    kis = ChartKIS(lambda path, params, tr_cont: {'output2': pages[params['FID_INPUT_HOUR_1']]})
+    kis = ChartKIS(session_pages(day))
     provider = KRProvider(kis)
     result = provider.candles('KR:005930', '1D')
-    # The third page reaches no further back, so paging stops there.
-    assert [c['params']['FID_INPUT_HOUR_1'] for c in kis.calls] == ['140000', '135600', '135300']
-    assert {(c['path'], c['tr_id'], c['ttl'], c['tr_cont']) for c in kis.calls} == {(ChartKIS.PATH, 'FHKST03010200', 60, '')}
+    # The newest 30 minutes first, then every finished half hour from 09:00.
+    cursors = [c['params']['FID_INPUT_HOUR_1'] for c in kis.calls]
+    assert cursors == ['140000', '092900', '095900', '102900', '105900', '112900', '115900', '122900', '125900', '132900', '135900']
+    assert kis.calls[0]['ttl'] == 30 and all(c['ttl'] >= 60 for c in kis.calls[1:])   # finished blocks: until midnight
+    assert {(c['path'], c['tr_id'], c['tr_cont']) for c in kis.calls} == {(ChartKIS.PATH, 'FHKST03010200', '')}
     assert kis.calls[0]['params'] == {'FID_COND_MRKT_DIV_CODE': 'J', 'FID_INPUT_ISCD': '005930', 'FID_INPUT_HOUR_1': '140000',
                                       'FID_PW_DATA_INCU_YN': 'Y', 'FID_ETC_CLS_CODE': ''}
-    assert [c['close'] for c in result['candles']] == [101, 100, 100, 100, 100, 100]  # the later row wins a repeated minute
+    times = [datetime.fromtimestamp(c['time'], SEOUL) for c in result['candles']]
+    assert len(times) == 301 and times[0].strftime('%H%M') == '0900' and times[-1].strftime('%H%M') == '1400'
     assert (result['resolution'], result['source'], result['range'], result['partial']) == ('1m', 'KIS KRX 당일 분봉', '1D', False)
-    assert provider.candles('KR:005930', '1D') == result and len(kis.calls) == 3  # cached
+    assert provider.candles('KR:005930', '1D') == result and len(kis.calls) == 11   # cached
 
     def chart(moment, answer):
         freeze_providers_clock(monkeypatch, moment)
         kis = ChartKIS(answer)
         return KRProvider(kis).candles('KR:005930', '1D'), kis.calls
-    result, sent = chart(now.replace(hour=9, minute=2), always({'output2': [kr_bar(day, '0901'), kr_bar(day, '0900')]}))
-    assert len(sent) == 1 and len(result['candles']) == 2          # the next minute is before 09:00
-    result, sent = chart(now, always({'output2': [kr_bar(day - timedelta(days=1), '1530')]}))
-    assert len(sent) == 1 and len(result['candles']) == 1          # the bars are from another day
+    # Closed (evening, or a holiday answered with the last session): the whole session to 15:30.
+    for moment in (now.replace(hour=20), now.replace(hour=8)):
+        result, sent = chart(moment, session_pages(day - timedelta(days=2)))
+        assert sent[0]['params']['FID_INPUT_HOUR_1'] == '153000' and len(sent) == 14 and len(result['candles']) == 391
+    result, sent = chart(now.replace(hour=9, minute=2), session_pages(day))
+    assert len(sent) == 1 and len(result['candles']) == 3            # 09:00-09:02, no finished block yet
     result, sent = chart(now, always({'output2': []}))
     assert len(sent) == 1 and result['candles'] == [] and result['stale']
-
-    def one_minute_earlier(path, params, tr_cont):
-        cursor = datetime.combine(day, datetime.strptime(params['FID_INPUT_HOUR_1'], '%H%M%S').time())
-        return {'output2': [kr_bar(day, (cursor - timedelta(minutes=1)).strftime('%H%M'))]}
-    result, sent = chart(now, one_minute_earlier)
-    assert len(sent) == 14 and len(result['candles']) == 14         # page cap
     broken = kr_bar(day, '1359')
     del broken['stck_oprc']
     for bars in ([broken], [kr_bar(day, '1359') | {'stck_cntg_hour': 'x'}]):
