@@ -337,7 +337,6 @@ new ResizeObserver(drawChart).observe($('priceChart'));
 function renderPublic(){if(!publicCache)return;const p=publicCache;$('publicTitle').textContent=p.username+'님의 투자 현황';
   if(window.renderProfileCard)renderProfileCard($('publicProfile'),{username:p.username,bio:p.profile?.bio,image_version:p.profile?.image_version,equity_usd:p.equity_usd,return_pct:p.return_pct,return_pct_usd:p.return_pct_usd,rank:rankOf(p.username),member_days:p.member_days,member_since:p.member_since},false);
   renderMetrics($('publicMetrics'),p);if(window.renderAllocation)renderAllocation($('publicAllocation'),p);renderPositions($('publicPositions'),p);
-  $('publicReturns').textContent=returnExplanation(p);
   $('publicNotice').textContent=(p.return_basis||'초기 KRW 평가액 대비 (외부 입출금 반영)')+(p.errors.length?' · '+p.errors.join(' · '):'')+(p.stale?' · 마지막 시세 기준 평가':'');}
 function rankOf(username){if(!rankingCache||rankingCache.incomplete&&!rankingCache.rows?.length)return null;const row=(rankingCache.rows||[]).find(r=>r.username===username);return row?row.rank:null;}
 function renderOrderPreview(){

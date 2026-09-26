@@ -212,6 +212,9 @@ with sync_playwright() as p:
         expect(page.locator('#positions .portfolio-stock-link')).to_have_attribute('href','#detail/AAPL')
         # Account results are valuations, in the basis of the display currency (KRW here).
         expect(page.locator('#metrics small').filter(has_text='평가손익')).to_have_count(1)
+        expect(page.locator('#realized')).to_have_count(0)
+        # -1,500원 overall: the total value turns blue like the loss itself.
+        expect(page.locator('#metrics .metric').first.locator('.loss')).to_have_count(1)
         expect(page.locator('#metrics')).to_contain_text('원화 기준 · 확정 손익 포함')
         expect(page.locator('#metrics')).to_contain_text('달러 기준')
         expect(page.locator('#positions th').nth(5)).to_have_text('평가손익')
@@ -235,7 +238,11 @@ with sync_playwright() as p:
         expect(page.locator('#ranking th')).to_contain_text(['순위','사용자 · 프로필 보기','총 평가금액 (KRW)','평가 수익률 (원화 기준)'])
         expect(page.locator('#ranking td').nth(2)).to_contain_text('원')
         expect(page.locator('#ranking tbody tr').first).to_have_class(re.compile(r'\btop-rank-1\b'))
-        expect(page.locator('#ranking tbody tr .rank-badge').first).to_have_css('border-top-style','solid')
+        expect(page.locator('#ranking tbody tr .rank-medal svg')).to_have_count(min(3,page.locator('#ranking tbody tr').count()))
+        expect(page.locator('#ranking tbody tr').first.locator('.rank-medal')).to_have_attribute('aria-label','1위')
+        # Every account in the fixture is even or down, so the total is default ink or blue, never red.
+        expect(page.locator('#ranking td:nth-child(3) .gain')).to_have_count(0)
+        expect(page.locator('#marketSessions .session-dot').first).to_be_visible()
         page.screenshot(path=f'/artifacts/ranking-{width}.png',full_page=True)
         page.locator('#displayCurrency').select_option('USD')
         expect(page.locator('#ranking th').nth(2)).to_have_text('총 평가금액 (USD)')
@@ -252,8 +259,8 @@ with sync_playwright() as p:
         expect(page.locator('#publicProfile')).not_to_contain_text('소개 수정')
         expect(page.locator('#publicProfile')).not_to_contain_text('사진 변경')
         expect(page.locator('#publicAllocation .allocation-legend')).to_be_visible()
-        expect(page.locator('#publicReturns')).to_contain_text('환율 효과')
-        expect(page.locator('#publicReturns')).to_contain_text('종목 수익률')
+        # The long return explanation was removed; the cards speak for themselves.
+        expect(page.locator('#publicReturns')).to_have_count(0)
         page.wait_for_function("!document.getElementById('performanceNotice').textContent.includes('조회 중')")
         # No invented history; one real observation must still be visible.
         page.evaluate('drawPerformance({snapshots:[]})')

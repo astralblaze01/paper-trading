@@ -26,6 +26,9 @@ function viewCurrency(native){return displayMode==='native'?native:displayMode;}
 function returnBasis(){return displayMode==='USD'?'USD':'KRW';}
 function basisLabel(basis=returnBasis()){return basis==='USD'?'달러 기준':'원화 기준';}
 function accountReturn(p,basis=returnBasis()){return basis==='USD'?p.return_pct_usd:p.return_pct;}
+// Total value colored by the account's result: red up, blue down, default ink when even.
+// `value` is rounded to what is displayed first, so "0원"/"0.00%" never shows a color.
+function equityTone(text,value,unit){const n=value==null?0:Math.round(Number(value)/unit),box=document.createElement('span');box.className=n>0?'gain':n<0?'loss':'';box.textContent=text;return box;}
 const signedPctText=x=>x==null?'—':(Number(x)>0?'+':'')+pct(x);
 function viewValue(value,currency,rate=viewFx){
   if(value==null)return null;
@@ -51,34 +54,45 @@ function toast(text,kind='info',timeout=4500){
 }
 function stockLink(x){const a=document.createElement('a');a.href='#detail/'+encodeURIComponent(x.symbol);a.textContent=x.name+' · '+x.symbol;a.className='text-button portfolio-stock-link';return a;}
 function renderPositions(target,p){table(target,['종목','수량','평균가','현재가','평가액','평가손익','종목 수익률'],p.positions.map(x=>[stockLink(x),x.quantity,viewMoney(x.average_cost,x.currency),viewMoney(x.quote?.native_price??x.quote?.price,x.currency),viewMoney(x.value,x.currency),signed(x.pnl,viewMoney(x.pnl,x.currency)),signedPct(x.return_pct)]));}
-function returnExplanation(p){
-  const basis='평가손익·평가 수익률은 아직 팔지 않은 종목을 현재가로 평가한 값에 이미 매도로 확정된 손익을 더한 계좌 전체 성과입니다. 외부 입출금은 제외하고 매매·환전 비용은 포함합니다.';
-  const bases='원화 기준은 시작 원금을 원화로 본 수익률이라 달러 대비 원화 가치 변동(환차손익)이 들어가고, 달러 기준은 시작 원금을 달러로 본 수익률이라 환율 변동이 빠집니다. 상단 표시 통화가 달러면 달러 기준, 그 외에는 원화 기준을 크게 보여줍니다.';
-  const holdings='종목 수익률은 해당 거래통화의 평균 매입가 대비 현재가 변화로, 환율 변동은 포함하지 않습니다.';
-  if(p.initial_equity==null||p.pnl==null)return `${basis} ${bases} ${holdings}`;
-  const krw=`원화 기준: 시작 원금 ${nativeMoney(p.initial_equity,'KRW')}${p.initial_fx_date?' ('+p.initial_fx_date+' 환율)':''} · 시작 달러 원금의 환율 효과 ${nativeMoney(p.initial_fx_effect,'KRW')} + 그 외 손익(매매·환전·수수료 등) ${nativeMoney(p.other_pnl,'KRW')} = 평가손익 ${nativeMoney(p.pnl,'KRW')} (${signedPctText(p.return_pct)}).`;
-  const usd=p.pnl_usd==null?'':` 달러 기준: 시작 원금 ${nativeMoney(p.initial_usd,'USD')} · 평가손익 ${nativeMoney(p.pnl_usd,'USD')} (${signedPctText(p.return_pct_usd)}).`;
-  return `${basis} ${bases} ${krw}${usd} ${holdings}`;
-}
 function renderPortfolio(){const p=portfolioCache;if(!p)return;
   $('metrics').replaceChildren();
   renderMetrics($('metrics'),p);
   renderPositions($('positions'),p);
   if(window.renderAllocation)renderAllocation($('allocation'),p);
   if(window.renderMyProfile)renderMyProfile();
-  $('realized').textContent=returnExplanation(p)+' 이 중 매도로 확정된 실현손익: '+viewMoney(p.realized_pnl.USD,'USD')+' / '+viewMoney(p.realized_pnl.KRW,'KRW')+' (수수료·세금 반영, 거래 통화별).';
 }
 function renderMetrics(target,p){
   target.replaceChildren();
   const basis=returnBasis(),other=basis==='USD'?'KRW':'USD';
   const pnl=basis==='USD'?p.pnl_usd:p.pnl,ret=accountReturn(p,basis),otherRet=accountReturn(p,other);
-  const fields=[['총 평가금액',viewMoney(p.equity,'KRW')],['현금',cashLines(p.wallets)],
+  const fields=[['총 평가금액',equityTone(viewMoney(p.equity,'KRW'),pnl,basis==='USD'?.01:1)],['현금',cashLines(p.wallets)],
     ['평가손익',nativeMoney(pnl,basis),pnl,basisLabel(basis)+' · 확정 손익 포함'],
     ['평가 수익률',signedPctText(ret),ret,`${basisLabel(other)} ${signedPctText(otherRet)}`]];
   for(const [name,value,change,sub] of fields){const box=document.createElement('div');box.className='metric';const label=document.createElement('small');label.textContent=name;let v;if(value instanceof Node){v=document.createElement('span');v.append(value);}else v=signed(change,value);v.classList.add('metric-value');box.append(label,v);if(sub)box.append(node('small',sub,'metric-sub'));target.append(box);}
 }
-// Ranks 1-3 get a toned numeral (gold, silver, bronze); the row styling lives in style.css.
-function rankBadge(rank){const n=document.createElement('span');n.className='rank-badge';n.textContent=rank;if(rank<=3)n.setAttribute('aria-label',rank+'위');return n;}
+// Ranks 1-3 get a medal: ring, laurel wings, a star and a ribbon carrying 3/2/1 stars.
+const MEDALS={1:{rim:'#f2a31b',face:'#ffdc8e',ink:'#d98511',leaf:'#f7b638',ribbon:'#ea4a4f'},
+              2:{rim:'#aeb6bf',face:'#e8ecf0',ink:'#8e98a3',leaf:'#c3cad2',ribbon:'#8b5cf6'},
+              3:{rim:'#c8691c',face:'#f7c393',ink:'#b25714',leaf:'#e38b3c',ribbon:'#1f3a8a'}};
+function starPath(cx,cy,r){let d='';for(let i=0;i<10;i++){const a=-Math.PI/2+i*Math.PI/5,k=i%2?r*.45:r;d+=(i?'L':'M')+(cx+k*Math.cos(a)).toFixed(2)+' '+(cy+k*Math.sin(a)).toFixed(2);}return d+'Z';}
+function medalSvg(rank){
+  // Feathers start behind the ring and sweep outward and up, like the wings of a trophy medal.
+  const c=MEDALS[rank],leaves=[],u=deg=>[Math.cos(deg*Math.PI/180),Math.sin(deg*Math.PI/180)],f=n=>n.toFixed(2);
+  for(const deg of rank===3?[128,158,188]:[118,144,170,196]){
+    const [bx,by]=u(deg),[dx,dy]=u(deg+62),base=[24+12*bx,21+12*by],len=rank===3?13:14.5;
+    const tip=[base[0]+len*dx,base[1]+len*dy],mid=[(base[0]+tip[0])/2,(base[1]+tip[1])/2],w=3.8;
+    leaves.push(`<path d="M${f(base[0])} ${f(base[1])}Q${f(mid[0]-dy*w)} ${f(mid[1]+dx*w)} ${f(tip[0])} ${f(tip[1])}Q${f(mid[0]+dy*w)} ${f(mid[1]-dx*w)} ${f(base[0])} ${f(base[1])}Z"/>`);
+  }
+  const ribbonStars=[20,24,28].slice(0,4-rank).map((x,i,all)=>`<path d="${starPath(x+(3-all.length)*2,43.5,1.9)}"/>`).join('');
+  return `<svg viewBox="0 0 48 56" aria-hidden="true" focusable="false">
+    <path d="M16.5 30h15v25l-7.5-5-7.5 5z" fill="${c.ribbon}"/><g fill="#fff">${ribbonStars}</g>
+    <g fill="${c.leaf}">${leaves.join('')}</g><g fill="${c.leaf}" transform="matrix(-1 0 0 1 48 0)">${leaves.join('')}</g>
+    <circle cx="24" cy="21" r="15" fill="${c.rim}"/><circle cx="24" cy="21" r="11.5" fill="${c.face}"/>
+    <text x="24" y="26.6" text-anchor="middle" font-size="16" font-weight="800" font-family="Arial, sans-serif" fill="${c.ink}">${rank}</text>
+    <path d="${starPath(31.5,11.5,2.2)}" fill="#fff" opacity=".9"/>
+    <path d="${starPath(24,35.5,4.6)}" fill="${c.leaf}" stroke="${c.rim}" stroke-width=".8"/></svg>`;
+}
+function rankBadge(rank){const n=document.createElement('span');n.className='rank-badge';if(rank<=3){n.classList.add('rank-medal');n.innerHTML=medalSvg(rank);n.setAttribute('role','img');n.setAttribute('aria-label',rank+'위');}else n.textContent=rank;return n;}
 function renderRanking(){if(!rankingCache)return;
   const status=$('rankingStatus');
   if(status){
@@ -94,7 +108,7 @@ function renderRanking(){if(!rankingCache)return;
   }
   const person=x=>{const box=document.createElement('span');box.className='rank-user';if(window.avatar)box.append(avatar(x.username,x.image_version,'small'));box.append(userLink(x.username));return box;};
   // Ranked by USD value; shown in the selected display currency at the snapshot's rate.
-  table($('ranking'),['순위','사용자 · 프로필 보기','총 평가금액 ('+viewCurrency('USD')+')','평가 수익률 ('+basisLabel()+')'],rankingCache.rows.map(x=>[rankBadge(x.rank),person(x),viewMoney(x.equity_usd,'USD',x.fx||viewFx),signedPct(accountReturn(x))]));
+  table($('ranking'),['순위','사용자 · 프로필 보기','총 평가금액 ('+viewCurrency('USD')+')','평가 수익률 ('+basisLabel()+')'],rankingCache.rows.map(x=>[rankBadge(x.rank),person(x),equityTone(viewMoney(x.equity_usd,'USD',x.fx||viewFx),accountReturn(x),.01),signedPct(accountReturn(x))]));
   $('ranking').querySelectorAll('tbody tr').forEach((tr,i)=>{const rank=rankingCache.rows[i].rank;if(rank<=3)tr.classList.add('top-rank','top-rank-'+rank);});
   if(window.renderMyProfile)renderMyProfile();
 }
@@ -155,9 +169,20 @@ window.marketPriceText=function(x){
   if(mode==='rest'||mode.endsWith('_rest'))return '보조 시세';
   return '체결 시세 미지원';
 };
+// One entry per market: a green dot when orders can fill now, red when closed or not tradable.
+function renderMarketSessions(markets){
+  $('marketSessions').replaceChildren(...markets.map(x=>{
+    const state=marketPriceText(x),open=marketIsOpen(x)&&x.tradable!==false,item=document.createElement('span');
+    item.className='market-session '+(open?'is-open':'is-closed');
+    const dot=document.createElement('i');dot.className='session-dot';dot.setAttribute('aria-hidden','true');
+    item.append(dot,`${x.market==='KR'?'한국':'미국'} ${x.label}${state?' · '+state:''}`);
+    item.title=open?'지금 주문할 수 있습니다':'지금은 주문할 수 없습니다';
+    return item;
+  }));
+}
 async function refreshMarketSessions(){
   if(!window.sessionUsername||window.isAdmin)return;
-  try{const r=await api('market-overview');window.marketOpen=Object.fromEntries(r.markets.map(x=>[x.market,marketIsOpen(x)]));$('marketSessions').textContent=r.markets.map(x=>{const state=marketPriceText(x);return `${x.market==='KR'?'한국':'미국'} ${x.label}${state?' · '+state:''}`;}).join(' / ');}catch(e){$('marketSessions').textContent='시장 상태 확인 불가';}
+  try{const r=await api('market-overview');window.marketOpen=Object.fromEntries(r.markets.map(x=>[x.market,marketIsOpen(x)]));renderMarketSessions(r.markets);}catch(e){$('marketSessions').textContent='시장 상태 확인 불가';}
 }
 setInterval(()=>{if(!document.hidden)refreshMarketSessions();},60000);
 // Notice posted by an administrator (e.g. the maintenance template): a banner only, nothing is blocked.
