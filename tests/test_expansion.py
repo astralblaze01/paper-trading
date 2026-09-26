@@ -180,10 +180,10 @@ def test_limit_ownership_cancel_and_fill(client):
     from app.limits import create,cancel,process
     from app.db import LimitOrder
     token=register(client)
-    payload={'symbol':'AAPL','side':'buy','quantity':2,'limit_price':'101','request_id':str(uuid4())}
-    assert client.post('/api/limit-orders',headers={'x-csrf-token':token},json=payload).status_code==405
+    payload={'symbol':'AAPL','side':'buy','quantity':2,'limit_price':'101','trigger':'below','request_id':str(uuid4())}
+    # Reservation orders are open again: a buy at or below 101.
+    oid=client.post('/api/limit-orders',headers={'x-csrf-token':token},json=payload).json()['id']
     with Session() as db: uid=db.scalar(select(User.id).where(User.username=='alice'))
-    oid=create(uid,LimitInput(**payload))['id']  # Existing order from before UI removal.
     with TestClient(main.app,base_url='https://testserver') as other:
         t=register(other,'bob')
         assert other.post(f'/api/limit-orders/{oid}/cancel',headers={'x-csrf-token':t},json={}).status_code==404

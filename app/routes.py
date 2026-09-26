@@ -28,6 +28,8 @@ class LimitInput(SymbolInput):
     side: Literal['buy','sell']
     quantity: int=Field(gt=0,le=MAX_ORDER_QUANTITY,strict=True)
     limit_price: Decimal=Field(gt=0,le=1000000000,max_digits=16,decimal_places=4)
+    # Where the price must be to fill: at or 'below' / at or 'above' limit_price.
+    trigger: Literal['below','above']
     request_id: UUID
 
 class ResetInput(Strict):
@@ -250,9 +252,15 @@ def install(app,ctx):
     @app.get('/api/limit-orders')
     def limits(uid=Depends(user)):
         with Session() as db:
-            return [{'id':o.id,'symbol':o.symbol,'side':o.side,'quantity':o.quantity,'limit_price':o.limit_price if o.order_type=='limit' else None,'order_type':o.order_type,'use_max':o.use_max,'status':o.status,'reason':o.reason} for o in db.scalars(select(LimitOrder).where(LimitOrder.user_id==uid).order_by(LimitOrder.id.desc()).limit(100))]
-    # New limit orders are no longer exposed. Existing records can still be
-    # inspected/cancelled and the worker honours their original terms.
+            from .limits import public
+            return [public(o) for o in db.scalars(select(LimitOrder).where(LimitOrder.user_id==uid).order_by(LimitOrder.id.desc()).limit(100))]
+    @app.post('/api/limit-orders',dependencies=[Depends(csrf)])
+    def limit_create(data:LimitInput,uid=Depends(user)):
+        from .limits import create
+        # Only a symbol the market can price can ever trigger.
+        try: ctx.market.quote(data.symbol)
+        except MarketError: raise HTTPException(422,'시세를 확인할 수 없는 종목은 예약할 수 없습니다.')
+        return create(uid,data)
     @app.post('/api/limit-orders/{order_id}/cancel',dependencies=[Depends(csrf)])
     def limit_cancel(order_id:int,uid=Depends(user)):
         from .limits import cancel

@@ -282,7 +282,7 @@ function renderHistory(){const rows=historyCache;
   $('page').textContent = page + ' 페이지'; $('previous').disabled = page === 1; $('next').disabled = rows.length < 50;
 }
 async function search() {
-  const category = $('category').value;
+  const category = 'all';
   const rows = await api('search?' + new URLSearchParams({q: $('query').value, category}));
   $('searchResults').replaceChildren();
   for (const row of rows) {
@@ -321,9 +321,9 @@ $('registerForm').addEventListener('submit',async e=>{
 handle('logout', 'click', async () => { window.disconnectQuoteStream?.();await api('logout', {}); pendingOrder = null; message(''); await boot(); });
 handle('refresh', 'click', refresh);
 handle('searchForm', 'submit', search);
-handle('category', 'change', async () => { $('query').value = ''; $('marketHelp').textContent = $('category').value === 'kr' ? '등록된 이름으로 검색하거나, 한국 종목의 6자리 코드를 입력하세요.' : '채권·금 분류는 등록된 ETF 목록입니다. 개별 채권과 금 현물은 지원하지 않습니다.'; await search(); });
 handle('quote', 'click', async () => { if(window.openStock) openStock($('symbol').value); });
 handle('orderForm', 'submit', async () => {
+  if (window.reserveMode) return submitReservation();
   const data = {symbol: $('symbol').value, side: $('side').value, quantity: Number($('quantity').value), use_max: maxMode}; const signature = JSON.stringify(data);
   if (!pendingOrder || pendingOrder.signature !== signature) {
     const bytes = crypto.getRandomValues(new Uint8Array(16)); bytes[6] = (bytes[6] & 15) | 64; bytes[8] = (bytes[8] & 63) | 128;
@@ -338,6 +338,22 @@ handle('orderForm', 'submit', async () => {
   toast(result.replayed ? `이미 처리된 ${sideName} 주문입니다.\n${label} ${result.quantity}주` : `${sideName} 주문이 체결되었습니다.\n${label} ${result.quantity}주`, 'success');
   try { await refresh(); if(window.loadStock) await loadStock(false); } finally { $('submitOrder').disabled = false; }
 });
+let pendingReserve = null;
+async function submitReservation() {
+  const price = $('reservePrice').value.trim();
+  if (!price || !(Number(price) > 0)) { toast('예약 조건 가격을 입력하세요.', 'error'); $('reservePrice').focus(); return; }
+  const data = {symbol: $('symbol').value, side: $('side').value, quantity: Number($('quantity').value), limit_price: price, trigger: $('reserveTrigger').value};
+  pendingReserve = reuseRequestId(pendingReserve, JSON.stringify(data));
+  $('submitOrder').disabled = true;
+  const sideName = data.side === 'buy' ? '매수' : '매도', label = window.orderSymbolLabel ? orderSymbolLabel() : data.symbol;
+  try {
+    await api('limit-orders', {...data, request_id: pendingReserve.id});
+    pendingReserve = null;
+    toast(`예약 ${sideName}를 등록했습니다.\n${label} ${data.quantity}주 · ${$('reserveTrigger').selectedOptions[0].textContent}`, 'success', 6000);
+    await window.loadLimits?.();
+  } catch (err) { toast(`예약 ${sideName}를 등록하지 못했습니다.\n${err.message}`, 'error', 7000); }
+  finally { $('submitOrder').disabled = false; }
+}
 handle('previous', 'click', async () => { page = Math.max(1, page - 1); await history(); });
 handle('next', 'click', async () => { page++; await history(); });
 document.querySelectorAll('#historySide button').forEach(b=>b.addEventListener('click',async()=>{

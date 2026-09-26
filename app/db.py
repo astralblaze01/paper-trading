@@ -179,6 +179,9 @@ class LimitOrder(Base):
     status: Mapped[str] = mapped_column(String(16), default='pending', index=True)
     reason: Mapped[str | None] = mapped_column(String(200), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    # Set when a reservation fills: the fill's time and native price.
+    filled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    filled_price: Mapped[Decimal | None] = mapped_column(Numeric(20,4), nullable=True)
     __table_args__ = (UniqueConstraint('user_id','request_id'), CheckConstraint('quantity > 0'), CheckConstraint('limit_price > 0'))
 
 class AdminAudit(Base):

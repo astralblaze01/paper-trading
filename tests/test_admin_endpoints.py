@@ -24,7 +24,7 @@ def test_admin_overview_keys_values_and_permission(client, monkeypatch):
                           'quotes', 'providers', 'counts', 'us_market', 'kr_market']
     rows = {u['username']: u for u in body['users']}
     assert [u['id'] for u in body['users']] == sorted(u['id'] for u in body['users'])
-    assert list(rows['noted']) == ['id', 'username', 'active', 'admin', 'initial_usd', 'initial_krw', 'note', 'wallets']
+    assert list(rows['noted']) == ['id', 'username', 'active', 'admin', 'created_at', 'initial_usd', 'initial_krw', 'note', 'wallets']
     assert (rows['noted']['note'], rows['noted']['wallets']) == ('메모', {'USD': 12})
     assert rows['operator']['admin'] is True and rows['plainuser']['note'] == ''
     assert body['fees'] == {'FX_FEE_BPS': 10, 'FX_SPREAD_BPS': 5, 'US_BUY_FEE_BPS': 0, 'US_SELL_FEE_BPS': 0,

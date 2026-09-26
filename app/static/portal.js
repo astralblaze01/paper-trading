@@ -63,9 +63,9 @@ async function openPublicPage(segment){
 async function openDetailPage(segment){
   currentSymbol=decodeURIComponent(segment);chartRows=[];drawChart();
   detailCompany=null;detailQuote=null;orderPreview=null;
-  $('symbol').value=currentSymbol;maxMode=false;
-  loadCompany(currentSymbol);
-  await loadStock(true);
+  $('symbol').value=currentSymbol;maxMode=false;$('reservePrice').value='';
+  loadCompany(currentSymbol);renderReserves();
+  await loadStock(true);syncReserveFields();
   await api('popularity',{symbol:currentSymbol,kind:'view'});
 }
 window.openStock = function(symbol) { if(location.hash==='#detail/'+encodeURIComponent(symbol))loadStock(true).catch(e=>message(e.message));else location.hash='detail/'+encodeURIComponent(symbol); };
@@ -374,7 +374,7 @@ async function requestEstimate(share=null){
 async function chooseOrderShare(share){await estimate(Math.round(share*100));}
 document.querySelectorAll('[data-order-share]').forEach(button=>button.addEventListener('click',()=>chooseOrderShare(Number(button.dataset.orderShare))));
 // 매수 = red, 매도 = blue. The hidden select stays the single source of truth.
-function setSide(side){$('side').value=side;document.querySelectorAll('[data-side]').forEach(b=>{if(b.getAttribute('role')==='radio')b.setAttribute('aria-checked',String(b.dataset.side===side));});$('submitOrder').dataset.side=side;$('submitOrder').textContent=side==='buy'?'매수 주문':'매도 주문';}
+function setSide(side){$('side').value=side;document.querySelectorAll('[data-side]').forEach(b=>{if(b.getAttribute('role')==='radio')b.setAttribute('aria-checked',String(b.dataset.side===side));});$('submitOrder').dataset.side=side;$('submitOrder').textContent=window.reserveMode?(side==='buy'?'예약 매수 등록':'예약 매도 등록'):(side==='buy'?'매수 주문':'매도 주문');}
 document.querySelectorAll('.side-toggle [data-side]').forEach(b=>b.addEventListener('click',()=>{if($('side').value===b.dataset.side)return;setSide(b.dataset.side);$('side').dispatchEvent(new Event('input'));}));
 $('side').addEventListener('change',()=>setSide($('side').value));
 window.orderSymbolLabel=function(){return detailCompany?.name||detailQuote?.name||$('symbol').value;};
@@ -464,21 +464,44 @@ function renderAdminOverview(r){
  $('adminOverview').replaceChildren();
  for(const [label,value] of [['사용자',r.counts.users],['체결',r.counts.transactions],['보유 종목',r.counts.positions],['대기 주문',r.counts.pending_orders]]){const box=node('div',null,'metric');box.append(node('small',label),node('strong',value));$('adminOverview').append(box);}
 }
-function renderAdminUsers(r){
+// Board-style list: sorted on the page, 10 accounts per page, numbered page links.
+const ADMIN_USERS_PER_PAGE=10;
+let adminUserPage=1;
+const adminUserSorts={
+  'joined-desc':(a,b)=>(b.created_at||'').localeCompare(a.created_at||'')||b.id-a.id,
+  'joined-asc':(a,b)=>(a.created_at||'').localeCompare(b.created_at||'')||a.id-b.id,
+  'name-asc':(a,b)=>a.username.localeCompare(b.username,'ko'),
+  'name-desc':(a,b)=>b.username.localeCompare(a.username,'ko'),
+  'status':(a,b)=>Number(a.active)-Number(b.active)||a.username.localeCompare(b.username,'ko')};
+function renderAdminUsers(){
+ const rows=[...adminUsers].sort(adminUserSorts[$('adminUserSort').value]||adminUserSorts['joined-desc']);
+ const pages=Math.max(1,Math.ceil(rows.length/ADMIN_USERS_PER_PAGE));adminUserPage=Math.min(Math.max(1,adminUserPage),pages);
+ const start=(adminUserPage-1)*ADMIN_USERS_PER_PAGE;
+ $('adminUserCount').textContent=`총 ${rows.length}명 · ${start+1}–${Math.min(start+ADMIN_USERS_PER_PAGE,rows.length)}번째`;
  $('adminUsers').replaceChildren();
- for(const u of r.users){
-  const row=node('div',null,'watch-row'),status=node('button',u.active?'계정 정지':'계정 활성화','secondary');
-  row.append(node('strong',`${adminLabel(u)} · ${u.admin?'관리자':'일반'} · ${u.active?'활성':'정지'}`),node('span',nativeMoney(u.wallets.USD,'USD')+' / '+nativeMoney(u.wallets.KRW,'KRW')),status);
+ for(const u of rows.slice(start,start+ADMIN_USERS_PER_PAGE)){
+  const row=node('div',null,'watch-row admin-user-row'),status=node('button',u.active?'계정 정지':'계정 활성화','secondary');
+  const who=node('div',null,'admin-user-who');
+  who.append(node('strong',`${adminLabel(u)} · ${u.admin?'관리자':'일반'} · ${u.active?'활성':'정지'}`),node('small',u.created_at?new Date(u.created_at).toLocaleDateString('ko-KR',{timeZone:'Asia/Seoul'})+' 가입':'가입일 정보 없음','field-help'));
+  row.append(who,node('span',nativeMoney(u.wallets.USD,'USD')+' / '+nativeMoney(u.wallets.KRW,'KRW')),status);
   status.addEventListener('click',async()=>{try{await api(`admin/users/${u.id}/active`,{active:!u.active});await admin();}catch(e){toast(e.message,'error');}});
   $('adminUsers').append(row);
  }
+ const nav=$('adminUserPages');nav.replaceChildren();
+ const go=(label,target,current=false,disabled=false)=>{const b=node('button',label,'secondary');b.type='button';b.disabled=disabled;if(current)b.setAttribute('aria-current','page');b.addEventListener('click',()=>{adminUserPage=target;renderAdminUsers();});nav.append(b);};
+ go('‹ 이전',adminUserPage-1,false,adminUserPage===1);
+ // At most 5 numbered links around the current page.
+ const first=Math.max(1,Math.min(adminUserPage-2,pages-4));
+ for(let n=first;n<=Math.min(pages,first+4);n++)go(String(n),n,n===adminUserPage);
+ go('다음 ›',adminUserPage+1,false,adminUserPage===pages);
 }
+$('adminUserSort').addEventListener('change',()=>{adminUserPage=1;renderAdminUsers();});
 async function admin(){
  const r=await api('admin');adminUsers=r.users;
  renderAdminStatus(r);
  noticeTemplates=r.notice_templates||noticeTemplates;renderNoticeAdmin(r.notices||[]);
  renderAdminOverview(r);
- renderAdminUsers(r);
+ renderAdminUsers();
  if(adminSelectedId!==null&&!adminSelected())adminSelectedId=null;
  await searchAdminUsers();renderAdminSelected();
  const rows=await api('admin/audit');
@@ -550,15 +573,55 @@ handle('adminBulkForm','submit',async()=>{const body={action:'grant',currency:$(
 handle('initialForm','submit',async()=>{await api('admin/initial',{amount:$('initialAmount').value});message('이후 생성/초기화되는 계좌의 지급액을 저장했습니다.');});
 syncCurrency();routePage();
 
-window.loadLimits=async function(){
-  const rows=await api('limit-orders');$('limitRows').replaceChildren();$('legacyLimitRows').replaceChildren();$('legacyMarkets').hidden=!rows.some(r=>r.order_type==='market');$('legacyLimits').hidden=!rows.some(r=>r.order_type==='limit');
-  const statuses={pending:'대기 중',filled:'체결',cancelled:'취소',rejected:'거절'};
-  for(const r of rows){
-    const row=node('div',null,'watch-row');row.append(node('span',`${r.symbol} · ${r.side==='buy'?'매수':'매도'} ${r.use_max?'최대':r.quantity+'주'} · ${statuses[r.status]||r.status}${r.reason?' · '+r.reason:''}`));
-    if(r.status==='pending'){const b=node('button','취소','secondary');b.addEventListener('click',async()=>{try{await api(`limit-orders/${r.id}/cancel`,{});await loadLimits();}catch(e){message(e.message);}});row.append(b);}
-    $(r.order_type==='market'?'limitRows':'legacyLimitRows').append(row);
-  }
-};
+// Reservation orders (예약 주문). The worker checks pending ones about once a minute
+// and fills at the market price once the trigger is reached in a tradable session.
+const RESERVE_TRIGGERS={buy:[['below','가격 이하일 때 매수 (지정가)'],['above','가격 이상일 때 매수 (돌파)']],
+                        sell:[['above','가격 이상일 때 매도 (익절)'],['below','가격 이하일 때 매도 (손절)']]};
+const RESERVE_STATUS={pending:'대기 중',filled:'체결',cancelled:'취소',rejected:'거절'};
+window.reserveMode=false;let reserveCache=[];
+function orderCurrency(){return /^KR:/.test($('symbol').value)?'KRW':'USD';}
+function syncReserveFields(){
+  const side=$('side').value,keep=$('reserveTrigger').value;
+  $('reserveTrigger').replaceChildren(...RESERVE_TRIGGERS[side].map(([v,l])=>new Option(l,v)));
+  if(RESERVE_TRIGGERS[side].some(([v])=>v===keep))$('reserveTrigger').value=keep;
+  const currency=orderCurrency();$('reserveUnit').textContent=`(${currency})`;
+  $('reservePrice').step=currency==='KRW'?'1':'0.0001';
+  const price=detailQuote?.native_price??detailQuote?.price;
+  $('reserveHelp').textContent=(price!=null?`현재가 ${nativeMoney(price,currency)} · `:'')+'조건에 닿으면 장 운영 시간에 시장가로 체결합니다. 체결 시점의 잔액·보유 수량으로 다시 확인합니다.';
+}
+function setOrderMode(reserve){
+  window.reserveMode=reserve;
+  document.querySelectorAll('.order-mode [data-mode]').forEach(b=>b.setAttribute('aria-checked',String((b.dataset.mode==='reserve')===reserve)));
+  $('reserveFields').hidden=!reserve;$('submitOrder').classList.toggle('is-reserve',reserve);
+  syncReserveFields();setSide($('side').value);
+}
+document.querySelectorAll('.order-mode [data-mode]').forEach(b=>b.addEventListener('click',()=>setOrderMode(b.dataset.mode==='reserve')));
+$('side').addEventListener('input',syncReserveFields);
+$('reserveUseCurrent').addEventListener('click',()=>{const price=detailQuote?.native_price??detailQuote?.price;if(price!=null)$('reservePrice').value=orderCurrency()==='KRW'?Math.round(Number(price)):Number(price);});
+function reserveText(r){
+  if(!r.trigger)return `${r.symbol} · ${r.side==='buy'?'매수':'매도'} ${r.use_max?'최대':r.quantity+'주'} · 이전 시장가 주문`;
+  const currency=/^KR:/.test(r.symbol)?'KRW':'USD';
+  return `${nativeMoney(r.limit_price,currency)} ${r.trigger==='below'?'이하':'이상'}이면 ${r.side==='buy'?'매수':'매도'} · ${r.quantity}주`;
+}
+function reserveRow(r,withSymbol){
+  const row=node('div',null,'reserve-row status-'+r.status),text=node('div',null,'reserve-text');
+  if(withSymbol){const a=document.createElement('a');a.href='#detail/'+encodeURIComponent(r.symbol);a.textContent=r.symbol;a.className='text-button';text.append(a);}
+  text.append(sideLabel(r.side),node('span',reserveText(r)));
+  const currency=/^KR:/.test(r.symbol)?'KRW':'USD';
+  const state=r.status==='filled'&&r.filled_price!=null?`체결 ${nativeMoney(r.filled_price,currency)} · ${new Date(r.filled_at).toLocaleString('ko-KR')}`:(RESERVE_STATUS[r.status]||r.status)+(r.reason?' · '+r.reason:'');
+  row.append(text,node('span',state,'reserve-state'));
+  if(r.status==='pending'){const b=node('button','취소','secondary');b.type='button';b.addEventListener('click',async()=>{b.disabled=true;try{await api(`limit-orders/${r.id}/cancel`,{});toast('예약 주문을 취소했습니다.','success');await loadLimits();}catch(e){b.disabled=false;toast(e.message,'error');}});row.append(b);}
+  return row;
+}
+function renderReserves(){
+  const all=reserveCache,box=$('reserveRows');
+  box.replaceChildren(...all.map(r=>reserveRow(r,true)));
+  if(!all.length)box.append(node('p','예약 주문이 없습니다. 종목 화면의 모의 주문에서 "예약 주문"을 선택해 등록하세요.','empty-state'));
+  const mine=all.filter(r=>r.symbol===$('symbol').value&&r.status==='pending');
+  $('reserveSymbol').hidden=!mine.length;$('reserveSymbolRows').replaceChildren(...mine.map(r=>reserveRow(r,false)));
+}
+window.loadLimits=async function(){reserveCache=await api('limit-orders');renderReserves();};
+window.addEventListener('displaycurrencychange',renderReserves);
 
 
 // Daily snapshots begin when collection starts; no earlier days are invented.

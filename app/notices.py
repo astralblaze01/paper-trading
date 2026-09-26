@@ -11,6 +11,10 @@ from .admin_ops import add_audit
 TEMPLATES = {
     'maintenance': {'label': '서버 점검 예고', 'title': '서버 점검 예정',
                     'body': '서버 점검이 예정되어 있습니다. 점검 중에는 일시적으로 서비스 이용이 어려울 수 있습니다.'},
+    'maintenance_now': {'label': '서버 점검 중', 'title': '서버 점검 중',
+                        'body': '현재 서버 점검을 진행하고 있습니다. 점검 중에는 시세 갱신과 주문이 원활하지 않을 수 있습니다.'},
+    'maintenance_done': {'label': '서버 점검 완료', 'title': '서버 점검 완료',
+                         'body': '서버 점검이 완료되었습니다. 이제 정상적으로 이용하실 수 있습니다.'},
     'update': {'label': '업데이트 안내', 'title': '서비스 업데이트 안내',
                'body': '서비스가 업데이트되었습니다. 새로워진 기능을 확인해 보세요.'},
     'general': {'label': '일반 공지', 'title': '', 'body': ''},
@@ -24,7 +28,7 @@ def _clean(value):
 
 class NoticeInput(BaseModel):
     model_config = ConfigDict(extra='forbid')
-    kind: Literal['maintenance', 'update', 'general']
+    kind: Literal['maintenance', 'maintenance_now', 'maintenance_done', 'update', 'general']
     title: str = Field(max_length=60)
     body: str = Field(max_length=500)
     @field_validator('title', 'body')
@@ -39,6 +43,8 @@ class MaintenanceInput(BaseModel):
 
 # Several notices can be up at once; the newest is listed first.
 MAX_ACTIVE = 10
+# Notices saying maintenance is coming or under way (the legacy 'maintenance' flag).
+MAINTENANCE_KINDS = ('maintenance', 'maintenance_now')
 
 
 def active_notices(db):
@@ -81,7 +87,7 @@ def listing(db):
     notices = [public(n) for n in active_notices(db)]
     # 'notice' and 'maintenance' stay for pages loaded before several notices could be up.
     return {'notices': notices, 'notice': notices[0] if notices else None,
-            'maintenance': any(n['kind'] == 'maintenance' for n in notices)}
+            'maintenance': any(n['kind'] in MAINTENANCE_KINDS for n in notices)}
 
 
 def install_notices(app, admin, csrf):

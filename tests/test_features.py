@@ -349,7 +349,7 @@ def test_maintenance_shortcut_posts_the_template_and_blocks_nothing(client):
 def test_notices_from_templates_or_custom_text(client):
     headers, uid = admin_and_user(client)
     templates = client.get('/api/admin').json()['notice_templates']
-    assert set(templates) == {'maintenance', 'update', 'general'} and templates['general']['body'] == ''
+    assert set(templates) == {'maintenance', 'maintenance_now', 'maintenance_done', 'update', 'general'} and templates['general']['body'] == ''
     other, other_headers = second_client('plain')
     body = {'kind': 'general', 'title': ' 이벤트 안내 ', 'body': '이번 주 수익률 1위에게\n가상 지원금을 드립니다.\x07'}
     assert other.post('/api/admin/notice', headers=other_headers, json=body).status_code == 403

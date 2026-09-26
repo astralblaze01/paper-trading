@@ -147,6 +147,12 @@ def migrate(engine):
             backfill_trade_rates(db)
             db.execute(text('INSERT INTO schema_migrations(version) VALUES (13)'))
 
+        if not db.scalar(text('SELECT 1 FROM schema_migrations WHERE version=14')):
+            # Reservation orders record when and at what price they filled.
+            db.execute(text('ALTER TABLE limit_orders ADD COLUMN IF NOT EXISTS filled_at TIMESTAMPTZ'))
+            db.execute(text('ALTER TABLE limit_orders ADD COLUMN IF NOT EXISTS filled_price NUMERIC(20,4)'))
+            db.execute(text('INSERT INTO schema_migrations(version) VALUES (14)'))
+
 
 def backfill_trade_rates(db):
     """Give older fills the reference rate the app itself was using then.
