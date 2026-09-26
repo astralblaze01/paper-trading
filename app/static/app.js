@@ -219,7 +219,7 @@ function showAuthView(){const signup=location.hash==='#signup';$('authForm').hid
 window.addEventListener('hashchange',()=>{if(!window.sessionUsername)showAuthView();});
 // Note: the global history() below (transaction list) shadows window.history, so only the hash is used.
 $('showLogin').addEventListener('click',e=>{e.preventDefault();location.hash='';showAuthView();});
-handle('authForm', 'submit', async () => { $('loginSubmit').disabled=true; try { await api('login', {username: $('username').value, password: $('password').value}); } finally { $('loginSubmit').disabled=false; } $('password').value = ''; message(''); if(location.hash==='#signup')location.hash=''; await boot(); window.scrollTo(0,0); });
+handle('authForm', 'submit', async () => { $('loginSubmit').disabled=true; try { await api('login', {username: $('username').value, password: $('password').value}); } catch (err) { toast(`로그인하지 못했습니다.\n${err.message}`, 'error', 7000); return; } finally { $('loginSubmit').disabled=false; } $('password').value = ''; message(''); if(location.hash==='#signup')location.hash=''; await boot(); window.scrollTo(0,0); });
 function registerProblem(){
   const username=$('registerUsername').value.trim(),password=$('registerPassword').value,confirm=$('registerConfirm').value;
   if(!username)return '아이디를 입력하세요.';

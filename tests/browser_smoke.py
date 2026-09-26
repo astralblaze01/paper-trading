@@ -349,7 +349,18 @@ with sync_playwright() as p:
     expect(page.locator('#toasts')).to_contain_text('회원 탈퇴가 완료')
     assert page.evaluate("fetch('/api/portfolio').then(r=>r.status)")==401
     page.locator('#username').fill(name+'_x'); page.locator('#password').fill('abcd1234'); page.locator('#loginSubmit').click()
-    expect(page.locator('#status')).to_contain_text('올바르지 않습니다')
+    # A failed login is an error toast with the server's reason, not the page status line.
+    failure=page.locator('#toasts .toast-error')
+    expect(failure).to_have_text(re.compile('로그인하지 못했습니다.\\s+사용자 이름 또는 비밀번호가 올바르지 않습니다.'))
+    expect(failure).to_have_attribute('role','alert')
+    expect(failure).to_be_in_viewport()
+    expect(page.locator('#status')).to_have_text('')
+    expect(page.locator('#loginSubmit')).to_be_enabled()
+    failure.locator('.toast-close').click()
+    expect(failure).to_have_count(0)
+    page.locator('#username').fill(peer); page.locator('#password').fill('abcd1234'); page.locator('#loginSubmit').click()
+    expect(page.locator('#dashboard')).to_be_visible()
+    expect(page.locator('#toasts .toast-error')).to_have_count(0)
     page.close()
     # Many holdings: every one gets its own segment; a missing price shows as pending, then fills in.
     page=browser.new_page(viewport={'width':1280,'height':900})
