@@ -118,7 +118,7 @@ async function explore(silent=false) {
 $('exploreMarkets').addEventListener('click',e=>{const b=e.target.closest('[data-asset]');if(!b)return;$('exploreMarket').value=b.dataset.asset;explore();});
 $('exploreKinds').addEventListener('click',e=>{const b=e.target.closest('[data-kind]');if(!b)return;$('exploreKind').value=b.dataset.kind;explore();});
 handle('exploreMarket','change',()=>explore());handle('exploreKind','change',()=>explore());
-window.addEventListener('displaycurrencychange',()=>{displayFx=viewFx;stockTable($('exploreRows'),exploreRowsCache,explorePopular);renderDetailQuote();renderOrderPreview();drawChart();renderPublic();renderWatchlist();});
+window.addEventListener('displaycurrencychange',()=>{displayFx=viewFx;stockTable($('exploreRows'),exploreRowsCache,explorePopular);renderDetailQuote();renderOrderPreview();drawChart();renderPublic();renderWatchlist();renderValuation();});
 handle('discoverySearch','submit',async()=>{exploreMode='search';++exploreVersion;const query=$('discoveryQuery').value;const rows=await api('search?'+new URLSearchParams({q:query,category:$('exploreMarket').value}));exploreRowsCache=rows;explorePopular=false;stockTable($('exploreRows'),rows);$('exploreNotice').textContent='검색 결과 · 등록 종목 목록이며 가격은 종목 상세에서 확인합니다.';if(rows.length===1)await api('popularity',{symbol:rows[0].symbol,kind:'search'});});
 setInterval(()=>{if(document.hidden||(location.hash&&location.hash!=='#explore')||$('dashboard').hidden||exploreMode!=='ranking')return;const asset=$('exploreMarket').value,markets=['kr','kr_bond'].includes(asset)?['KR']:['us','us_bond'].includes(asset)?['US']:['KR','US'];if(markets.every(m=>window.marketOpen?.[m]===false))return;explore(true);},EXPLORE_REFRESH_MS);
 // Keep REST_QUOTE_MS in step with the REST fallback's '30초 간격' status line.
@@ -269,6 +269,7 @@ async function loadCompany(symbol){
     div.append(node('small','배당률'),node('strong',dividend.status==='paid'?`연 ${Number(dividend.yield).toFixed(2)}%`:dividend.status==='none'?'없음':'정보 없음'));
     if(dividend.basis)div.append(node('span',dividend.basis,'field-help'));
     target.append(div);
+    target.append(node('div',null,'valuation'));renderValuation();
     // Provider data: only an http(s) URL becomes a link, never javascript: or data:.
     if(r.website){
       try{
@@ -278,6 +279,26 @@ async function loadCompany(symbol){
     }
     target.append(node('p',[r.source,r.notice].filter(Boolean).join(' · '),'field-help'));
   }catch(e){if(symbol===currentSymbol)$('companyInfo').textContent=e.message;}
+}
+// Market cap follows the display currency like every other amount; the ratios have no currency.
+function marketCapText(value,currency){
+  if(value==null)return '정보 없음';
+  const shown=viewValue(value,currency),unit=viewCurrency(currency);
+  if(shown==null||!Number.isFinite(shown))return '환율 확인 대기';
+  const one=n=>n.toLocaleString('ko-KR',{minimumFractionDigits:1,maximumFractionDigits:1});
+  if(unit==='KRW')return shown>=1e12?one(shown/1e12)+'조원':Math.round(shown/1e8).toLocaleString('ko-KR')+'억원';
+  const [size,suffix]=[[1e12,'T'],[1e9,'B'],[1e6,'M']].find(([s])=>shown>=s)||[1,''];
+  return '$'+one(shown/size)+suffix;
+}
+function ratioText(value,unit){const n=Number(value);return value==null||!Number.isFinite(n)?'정보 없음':n.toLocaleString('ko-KR',{minimumFractionDigits:1,maximumFractionDigits:1})+unit;}
+function renderValuation(){
+  const box=document.querySelector('#companyInfo .valuation'),v=detailCompany?.valuation;
+  if(!box||!v||detailCompany.symbol!==currentSymbol)return;
+  const grid=node('div',null,'valuation-grid');
+  for(const [label,value,title] of [['시가총액',marketCapText(v.market_cap,v.currency),'Market Cap'],['PER',Number(v.per)<0?'적자':ratioText(v.per,'배'),'주가수익비율 (Price / Earnings)'],['PBR',ratioText(v.pbr,'배'),'주가순자산비율 (Price / Book)'],['ROE',ratioText(v.roe,'%'),'자기자본이익률 (Return on Equity)'],['PSR',ratioText(v.psr,'배'),'주가매출비율 (Price / Sales)']]){
+    const item=node('div',null,'valuation-item'),name=node('small',label);name.title=title;item.append(name,node('strong',value));grid.append(item);
+  }
+  box.replaceChildren(node('small','투자 지표','valuation-title'),grid,node('span',[v.basis,v.notice].filter(Boolean).join(' · '),'field-help'));
 }
 async function loadChart(){const symbol=currentSymbol,range=currentRange;chartRows=[];chartIndex=null;drawChart();$('chartNotice').textContent='차트 조회 중…';$('chartRetry').hidden=true;try{const r=await api('candles/'+encodeURIComponent(symbol)+'?range='+range);if(symbol!==currentSymbol||range!==currentRange)return;chartRows=r.candles;chartIndex=null;$('chartRetry').hidden=!!r.candles.length;const technical=window.isAdmin?`${r.source} · ${r.resolution} · ${r.data_status}`:'과거 가격 데이터';const partial=!window.isAdmin&&r.partial?' · 공급자가 제공한 범위만 표시합니다.':'';$('chartNotice').textContent=`${technical}${partial}${r.stale?' · 마지막 데이터가 오래되었습니다':''}${!r.candles.length?' · 데이터 없음':''}`;drawChart();}catch(e){if(symbol===currentSymbol&&range===currentRange){$('chartNotice').textContent=e.message+' 잠시 후 다시 불러오세요.';$('chartRetry').hidden=false;chartRows=[];drawChart();}}}
 $('chartRetry').addEventListener('click',()=>loadChart());

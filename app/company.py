@@ -21,7 +21,10 @@ def company_info(symbol,market):
             if not result['industry']: result['notice']='공급자가 업종·사업 소개를 제공하지 않는 종목입니다.'
         except (MarketError,KeyError,TypeError,AttributeError):
             result['notice']='기업 정보를 불러오지 못했습니다. 시세와 주문은 별도로 이용할 수 있습니다.'
-        result['dividend']=dividend_info(symbol,market)
+        # Dividend and valuation read the same Finnhub metric response.
+        metric=_once(lambda:_us_metric(symbol,market))
+        result['dividend']=dividend_info(symbol,market,metric)
+        result['valuation']=valuation_info(symbol,market,result['market_cap'],metric)
         return result
     return cache.get(symbol,3600,load)
 
@@ -33,7 +36,24 @@ def _number(value):
     except (InvalidOperation,TypeError,ValueError): return None
 
 
-def dividend_info(symbol,market):
+def _us_metric(symbol,market):
+    return (market.us.get('/stock/metric',{'symbol':symbol,'metric':'all'},86400) or {}).get('metric') or {}
+
+
+def _once(load):
+    """load() at most once: later calls return, or re-raise, the first outcome."""
+    outcome=[]
+    def get():
+        if not outcome:
+            try: outcome.append((True,load()))
+            except Exception as exc: outcome.append((False,exc))
+        ok,value=outcome[0]
+        if ok: return value
+        raise value
+    return get
+
+
+def dividend_info(symbol,market,metric=None):
     """Annual dividend yield in percent.
 
     status is 'paid' (yield > 0), 'none' (the provider reports no dividend) or
@@ -50,7 +70,7 @@ def dividend_info(symbol,market):
             price=_number(quote.get('native_price',quote.get('price')))
             if not price or price<=0: return {'yield':None,'status':'unavailable','basis':'현재가 확인 불가'}
             return {'yield':(total/price*100).quantize(Decimal('.01')),'status':'paid','basis':'최근 12개월 주당 배당금 ÷ 현재가 · 한국투자증권'}
-        metric=(market.us.get('/stock/metric',{'symbol':symbol,'metric':'all'},86400) or {}).get('metric') or {}
+        metric=metric() if metric else _us_metric(symbol,market)
         keys=('dividendYieldIndicatedAnnual','currentDividendYieldTTM','dividendIndicatedAnnual','dividendPerShareTTM')
         if not any(k in metric for k in keys): return {'yield':None,'status':'unavailable','basis':'공급자 배당 자료 없음'}
         value=_number(metric.get('dividendYieldIndicatedAnnual')) or _number(metric.get('currentDividendYieldTTM'))
@@ -58,3 +78,62 @@ def dividend_info(symbol,market):
         return {'yield':None,'status':'none','basis':'Finnhub 배당 정보 없음'}
     except (MarketError,KeyError,TypeError,AttributeError,ValueError):
         return {'yield':None,'status':'unavailable','basis':'배당 정보를 불러오지 못했습니다.'}
+
+
+KR_PRICE='/uapi/domestic-stock/v1/quotations/inquire-price'
+KR_RATIO='/uapi/domestic-stock/v1/finance/financial-ratio'
+VALUATION_NOTICE='공급자가 제공하지 않는 지표는 정보 없음으로 표시합니다. ETF 등은 재무 지표가 없을 수 있습니다.'
+
+
+def _multiple(value):
+    """A provider multiple; KIS reports a missing PER/PBR as 0, so 0 is missing too."""
+    number=_number(value)
+    return number.quantize(Decimal('.01')) if number else None
+
+
+def _fiscal_year_row(rows):
+    """The newest full fiscal year among KIS annual ratio rows.
+
+    The first annual row can be the current year to date (202606 before the
+    202512 rows of a December company); the fiscal year-end month is the month
+    most rows share."""
+    rows=[r for r in rows if isinstance(r,dict) and len(str(r.get('stac_yymm','')))==6]
+    if not rows: return None
+    months=[str(r['stac_yymm'])[4:] for r in rows]
+    month=max(dict.fromkeys(months),key=months.count)
+    return next(r for r in rows if str(r['stac_yymm']).endswith(month))
+
+
+def valuation_info(symbol,market,profile_cap=None,metric=None):
+    """Market cap in native currency units and PER/PBR/ROE/PSR; ROE is in percent.
+
+    Each figure is None when the provider does not report it (ETF, new
+    listing, provider outage), and a failed call only blanks its own figures."""
+    kr=symbol.startswith('KR:')
+    result={'currency':'KRW' if kr else 'USD','market_cap':None,'per':None,'pbr':None,'roe':None,'psr':None,'basis':None,'notice':None}
+    try:
+        if kr:
+            code=symbol[3:]
+            # The same request (and cache entry) as the quote capability check.
+            price=market.kr.get(KR_PRICE,'FHKST01010100',{'FID_COND_MRKT_DIV_CODE':'J','FID_INPUT_ISCD':code},3600).get('output') or {}
+            cap=_number(price.get('hts_avls'))  # 억원
+            result.update(market_cap=(cap*100000000).quantize(Decimal(1)) if cap and cap>0 else None,per=_multiple(price.get('per')),pbr=_multiple(price.get('pbr')),basis='한국투자증권 · 현재가와 최근 결산 재무 기준')
+            try:
+                row=_fiscal_year_row(market.kr.get(KR_RATIO,'FHKST66430300',{'FID_DIV_CLS_CODE':'0','fid_cond_mrkt_div_code':'J','fid_input_iscd':code},86400).get('output') or [])
+            except MarketError: row=None
+            if row:
+                roe,sps,now=_number(row.get('roe_val')),_number(row.get('sps')),_number(price.get('stck_prpr'))
+                result['roe']=roe.quantize(Decimal('.01')) if roe is not None else None
+                result['psr']=(now/sps).quantize(Decimal('.01')) if now and now>0 and sps and sps>0 else None
+                period=str(row['stac_yymm'])
+                result['basis']=f'한국투자증권 · 현재가와 {period[:4]}.{period[4:]} 결산 재무 기준'
+        else:
+            metric=metric() if metric else _us_metric(symbol,market)
+            cap=_number(metric.get('marketCapitalization')) or _number(profile_cap)  # USD millions
+            roe=_number(metric.get('roeTTM'))
+            result.update(market_cap=(cap*1000000).quantize(Decimal(1)) if cap and cap>0 else None,per=_multiple(metric.get('peTTM')),pbr=_multiple(metric.get('pbQuarterly')),roe=roe.quantize(Decimal('.01')) if roe is not None else None,psr=_multiple(metric.get('psTTM')),basis='Finnhub · PER·ROE·PSR 최근 12개월, PBR 최근 분기 기준')
+    except (MarketError,KeyError,TypeError,AttributeError,ValueError):
+        result['basis']='투자 지표를 불러오지 못했습니다. 시세와 주문은 별도로 이용할 수 있습니다.'
+        return result
+    if any(result[k] is None for k in ('market_cap','per','pbr','roe','psr')): result['notice']=VALUATION_NOTICE
+    return result

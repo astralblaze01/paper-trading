@@ -34,6 +34,26 @@ class FixtureMarket:
     def volume_leaders(self):
         from app.market import MarketError
         raise MarketError('브라우저 테스트: 순위 공급자 설정 필요')
+# Company facts: fixed provider answers in the recorded Finnhub/KIS shapes.
+# AAPL full, NVDA partial (loss, no book data), GLD an ETF, MSFT a provider outage.
+class FixtureFinnhub:
+    METRIC={'AAPL':{'marketCapitalization':3200000,'peTTM':28.4,'pbQuarterly':7.2,'roeTTM':31.5,'psTTM':8.6,'dividendYieldIndicatedAnnual':0.45},
+            'NVDA':{'marketCapitalization':125400,'peTTM':-12.3,'psTTM':20.1}}
+    def get(self,path,params,ttl):
+        from app.market import MarketError
+        if params['symbol']=='MSFT':raise MarketError('브라우저 테스트: 기업정보 공급자 응답 없음')
+        return {'metric':self.METRIC.get(params['symbol'],{})} if path=='/stock/metric' else {}
+class FixtureKIS:
+    PRICE={'005930':{'stck_prpr':'70000','hts_avls':'4500000','per':'14.20','pbr':'1.30'},
+           '114260':{'stck_prpr':'70000','hts_avls':'52000','per':'0.00','pbr':'0.00'}}
+    RATIO={'005930':[{'stac_yymm':'202606','roe_val':'20.00','sps':'40000'},{'stac_yymm':'202512','roe_val':'9.10','sps':'35000'},{'stac_yymm':'202412','roe_val':'8.00','sps':'30000'}]}
+    def get(self,path,tr_id,params,ttl=15,tr_cont=''):
+        code=params.get('FID_INPUT_ISCD') or params.get('fid_input_iscd') or params.get('PDNO') or params.get('SHT_CD')
+        if path.endswith('inquire-price'):return {'output':self.PRICE.get(code,{})}
+        if path.endswith('financial-ratio'):return {'output':self.RATIO.get(code,[])}
+        if path.endswith('dividend'):return {'output1':[]}
+        return {'output':{}}
+FixtureMarket.us=FixtureFinnhub();FixtureMarket.kr=FixtureKIS()
 class FixtureFX:
     def current_rate(self,source='USD',target='KRW'):return {'source':source,'target':target,'rate':Decimal(1000) if source=='USD' else Decimal('.001'),'date':datetime.now(timezone.utc).date().isoformat(),'stale':False}
 main.market=FixtureMarket();main.fx=FixtureFX()

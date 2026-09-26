@@ -362,6 +362,85 @@ with sync_playwright() as p:
     expect(page.locator('#dashboard')).to_be_visible()
     expect(page.locator('#toasts .toast-error')).to_have_count(0)
     page.close()
+    # Valuation metrics on the company panel (fixture figures in tests/browser_server.py).
+    # Each page is its own client address: the flows above already spent this run's shared market budget.
+    for width,height,address in [(1440,1000,'198.51.100.11'),(390,844,'198.51.100.12')]:
+        page=browser.new_page(viewport={'width':width,'height':height},extra_http_headers={'x-real-ip':address})
+        errors=[]
+        page.on('pageerror',lambda e:errors.append(str(e)))
+        page.goto('http://browserweb:8000/')
+        name=f'value_{width}_'+str(int(time.time()))
+        page.evaluate("""async name=>{const s=await api('session');csrf=s.csrf;await api('register',{username:name,password:'abcd1234',password_confirm:'abcd1234'});await api('login',{username:name,password:'abcd1234'});await boot();}""",name)
+        items=page.locator('#companyInfo .valuation-item')
+        values=items.locator('strong')
+        page.evaluate("openStock('AAPL')")
+        expect(items.locator('small')).to_have_text(['시가총액','PER','PBR','ROE','PSR'])
+        expect(values).to_have_text(['$3.2T','28.4배','7.2배','31.5%','8.6배'])
+        expect(page.locator('#companyInfo .valuation')).to_contain_text('Finnhub · PER·ROE·PSR 최근 12개월, PBR 최근 분기 기준')
+        expect(page.locator('#companyInfo')).to_contain_text('연 0.45%')   # the existing facts stay
+        expect(page.locator('#companyInfo')).to_contain_text('자산 종류')
+        page.locator('#displayCurrency').select_option('KRW')
+        expect(values.first).to_have_text('3,200.0조원')
+        page.locator('#displayCurrency').select_option('native')
+        expect(values.first).to_have_text('$3.2T')
+        assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth+1')
+        # One snapshot: the quote and chart above may still change the page height.
+        grid,*boxes=page.evaluate("[document.querySelector('#companyInfo .valuation-grid'),...document.querySelectorAll('#companyInfo .valuation-item')].map(n=>{const r=n.getBoundingClientRect();return {y:r.y,width:r.width};})")
+        if width<600:   # market cap on its own row, then the four ratios two by two
+            assert abs(boxes[0]['width']-grid['width'])<2,boxes
+            assert boxes[1]['y']==boxes[2]['y']>boxes[0]['y'] and boxes[3]['y']==boxes[4]['y']>boxes[1]['y'],boxes
+        else:
+            assert len({round(b['y']) for b in boxes})==1,boxes
+        page.screenshot(path=f'/artifacts/valuation-{width}.png',full_page=True)
+        # A late company answer for the previous symbol never replaces the current one.
+        held=[]
+        page.route('**/api/company/NVDA',lambda route:held.append(route))
+        page.evaluate("openStock('NVDA')")
+        expect(items).to_have_count(0)
+        for _ in range(50):
+            if held:break
+            page.wait_for_timeout(100)
+        assert held
+        page.evaluate("openStock('KR:005930')")
+        expect(values).to_have_text(['450.0조원','14.2배','1.3배','9.1%','2.0배'])
+        expect(page.locator('#companyInfo .valuation')).to_contain_text('한국투자증권 · 현재가와 2025.12 결산 재무 기준')
+        with page.expect_response('**/api/company/NVDA'):
+            held[0].continue_()
+        page.wait_for_timeout(300)
+        expect(page.locator('#detailTitle')).to_contain_text('삼성전자')
+        expect(values).to_have_text(['450.0조원','14.2배','1.3배','9.1%','2.0배'])
+        page.unroute('**/api/company/NVDA')
+        # Partial figures: a loss-making PER and no book data.
+        page.evaluate("openStock('NVDA')")
+        expect(values).to_have_text(['$125.4B','적자','정보 없음','정보 없음','20.1배'])
+        expect(page.locator('#companyInfo .valuation')).to_contain_text('정보 없음으로 표시')
+        # ETFs: no financial ratios, and no error.
+        page.evaluate("openStock('GLD')")
+        expect(values).to_have_text(['정보 없음']*5)
+        expect(page.locator('#companyInfo .valuation')).to_contain_text('ETF 등은 재무 지표가 없을 수 있습니다')
+        expect(page.locator('#detailPrice')).to_contain_text('100')
+        page.evaluate("openStock('KR:114260')")
+        expect(values).to_have_text(['5.2조원']+['정보 없음']*4)
+        # A provider outage, and a failing company endpoint, leave price, chart and orders working.
+        page.evaluate("openStock('MSFT')")
+        expect(page.locator('#companyInfo')).to_contain_text('기업 정보를 불러오지 못했습니다')
+        expect(values).to_have_text(['정보 없음']*5)
+        expect(page.locator('#companyInfo .valuation')).to_contain_text('투자 지표를 불러오지 못했습니다')
+        page.route('**/api/company/IAU',lambda route:route.fulfill(status=503,json={'detail':'기업 정보 점검 중입니다.'}))
+        for symbol,label in [('MSFT','Microsoft'),('IAU','iShares Gold Trust')]:
+            page.evaluate('s=>openStock(s)',symbol)
+            if symbol=='IAU':
+                expect(page.locator('#companyInfo')).to_have_text('기업 정보 점검 중입니다.')
+                expect(items).to_have_count(0)
+            expect(page.locator('#detailPrice')).to_contain_text('100')
+            expect(page.locator('#chartNotice')).to_contain_text('과거 가격 데이터')
+            expect(page.locator('#periodPerformance')).to_contain_text('%')
+            page.locator('#quantity').fill('1')
+            page.locator('#submitOrder').click()
+            expect(page.locator('#toasts .toast').last).to_contain_text('매수 주문이 체결되었습니다.')
+            expect(page.locator('#toasts .toast').last).to_contain_text(label)
+        assert errors==[],errors
+        page.close()
     # Many holdings: every one gets its own segment; a missing price shows as pending, then fills in.
     page=browser.new_page(viewport={'width':1280,'height':900})
     page.goto('http://browserweb:8000/')
