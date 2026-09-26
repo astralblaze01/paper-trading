@@ -9,6 +9,13 @@ def png(width=64,height=64):
 
 with sync_playwright() as p:
     browser=p.chromium.launch(args=['--no-sandbox'])
+    # This run's own second account: the ranking step opens another user's public
+    # profile, and must not depend on accounts left behind by earlier runs.
+    peer='peer_'+str(int(time.time()))
+    setup=p.request.new_context(base_url='http://browserweb:8000')
+    csrf=setup.get('/api/session').json()['csrf']
+    assert setup.post('/api/register',headers={'x-csrf-token':csrf},data={'username':peer,'password':'abcd1234','password_confirm':'abcd1234'}).ok
+    setup.dispose()
     for width,height in [(1440,1000),(390,844)]:
         page=browser.new_page(viewport={'width':width,'height':height})
         errors=[]
@@ -224,7 +231,7 @@ with sync_playwright() as p:
         expect(page.locator('#ranking th').nth(2)).to_have_text('총 평가금액 (USD)')
         expect(page.locator('#ranking td').nth(2)).to_contain_text('$')
         page.locator('#displayCurrency').select_option('KRW')
-        other=page.locator('#ranking .user-link').filter(has_not_text=name).first
+        other=page.locator('#ranking .user-link').filter(has_text=peer).first
         other_name=other.inner_text()
         other.click()
         expect(page.locator('#publicTitle')).to_contain_text(other_name+'님의 투자 현황')

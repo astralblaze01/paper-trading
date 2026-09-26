@@ -168,9 +168,10 @@ docker compose exec web python tests/run.py
 ```
 
 브라우저 스모크 테스트(Playwright, Chromium)는 고정 시세를 쓰는 테스트 전용 앱과 DB(`paper_browser_test`)로 실행되며, 화면 캡처를 `artifacts/`에 저장합니다.
+`scripts/browser_smoke.py`는 실행마다 테스트 앱(`browserweb`)과 테스트 Redis를 새로 띄웁니다. 테스트 앱은 주입한 시세와 앱의 프로세스 전역 상태(요청 제한, 랭킹 캐시, SSE)를 프로세스가 살아 있는 동안 유지하므로, 실행끼리 서로 영향을 주지 않게 하기 위해서입니다. 테스트에 필요한 계정은 스모크가 직접 만듭니다.
 
 ```bash
-docker compose -f compose.yaml -f compose.browser.yaml run --rm --build browser
+python3 scripts/browser_smoke.py -f compose.yaml -f compose.browser.yaml
 ```
 
 공개 전 저장소 파일에 `.env`의 비밀 값이나 개인 파일이 섞였는지 검사할 수 있습니다.
@@ -466,9 +467,9 @@ SSE 모드에서는 현재가 REST 폴링을 하지 않습니다. 장 상태는 
 
 ```bash
 docker compose -p paper-sse-test -f compose.sse-test.yaml run --rm --build tests
-docker compose -p paper-sse-test -f compose.sse-test.yaml run --rm --build browser
+python3 scripts/browser_smoke.py -p paper-sse-test -f compose.sse-test.yaml
 # 별도 환경에서 flag OFF 및 REST 복귀 검증
-SSE_TEST_ENABLED=false docker compose -p paper-sse-rollback -f compose.sse-test.yaml run --rm --build browser
+SSE_TEST_ENABLED=false python3 scripts/browser_smoke.py -p paper-sse-rollback -f compose.sse-test.yaml
 # 임시 자체서명 인증서: 테스트 전용, 운영 인증서와 무관
 mkdir -p /tmp/paper-sse-certs
 openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj '/CN=tlsproxy' \
@@ -492,7 +493,7 @@ web 재시작 스모크는 다음 명령을 한 터미널에서 실행하고, `a
 이번 실행 시각으로 갱신되면 다른 터미널에서 테스트 web만 재시작합니다.
 
 ```bash
-docker compose -p paper-sse-test -f compose.sse-test.yaml run --rm --build browser python browser_restart_smoke.py
+python3 scripts/browser_smoke.py -p paper-sse-test -f compose.sse-test.yaml -- python browser_restart_smoke.py
 # 별도 터미널, 위 테스트가 준비된 후 실행
 docker compose -p paper-sse-test -f compose.sse-test.yaml restart browserweb
 ```
