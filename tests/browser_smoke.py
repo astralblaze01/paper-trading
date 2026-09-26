@@ -701,13 +701,19 @@ with sync_playwright() as p:
         page.clock.run_for(ms)
         page.wait_for_timeout(500)
         return len(explore_calls)-before
-    assert ticks(30500)==1 and ticks(30000)==1   # one refresh per 30 s, no duplicate timer
+    # Korean lists refresh every 10 s, US lists every 15 s; one timer, never duplicated.
+    assert ticks(10500)==1 and ticks(10000)==1
+    expect(page.locator('#exploreNotice')).to_contain_text('10초 자동 갱신')
     page.evaluate("location.hash='#portfolio'")
     expect(page.locator('[data-page="portfolio"]').first).to_be_visible()
     assert ticks(61000)==0   # other pages do not refresh the explore list
     with page.expect_response(lambda r:'/api/explore' in r.url):
         page.evaluate("location.hash='#explore'")
-    assert ticks(30000)==1
+    assert ticks(10000)==1
+    with page.expect_response(lambda r:'/api/explore' in r.url):
+        page.locator('#exploreMarkets [data-asset="us"]').click()
+    assert ticks(10500)==0 and ticks(5000)==1   # US: 15 s
+    expect(page.locator('#exploreNotice')).to_contain_text('15초 자동 갱신')
     page.locator('#logout').click()
     expect(page.locator('#auth')).to_be_visible()
     assert ticks(61000)==0   # signed out again

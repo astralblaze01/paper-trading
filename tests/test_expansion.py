@@ -303,7 +303,7 @@ def test_kis_us_rankings_use_live_turnover_and_change():
         configured=True
         def get(self,path,tr_id,params,ttl):
             assert path=='/uapi/overseas-stock/v1/ranking/trade-pbmn'
-            assert tr_id=='HHDFS76320010' and ttl==30
+            assert tr_id=='HHDFS76320010' and ttl==15   # US rankings are rechecked every 15 s
             values={'NAS':[('NVDA','엔비디아','225','2.5','20','4500')],
                     'NYS':[('IBM','IBM','300','-1.2','30','9000')],
                     'AMS':[]}[params['EXCD']]

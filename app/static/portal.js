@@ -15,8 +15,22 @@ window.renderRecentStocks=function(){
 };
 function rememberStock(symbol,name){if(!window.sessionUsername)return;try{let rows=readRecentStocks();rows=[{symbol,name:name||symbol},...rows.filter(r=>r.symbol!==symbol)].slice(0,8);localStorage.setItem(recentKey(),JSON.stringify(rows));}catch{}renderRecentStocks();}
 
-// Keep in step with the '30초' in #exploreNotice and the explore page copy.
-const EXPLORE_REFRESH_MS=30000;
+// Explore list refresh: Korean lists every 10 s, US (and gold) every 15 s. The server
+// caches each list for the same time and shares it with every viewer, so provider
+// calls do not grow with users. US is slower because its three exchange calls
+// share the KIS overseas spacing (1.1 s each).
+const EXPLORE_REFRESH_MS={kr:10000,kr_bond:10000,us:15000,us_bond:15000,gold:15000};
+function exploreRefreshMs(asset=$('exploreMarket').value){return EXPLORE_REFRESH_MS[asset]||15000;}
+let exploreTimer=null;
+function scheduleExplore(){
+  clearTimeout(exploreTimer);
+  exploreTimer=setTimeout(()=>{
+    if(document.hidden||(location.hash&&location.hash!=='#explore')||$('dashboard').hidden||exploreMode!=='ranking'){scheduleExplore();return;}
+    const asset=$('exploreMarket').value,markets=['kr','kr_bond'].includes(asset)?['KR']:['us','us_bond'].includes(asset)?['US']:['KR','US'];
+    if(markets.every(m=>window.marketOpen?.[m]===false)){scheduleExplore();return;}
+    explore(true);
+  },exploreRefreshMs());
+}
 let exploreVersion = 0;
 let exploreMode = 'ranking';
 let exploreRowsCache = [], explorePopular = false, displayFx = null;
@@ -105,13 +119,14 @@ async function loadDisplayFx(){try{displayFx=await api('fx');viewFx=displayFx;sy
 async function explore(silent=false) {
   exploreMode='ranking';
   const version=++exploreVersion,asset=$('exploreMarket').value,kind=$('exploreKind').value;
+  scheduleExplore();
   document.querySelectorAll('[data-asset]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.asset===asset)));
   document.querySelectorAll('[data-kind]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.kind===kind)));
   if(!silent){$('exploreNotice').textContent='목록을 불러오는 중입니다.';$('exploreRows').replaceChildren();}
   try{
     const [r]=await Promise.all([api('explore?'+new URLSearchParams({asset,kind})),loadDisplayFx()]);if(version!==exploreVersion)return;
-    const next=new Date(Date.now()+EXPLORE_REFRESH_MS).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
-    $('exploreNotice').textContent=[r.scope,r.notice,`30초 자동 갱신 · 다음 확인 ${next}`].filter(Boolean).join(' · ');
+    const every=exploreRefreshMs(asset),next=new Date(Date.now()+every).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    $('exploreNotice').textContent=[r.scope,r.notice,`${every/1000}초 자동 갱신 · 다음 확인 ${next}`].filter(Boolean).join(' · ');
     if($('status').textContent==='입력값을 확인하세요.')$('status').textContent='';
     exploreRowsCache=r.rows;explorePopular=kind==='popular';stockTable($('exploreRows'),r.rows,explorePopular);
   }catch(e){if(version===exploreVersion){$('exploreNotice').textContent=e.message;stockTable($('exploreRows'),[]);}}
@@ -121,7 +136,6 @@ $('exploreKinds').addEventListener('click',e=>{const b=e.target.closest('[data-k
 handle('exploreMarket','change',()=>explore());handle('exploreKind','change',()=>explore());
 window.addEventListener('displaycurrencychange',()=>{displayFx=viewFx;stockTable($('exploreRows'),exploreRowsCache,explorePopular);renderDetailQuote();renderOrderPreview();drawChart();renderPublic();renderWatchlist();renderValuation();});
 handle('discoverySearch','submit',async()=>{exploreMode='search';++exploreVersion;const query=$('discoveryQuery').value;const rows=await api('search?'+new URLSearchParams({q:query,category:$('exploreMarket').value}));exploreRowsCache=rows;explorePopular=false;stockTable($('exploreRows'),rows);$('exploreNotice').textContent='검색 결과 · 등록 종목 목록이며 가격은 종목 상세에서 확인합니다.';if(rows.length===1)await api('popularity',{symbol:rows[0].symbol,kind:'search'});});
-setInterval(()=>{if(document.hidden||(location.hash&&location.hash!=='#explore')||$('dashboard').hidden||exploreMode!=='ranking')return;const asset=$('exploreMarket').value,markets=['kr','kr_bond'].includes(asset)?['KR']:['us','us_bond'].includes(asset)?['US']:['KR','US'];if(markets.every(m=>window.marketOpen?.[m]===false))return;explore(true);},EXPLORE_REFRESH_MS);
 // Keep REST_QUOTE_MS in step with the REST fallback's '30초 간격' status line.
 const MARKET_STATUS_MS=60000, REST_QUOTE_MS=30000;
 let quoteSource=null, quoteRetry=null, quoteWatch=null, marketTimer=null, restTimer=null;

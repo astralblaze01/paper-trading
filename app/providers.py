@@ -9,6 +9,11 @@ from .instruments import valid_symbol
 from .us_session import NEW_YORK
 from .kr_session import SEOUL
 
+# Explore rankings are shared by every viewer for this long (keep in step with
+# EXPLORE_REFRESH_MS in static/portal.js). Korea is one KIS call per list; the
+# US is three (NASDAQ, NYSE, AMEX) at the 1.1 s overseas spacing.
+KR_RANK_SECONDS = 10
+US_RANK_SECONDS = 15
 RANGES={'1D':(1,'5'),'1W':(7,'30'),'3M':(93,'D'),'1Y':(366,'D'),'5Y':(1830,'W'),'ALL':(365*40,'M')}
 
 def validate(symbol, period):
@@ -147,7 +152,7 @@ class USProvider:
             rows=[]; stamp=datetime.now(timezone.utc).isoformat()
             for exchange in ('NAS','NYS','AMS'):
                 data=self.kis.get('/uapi/overseas-stock/v1/ranking/'+path,tr_id,
-                    {'EXCD':exchange,'NDAY':'0','VOL_RANG':'0','AUTH':'','KEYB':'','PRC1':'','PRC2':''},30)
+                    {'EXCD':exchange,'NDAY':'0','VOL_RANG':'0','AUTH':'','KEYB':'','PRC1':'','PRC2':''},US_RANK_SECONDS)
                 for raw in data.get('output2') or []:
                     symbol=str(raw.get('symb','')).upper()
                     if not valid_symbol(symbol): continue
@@ -158,26 +163,26 @@ class USProvider:
                     except (KeyError,TypeError,ValueError,ArithmeticError): continue
                     rows.append({'symbol':symbol,'name':raw.get('name') or raw.get('ename') or symbol,'price':price,
                                  'change_pct':change,'volume':volume,'turnover':turnover,'market':'US','currency':'USD',
-                                 'data_time':stamp,'data_status':f'KIS {exchange} 당일 {label} 순위 · 30초 확인'})
+                                 'data_time':stamp,'data_status':f'KIS {exchange} 당일 {label} 순위 · {US_RANK_SECONDS}초 확인'})
             # A security can occasionally appear in more than one exchange result.
             unique={}
             for row in rows:
                 if row['symbol'] not in unique or row[measure]>unique[row['symbol']][measure]: unique[row['symbol']]=row
             if not unique: raise MarketError(f'KIS 미국 {label} 순위를 불러오지 못했습니다.')
             return list(unique.values()),stamp
-        return self.cache.get('kis-us-rank' if measure=='turnover' else 'kis-us-rank-'+measure,30,load)
+        return self.cache.get('kis-us-rank' if measure=='turnover' else 'kis-us-rank-'+measure,US_RANK_SECONDS,load)
     def _kis_movers(self,direction):
         if direction=='shares':
             rows,stamp=self._kis_rank_rows('volume')
             return {'rows':sorted(rows,key=lambda r:r['volume'],reverse=True)[:100],'source':'KIS','data_time':stamp,'scope':'미국 거래량 순위',
-                    'notice':'NASDAQ·NYSE·AMEX의 KIS 당일 누적 거래량 자료를 30초마다 다시 확인합니다.'}
+                    'notice':f'NASDAQ·NYSE·AMEX의 KIS 당일 누적 거래량 자료를 {US_RANK_SECONDS}초마다 다시 확인합니다.'}
         rows,stamp=self._kis_rank_rows()
         if direction=='volume': rows=sorted(rows,key=lambda r:r['turnover'],reverse=True)
         elif direction=='up': rows=sorted(rows,key=lambda r:r['change_pct'],reverse=True)
         else: rows=sorted(rows,key=lambda r:r['change_pct'])
         scope='미국 거래대금 순위' if direction=='volume' else f"미국 거래대금 상위 종목 중 {'상승률' if direction=='up' else '하락률'} 순위"
         return {'rows':rows[:100],'source':'KIS','data_time':stamp,'scope':scope,
-                'notice':'NASDAQ·NYSE·AMEX의 KIS 당일 누적 거래대금 자료를 30초마다 다시 확인합니다.'}
+                'notice':f'NASDAQ·NYSE·AMEX의 KIS 당일 누적 거래대금 자료를 {US_RANK_SECONDS}초마다 다시 확인합니다.'}
     def movers(self,direction):
         if self.kis and self.kis.configured:
             try:return self._kis_movers(direction)
@@ -299,7 +304,7 @@ class KRProvider:
             else:
                 path='/uapi/domestic-stock/v1/ranking/fluctuation'; tr='FHPST01700000'
                 params=common|{'FID_COND_SCR_DIV_CODE':'20170','FID_RANK_SORT_CLS_CODE':'0' if direction=='up' else '1','FID_INPUT_CNT_1':'0','FID_PRC_CLS_CODE':'0','FID_RSFL_RATE1':'','FID_RSFL_RATE2':''}
-            data=self.adapter.get(path,tr,params,120)
+            data=self.adapter.get(path,tr,params,KR_RANK_SECONDS)
             rows=[]; stamp=datetime.now(timezone.utc).isoformat()
             for r in data.get('output',[]):
                 symbol='KR:'+r.get('mksc_shrn_iscd',r.get('stck_shrn_iscd',''))
@@ -314,7 +319,7 @@ class KRProvider:
             scope={'volume':'KRX · KIS 거래금액순','shares':'KRX · KIS 거래량순'}.get(direction,'KRX · 공급자 반환 순위')
             notice={'volume':'KIS 거래금액순(20171) 공급자가 반환한 종목만 표시합니다. 시각은 API 조회 시각입니다.','shares':'KIS 거래량순(20171) 공급자가 반환한 종목만 표시합니다. 시각은 API 조회 시각입니다.'}.get(direction,'시각은 API 조회 시각입니다. 목록 가격으로 주문을 체결하지 않습니다.')
             return {'rows':rows,'scope':scope,'source':'KIS','data_time':stamp,'notice':notice}
-        return self.cache.get(('leaders',direction),120,load)
+        return self.cache.get(('leaders',direction),KR_RANK_SECONDS,load)
     def volume_leaders(self): return self.movers('volume')
     def trading_day(self,local=None):
         """True/False from the KIS holiday API, None when it cannot be checked."""
