@@ -22,7 +22,7 @@ with sync_playwright() as p:
         page.on('pageerror',lambda e:errors.append(str(e)))
         page.goto('http://browserweb:8000/')
         expect(page).to_have_title('ALPHARENA · 모의투자')
-        expect(page.locator('header .brand-logo')).to_have_attribute('alt','ALPHARENA')
+        expect(page.locator('header .brand-logo-light')).to_have_attribute('alt','ALPHARENA')
         name='browser_'+str(width)+'_'+str(int(time.time()))
         page.locator('#showSignup').click()
         expect(page.locator('#registerForm')).to_be_visible()
@@ -368,6 +368,20 @@ with sync_playwright() as p:
         page.locator('#historySide button[data-side=""]').click();page.locator('#historyMonth').select_option('')
         # The rate note is just the date and the rate.
         expect(page.locator('#displayRateNote')).to_have_text(re.compile(r'^\d{4}-\d{2}-\d{2} 기준 · 1 USD = [\d,.]+ KRW$'))
+        # Theme: 딥 틸 by default, 다크 아레나 from the header switch, kept after a reload.
+        assert page.evaluate("getComputedStyle(document.documentElement).backgroundColor")=='rgb(244, 248, 247)'
+        expect(page.locator('.brand-logo-light')).to_be_visible(); expect(page.locator('.brand-logo-dark')).to_be_hidden()
+        page.locator('#themeToggle').click()
+        expect(page.locator('html')).to_have_attribute('data-theme','dark')
+        assert page.evaluate("getComputedStyle(document.documentElement).backgroundColor")=='rgb(12, 22, 23)'
+        expect(page.locator('.brand-logo-dark')).to_be_visible(); expect(page.locator('.brand-logo-light')).to_be_hidden()
+        page.reload(); expect(page.locator('html')).to_have_attribute('data-theme','dark')
+        for hash_,shot in (('#portfolio','portfolio'),('#ranking','ranking'),('#detail/AAPL','detail')):
+            page.goto('http://browserweb:8000/'+hash_);page.wait_for_load_state('networkidle')
+            page.screenshot(path=f'/artifacts/dark-{shot}-{width}.png',full_page=True)
+        expect(page.locator('#detailPrice .gain').first).to_have_css('color','rgb(255, 107, 120)')
+        page.locator('#themeToggle').click()
+        expect(page.locator('html')).not_to_have_attribute('data-theme','dark')
         # Every page follows one amount format: "$1,000.00" and "1,000원".
         for display in ('native','KRW','USD'):
             page.locator('#displayCurrency').select_option(display)

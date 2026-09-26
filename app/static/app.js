@@ -127,6 +127,16 @@ function renderRanking(){if(!rankingCache)return;
 function syncCurrency(){$('displayCurrency').value=displayMode;$('displayRateNote').textContent=viewFx?`${viewFx.date} 기준 · 1 USD = ${Number(viewFx.rate).toLocaleString('ko-KR',{maximumFractionDigits:2})} KRW`:'환율 확인 중';}
 async function changeDisplayCurrency(value){displayMode=value;try{localStorage.setItem(storageNamespace+':currency',value);}catch{}syncCurrency();renderPortfolio();renderRanking();renderHistory();if(weeklyCache)renderWeekly();window.dispatchEvent(new Event('displaycurrencychange'));}
 $('displayCurrency').addEventListener('change',e=>changeDisplayCurrency(e.target.value));
+// Theme: A 딥 틸 (light, default) or B 다크 아레나 (dark). Saved per browser; charts redraw.
+function themeColor(name){return getComputedStyle(document.documentElement).getPropertyValue(name).trim();}
+function syncThemeToggle(){const dark=document.documentElement.dataset.theme==='dark',b=$('themeToggle');b.textContent=dark?'☀':'☾';b.setAttribute('aria-label',dark?'라이트 모드로 전환':'다크 모드로 전환');b.title=dark?'라이트 모드':'다크 모드';b.setAttribute('aria-pressed',String(dark));}
+$('themeToggle').addEventListener('click',()=>{
+  const dark=document.documentElement.dataset.theme!=='dark';
+  if(dark)document.documentElement.dataset.theme='dark';else delete document.documentElement.dataset.theme;
+  try{localStorage.setItem(storageNamespace+':theme',dark?'dark':'light');}catch{}
+  syncThemeToggle();window.dispatchEvent(new Event('displaycurrencychange'));
+});
+syncThemeToggle();
 function message(text) { $('status').textContent = text; }
 async function api(path, body, retried=false) {
   const response = await fetch('/api/' + path, {method: body ? 'POST' : 'GET', headers: body ? {'Content-Type': 'application/json', 'X-CSRF-Token': csrf} : {}, body: body ? JSON.stringify(body) : undefined});

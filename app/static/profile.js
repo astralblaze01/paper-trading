@@ -207,7 +207,7 @@ window.renderAllocation=function(target,p){
   for(const s of slices)s.share=s.krw/total*100;
   const size=220,r=82,width=30,C=2*Math.PI*r,gap=slices.length>1?2:0;
   const chart=node('div',null,'allocation-chart'),figure=svg('svg',{viewBox:`0 0 ${size} ${size}`,role:'img','aria-label':'자산 비중: '+slices.map(s=>`${s.label} ${s.share.toFixed(1)}%`).join(', ')});
-  figure.append(svg('circle',{cx:size/2,cy:size/2,r,fill:'none',stroke:'#eef1f4','stroke-width':width}));
+  figure.append(svg('circle',{cx:size/2,cy:size/2,r,fill:'none',stroke:themeColor('--surface-3'),'stroke-width':width}));
   const tip=node('div',null,'allocation-tip');tip.hidden=true;
   const segments=[];let offset=0;
   for(const s of slices){

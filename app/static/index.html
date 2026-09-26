@@ -4,17 +4,19 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{BRAND_NAME}} · 모의투자</title>
+  <script src="/static/theme.js?v=48"></script>
   <link rel="icon" type="image/png" href="/static/brand/mark.png">
-  <link rel="stylesheet" href="/static/style.css?v=47">
-  <script src="/static/app.js?v=47" defer></script>
-  <script src="/static/portal.js?v=47" defer></script>
-  <script src="/static/profile.js?v=47" defer></script>
+  <link rel="stylesheet" href="/static/style.css?v=48">
+  <script src="/static/app.js?v=48" defer></script>
+  <script src="/static/portal.js?v=48" defer></script>
+  <script src="/static/profile.js?v=48" defer></script>
 </head>
 <body>
   <header>
     <div class="header-inner">
-      <a href="/" class="brand"><img src="/static/brand/logo.webp" alt="{{BRAND_NAME}}" class="brand-logo" width="202" height="36"></a>
+      <a href="/" class="brand"><img src="/static/brand/logo.webp" alt="{{BRAND_NAME}}" class="brand-logo brand-logo-light" width="202" height="36"><img src="/static/brand/logo-dark.webp" alt="{{BRAND_NAME}}" class="brand-logo brand-logo-dark" width="202" height="36"></a>
       <span class="service-label">주식 · 채권 ETF · 금 ETF</span>
+      <button id="themeToggle" type="button" class="theme-toggle" aria-label="다크 모드로 전환" title="다크 모드">☾</button>
       <a id="headerUser" class="header-user" href="#portfolio" hidden aria-label="내 포트폴리오"></a>
       <button id="logout" class="text-button" hidden>로그아웃</button>
     </div>
