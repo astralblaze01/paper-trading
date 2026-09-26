@@ -42,7 +42,9 @@ def process(market):
         with Session.begin() as db:
             user=lock_user(db,uid)
             row=db.scalar(select(LimitOrder).where(LimitOrder.id==order_id).with_for_update())
-            if row.status!='pending': continue
+            # Gone since the listing (account deletion or an admin clear removed it):
+            # nothing is left to fill. A queued order never outlives its user (FK).
+            if row is None or row.status!='pending': continue
             if not user.active: row.status='cancelled'; row.reason='계좌 정지'; continue
             try:
                 q,price=checked_quote(row.symbol,market)
