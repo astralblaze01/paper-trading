@@ -624,3 +624,13 @@ def test_openapi_document_can_be_enabled_for_development():
     result = subprocess.run([sys.executable, '-c', probe], env=os.environ | {'OPENAPI_ENABLED': 'true'},
                             capture_output=True, text=True, check=True)
     assert result.stdout.split() == ['/openapi.json', '200', 'True']
+
+
+def test_a_stale_csrf_token_is_marked_so_the_page_can_retry(client):
+    token = register(client)
+    body = lambda: {'symbol': 'AAPL', 'side': 'buy', 'quantity': 1, 'request_id': str(uuid4())}
+    r = client.post('/api/orders', headers={'x-csrf-token': 'stale'}, json=body())
+    assert r.status_code == 403 and r.headers['x-csrf-stale'] == '1'
+    # The page's retry takes the session's token, which then works.
+    assert client.get('/api/session').json()['csrf'] == token
+    assert client.post('/api/orders', headers={'x-csrf-token': token}, json=body()).status_code == 200

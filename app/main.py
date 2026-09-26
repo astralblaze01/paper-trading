@@ -165,7 +165,9 @@ async def market_error(request, exc):
 def csrf(request: Request):
     token = request.session.get('csrf', '')
     if not token or not secrets.compare_digest(token, request.headers.get('x-csrf-token', '')):
-        raise HTTPException(403, '세션이 만료되었습니다. 페이지를 새로고침하세요.')
+        # The header lets the page fetch a fresh token and retry once: a response that
+        # was still in flight during logout or withdrawal can put the old session back.
+        raise HTTPException(403, '세션이 만료되었습니다. 페이지를 새로고침하세요.', headers={'X-CSRF-Stale': '1'})
 
 def current_user(request: Request):
     uid = request.session.get('uid')

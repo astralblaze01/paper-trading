@@ -116,8 +116,13 @@ function syncCurrency(){$('displayCurrency').value=displayMode;$('displayRateNot
 async function changeDisplayCurrency(value){displayMode=value;try{localStorage.setItem(storageNamespace+':currency',value);}catch{}syncCurrency();renderPortfolio();renderRanking();renderHistory();if(weeklyCache)renderWeekly();window.dispatchEvent(new Event('displaycurrencychange'));}
 $('displayCurrency').addEventListener('change',e=>changeDisplayCurrency(e.target.value));
 function message(text) { $('status').textContent = text; }
-async function api(path, body) {
+async function api(path, body, retried=false) {
   const response = await fetch('/api/' + path, {method: body ? 'POST' : 'GET', headers: body ? {'Content-Type': 'application/json', 'X-CSRF-Token': csrf} : {}, body: body ? JSON.stringify(body) : undefined});
+  // A POST refused only for a stale CSRF token changed nothing; take the session's token and retry once.
+  if (body && !retried && response.status === 403 && response.headers.get('X-CSRF-Stale')) {
+    try { csrf = (await (await fetch('/api/session')).json()).csrf || csrf; } catch {}
+    return api(path, body, true);
+  }
   let data;
   try { data = await response.json(); } catch { throw Error(`요청 실패 (${response.status}). 잠시 후 다시 시도하세요.`); }
   if (!response.ok) {
