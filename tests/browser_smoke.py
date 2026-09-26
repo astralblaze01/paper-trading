@@ -249,7 +249,7 @@ with sync_playwright() as p:
         expect(page.locator('#realized')).to_have_count(0)
         # -1,500원 overall: the total value turns blue like the loss itself.
         expect(page.locator('#metrics .metric').first.locator('.loss')).to_have_count(1)
-        expect(page.locator('#metrics')).to_contain_text('원화 기준 · 확정 손익 포함')
+        expect(page.locator('#metrics')).to_contain_text('원화 기준')
         expect(page.locator('#metrics')).to_contain_text('달러 기준')
         expect(page.locator('#positions th').nth(5)).to_have_text('평가손익 (원화 기준)')
         expect(page.locator('#positions th').nth(6)).to_have_text('수익률 (원화 기준)')
@@ -329,7 +329,7 @@ with sync_playwright() as p:
         expect(page.locator('#performanceChart')).not_to_be_visible()
         page.evaluate("drawPerformance({snapshots:[{date:'2026-09-25',cumulative_return_pct:-1.02}]})")
         expect(page.locator('#performanceChart')).to_be_visible()
-        expect(page.locator('#performanceNotice')).to_contain_text('첫 기록을 점으로')
+        expect(page.locator('#performanceNotice')).to_contain_text('평가 수익률 -1.02%')
         expect(page.locator('#performanceChart')).to_have_attribute('aria-label',re.compile('1일 기록'))
         def chart_fits():
             return page.evaluate("""() => {const c=document.getElementById('performanceChart'),p=c.parentElement;
@@ -369,7 +369,7 @@ with sync_playwright() as p:
         # The rate note is just the date and the rate.
         expect(page.locator('#displayRateNote')).to_have_text(re.compile(r'^\d{4}-\d{2}-\d{2} 기준 · 1 USD = [\d,.]+ KRW$'))
         # Theme: 딥 틸 by default, 다크 아레나 from the header switch, kept after a reload.
-        assert page.evaluate("getComputedStyle(document.documentElement).backgroundColor")=='rgb(244, 248, 247)'
+        assert page.evaluate("getComputedStyle(document.documentElement).backgroundColor")=='rgb(242, 244, 246)'
         expect(page.locator('.brand-logo-light')).to_be_visible(); expect(page.locator('.brand-logo-dark')).to_be_hidden()
         page.locator('#themeToggle').click()
         expect(page.locator('html')).to_have_attribute('data-theme','dark')
@@ -721,7 +721,7 @@ with sync_playwright() as p:
         return len(explore_calls)-before
     # Korean lists refresh every 10 s, US lists every 15 s; one timer, never duplicated.
     assert ticks(10500)==1 and ticks(10000)==1
-    expect(page.locator('#exploreNotice')).to_contain_text('10초 자동 갱신')
+    expect(page.locator('#exploreNotice')).to_contain_text('10초마다 갱신')
     page.evaluate("location.hash='#portfolio'")
     expect(page.locator('[data-page="portfolio"]').first).to_be_visible()
     assert ticks(61000)==0   # other pages do not refresh the explore list
@@ -731,7 +731,7 @@ with sync_playwright() as p:
     with page.expect_response(lambda r:'/api/explore' in r.url):
         page.locator('#exploreMarkets [data-asset="us"]').click()
     assert ticks(10500)==0 and ticks(5000)==1   # US: 15 s
-    expect(page.locator('#exploreNotice')).to_contain_text('15초 자동 갱신')
+    expect(page.locator('#exploreNotice')).to_contain_text('15초마다 갱신')
     page.locator('#logout').click()
     expect(page.locator('#auth')).to_be_visible()
     assert ticks(61000)==0   # signed out again

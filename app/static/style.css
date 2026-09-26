@@ -4,17 +4,17 @@
   background: var(--bg);
   color-scheme: light;
   font-synthesis: none;
-  /* A 딥 틸: the logo's deep teal for structure and actions, its mint as a sparing accent. */
-  --bg: #f4f8f7;
+  /* A 딥 틸: a neutral canvas; the logo's deep teal for actions and links, its mint only for the active tab. */
+  --bg: #f2f4f6;
   --surface: #ffffff;
-  --surface-2: #f7faf9;
-  --surface-3: #eaf1ef;
-  --ink: #16292b;
-  --ink-strong: #0b3438;
-  --muted: #5e7470;
-  --faint: #8a9a97;
-  --border: #dce6e3;
-  --border-strong: #c6d4d0;
+  --surface-2: #f7f8fa;
+  --surface-3: #f2f4f6;
+  --ink: #191f28;
+  --ink-strong: #0f1a24;
+  --muted: #6b7684;
+  --faint: #8b95a1;
+  --border: #eaecef;
+  --border-strong: #d1d6db;
   --accent: #0f5b57;
   --accent-fill: #0f5b57;
   --accent-soft: #e3f3ee;
@@ -26,8 +26,8 @@
   /* 이익 빨강 · 손실 파랑 (국내 관례), in both themes. */
   --gain: #d94b57;
   --loss: #367ae7;
-  --chart-grid: #e3ebe9;
-  --chart-axis: #a9bbb7;
+  --chart-grid: #eef0f2;
+  --chart-axis: #b0b8c1;
   --shadow: rgba(11,52,56,.12);
 }
 /* B 다크 아레나: dark surfaces with the mint as the accent. */
@@ -708,3 +708,20 @@ table { font-size:15px; }
 :root[data-theme="dark"] .order-submit[data-side="sell"] { background:#3a7be8; }
 :root[data-theme="dark"] .range-buttons button:not([aria-pressed="true"]) { color:var(--ink); }
 .theme-toggle svg { width:17px; height:17px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+
+/* ---- Shape system (both themes): borderless cards on a gray canvas, one radius scale. ---- */
+:root { --radius-card:16px; --radius-control:10px; }
+.panel, .metrics, .login-panel, .profile-card { border:0; border-radius:var(--radius-card); }
+.metrics { border-top:0; }
+.panel { padding:24px 26px; }
+@media(max-width:600px){ .panel { padding:18px; } }
+button, input, select, .button-link, .side-toggle, .order-mode, .bio-form textarea, .admin-notice-form textarea,
+.reserve-fields, .quote-info, .notice-item, .weekly-leader, .range-buttons button, .toast, .site-notice, #status { border-radius:var(--radius-control); }
+.secondary, .button-link.secondary { background:var(--surface-3); border-color:transparent; color:var(--ink); }
+.secondary:hover, .button-link.secondary:hover { background:var(--border); }
+.range-buttons button { color:var(--ink); }
+input:focus, select:focus, textarea:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
+th { background:transparent; font-size:13px; }
+h2 { font-weight:700; letter-spacing:-.3px; }
+.metric-value, .profile-stats dd, .fee-total strong { letter-spacing:-.4px; }
+.section-heading { margin-bottom:14px; }

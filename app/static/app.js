@@ -49,7 +49,7 @@ function toast(text,kind='info',timeout=4500){
   const close=document.createElement('button');close.type='button';close.className='toast-close';close.setAttribute('aria-label','알림 닫기');close.textContent='×';
   const dismiss=()=>{item.classList.add('leaving');setTimeout(()=>item.remove(),200);};
   close.addEventListener('click',dismiss);item.append(body,close);region.append(item);
-  while(region.children.length>4)region.firstElementChild.remove();
+  while(region.children.length>3)region.firstElementChild.remove();
   setTimeout(dismiss,timeout);
 }
 function stockLink(x){const a=document.createElement('a');a.href='#detail/'+encodeURIComponent(x.symbol);a.textContent=x.name+' · '+x.symbol;a.className='text-button portfolio-stock-link';return a;}
@@ -77,7 +77,7 @@ function renderMetrics(target,p){
   const basis=returnBasis(),other=basis==='USD'?'KRW':'USD';
   const pnl=basis==='USD'?p.pnl_usd:p.pnl,ret=accountReturn(p,basis),otherRet=accountReturn(p,other);
   const fields=[['총 평가금액',equityTone(viewMoney(p.equity,'KRW'),pnl,basis==='USD'?.01:1)],['현금',cashLines(p.wallets)],
-    ['평가손익',nativeMoney(pnl,basis),pnl,basisLabel(basis)+' · 확정 손익 포함'],
+    ['평가손익',nativeMoney(pnl,basis),pnl,basisLabel(basis)],
     ['평가 수익률',signedPctText(ret),ret,`${basisLabel(other)} ${signedPctText(otherRet)}`]];
   for(const [name,value,change,sub] of fields){const box=document.createElement('div');box.className='metric';const label=document.createElement('small');label.textContent=name;let v;if(value instanceof Node){v=document.createElement('span');v.append(value);}else v=signed(change,value);v.classList.add('metric-value');box.append(label,v);if(sub)box.append(node('small',sub,'metric-sub'));target.append(box);}
 }

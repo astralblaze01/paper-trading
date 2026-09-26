@@ -126,7 +126,7 @@ async function explore(silent=false) {
   try{
     const [r]=await Promise.all([api('explore?'+new URLSearchParams({asset,kind})),loadDisplayFx()]);if(version!==exploreVersion)return;
     const every=exploreRefreshMs(asset),next=new Date(Date.now()+every).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
-    $('exploreNotice').textContent=[r.scope,r.notice,`${every/1000}초 자동 갱신 · 다음 확인 ${next}`].filter(Boolean).join(' · ');
+    $('exploreNotice').textContent=[r.scope,r.notice,`${every/1000}초마다 갱신`].filter(Boolean).join(' · ');
     if($('status').textContent==='입력값을 확인하세요.')$('status').textContent='';
     exploreRowsCache=r.rows;explorePopular=kind==='popular';stockTable($('exploreRows'),r.rows,explorePopular);
   }catch(e){if(version===exploreVersion){$('exploreNotice').textContent=e.message;stockTable($('exploreRows'),[]);}}
@@ -334,7 +334,7 @@ function drawChart(){
  const title=node('strong',`${currentRange} · ${change>0?'+':''}${nativeMoney(change,currency)} (${change>0?'+':''}${pct(percent)})`,change>0?'gain':change<0?'loss':'flat');
  $('periodPerformance').append(title,node('span',`${nativeMoney(first,currency)} → ${nativeMoney(last,currency)}`));
  const date=x=>new Date(x.time*1000).toLocaleString('ko-KR');
- $('periodDates').textContent=`표시 구간 첫 종가 대비 · ${date(chartRows[0])} ~ ${date(chartRows.at(-1))}${currency!==nativeCurrency?' · 전 구간을 현재 기준환율로 환산 (과거 환율 수익률 아님)':''}`;
+ $('periodDates').textContent=`${date(chartRows[0])} ~ ${date(chartRows.at(-1))}`;
  const lo=Math.min(...vals),hi=Math.max(...vals),span=hi-lo||Math.max(1,hi*.02),{left,right}=chartPlotBounds(w),top=20,bottom=275;
  const x=i=>left+i*(right-left)/Math.max(1,vals.length-1),y=v=>bottom-(v-lo)/span*(bottom-top);
  ctx.font='12px sans-serif';for(let n=0;n<5;n++){const v=lo+span*n/4,yy=y(v);ctx.strokeStyle=themeColor('--chart-grid');ctx.beginPath();ctx.moveTo(left,yy);ctx.lineTo(right,yy);ctx.stroke();ctx.fillStyle=themeColor('--muted');ctx.fillText(v.toLocaleString('ko-KR',{maximumFractionDigits:viewCurrency(currency)==='KRW'?0:2}),2,yy+4);}
@@ -603,7 +603,7 @@ function syncReserveFields(){
   const currency=orderCurrency();$('reserveUnit').textContent=`(${currency})`;
   $('reservePrice').step=currency==='KRW'?'1':'0.0001';
   const price=detailQuote?.native_price??detailQuote?.price;
-  $('reserveHelp').textContent=(price!=null?`현재가 ${nativeMoney(price,currency)} · `:'')+'조건에 닿으면 장 운영 시간에 시장가로 체결합니다. 체결 시점의 잔액·보유 수량으로 다시 확인합니다.';
+  $('reserveHelp').textContent=price!=null?`현재가 ${nativeMoney(price,currency)}`:'';
 }
 function setOrderMode(reserve){
   window.reserveMode=reserve;
@@ -686,7 +686,7 @@ function performanceWidget(ids,path){
     canvas.setAttribute('aria-label',`${rows[0].date}부터 ${rows.at(-1).date}까지 ${basisLabel(basis)} ${what}, 마지막 ${fmt(last)}, ${rows.length}일 기록`);
     const periodValue=basis==='USD'?r.period_return_usd_pct:r.period_return_pct;
     const period=periodValue==null?'':` · 기간 수익률 ${pct(periodValue)}`;
-    notice.textContent=`${rows.at(-1).date} 기록 · ${what} ${money?nativeMoney(last,basis):pct(last)} (${basisLabel(basis)})${money?'':period}${rows.length===1?' · 첫 기록을 점으로 표시했습니다. 두 번째 기록부터 선으로 연결합니다.':''} · 하루 한 번 저장한 값으로, 현재 계좌 수익률과 다를 수 있습니다.${r.baseline_changed?' · 기간 중 수익률 기준 재설정 있음':''}${rows.some(x=>x.stale)?' · 일부 날짜는 마지막 확인 시세 기준':''}`;
+    notice.textContent=`${rows.at(-1).date} 기록 · ${what} ${money?nativeMoney(last,basis):pct(last)} (${basisLabel(basis)})${money?'':period}${r.baseline_changed?' · 기간 중 기준 재설정':''}${rows.some(x=>x.stale)?' · 일부 날짜는 마지막 확인 시세 기준':''}`;
   };
   new ResizeObserver(()=>{if(w.data&&canvas.clientWidth)w.draw(w.data);}).observe(canvas);
   document.querySelectorAll('#'+ids.ranges+' button').forEach(b=>b.addEventListener('click',()=>{if(w.user)w.load(w.user,b.dataset.period);}));

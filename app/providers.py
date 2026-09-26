@@ -175,14 +175,14 @@ class USProvider:
         if direction=='shares':
             rows,stamp=self._kis_rank_rows('volume')
             return {'rows':sorted(rows,key=lambda r:r['volume'],reverse=True)[:100],'source':'KIS','data_time':stamp,'scope':'미국 거래량 순위',
-                    'notice':f'NASDAQ·NYSE·AMEX의 KIS 당일 누적 거래량 자료를 {US_RANK_SECONDS}초마다 다시 확인합니다.'}
+                    'notice':'NASDAQ·NYSE·AMEX 합산'}
         rows,stamp=self._kis_rank_rows()
         if direction=='volume': rows=sorted(rows,key=lambda r:r['turnover'],reverse=True)
         elif direction=='up': rows=sorted(rows,key=lambda r:r['change_pct'],reverse=True)
         else: rows=sorted(rows,key=lambda r:r['change_pct'])
         scope='미국 거래대금 순위' if direction=='volume' else f"미국 거래대금 상위 종목 중 {'상승률' if direction=='up' else '하락률'} 순위"
         return {'rows':rows[:100],'source':'KIS','data_time':stamp,'scope':scope,
-                'notice':f'NASDAQ·NYSE·AMEX의 KIS 당일 누적 거래대금 자료를 {US_RANK_SECONDS}초마다 다시 확인합니다.'}
+                'notice':'NASDAQ·NYSE·AMEX 합산'}
     def movers(self,direction):
         if self.kis and self.kis.configured:
             try:return self._kis_movers(direction)
