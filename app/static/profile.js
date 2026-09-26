@@ -13,18 +13,14 @@ window.avatar=function(username,version,size='large'){
 
 // Tiers come with the ranking rows (server: app/tiers.py); emblems live in /static/tiers/.
 const TIER_LABELS={master:'마스터',diamond:'다이아몬드',platinum:'플래티넘',gold:'골드',silver:'실버',bronze:'브론즈'};
-const TIER_NAMES={master:'MASTER',diamond:'DIAMOND',platinum:'PLATINUM',gold:'GOLD',silver:'SILVER',bronze:'BRONZE'};
-// A metal pill with a small cut gem: the tier next to a name.
-window.tierBadge=function(tier,size='small'){
-  const b=document.createElement('span');b.className=`tier-badge tier-badge-${tier} tier-badge-${size}`;b.title=TIER_LABELS[tier]+' 티어';
-  b.innerHTML='<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M5 .6 9.4 5 5 9.4.6 5z"/><path d="M5 .6 7.2 5 5 9.4 2.8 5z" opacity=".45"/></svg>';
-  b.append(size==='small'?TIER_NAMES[tier]:TIER_LABELS[tier]);b.setAttribute('aria-label',TIER_LABELS[tier]+' 티어');return b;
+// Tier icons (static/tiers/icons/*.svg): a cut gem in the tier's color with its letter, solved.ac style.
+window.tierIcon=function(tier,size='small'){
+  const img=document.createElement('img');img.className='tier-icon tier-icon-'+size;img.src=`/static/tiers/icons/${tier}.svg`;
+  img.alt=TIER_LABELS[tier]+' 티어';img.title=TIER_LABELS[tier]+' 티어';img.decoding='async';return img;
 };
-// The profile photo inside the tier emblem's ring.
+// The profile photo inside a ring of the tier's color, the tier icon on its corner.
 function tierFrame(photo,tier){
-  const f=document.createElement('div');f.className='tier-frame';const ring=document.createElement('img');
-  ring.className='tier-frame-ring';ring.src=`/static/tiers/${tier}.webp`;ring.alt='';ring.decoding='async';
-  f.append(photo,ring);return f;
+  const f=document.createElement('div');f.className='tier-ring tier-ring-'+tier;f.append(photo,tierIcon(tier,'corner'));return f;
 }
 // Daily place change: ▲n green when up, ▼n red when down, the number in plain ink.
 window.rankChange=function(rank,previous){
@@ -71,7 +67,7 @@ window.renderProfileCard=function(target,p,editable){
     if(editable){const edit=node('button','소개 수정','text-button');edit.type='button';edit.addEventListener('click',()=>{bioEditing=true;bioDraft=myProfile?.bio||'';renderMyProfile();});info.append(edit);}
   }
   const stats=node('dl',null,'profile-stats');
-  if(p.tier){const t=profileStat('티어',tierBadge(p.tier,'large'));t.classList.add('profile-tier');stats.append(t);}
+  if(p.tier){const v=node('span',null,'tier-value');v.append(tierIcon(p.tier,'medium'),node('span',TIER_LABELS[p.tier],'tier-name tier-text-'+p.tier));const t=profileStat('티어',v);t.classList.add('profile-tier');stats.append(t);}
   const rank=node('span');rank.append(p.rank?`${p.rank}위`:'—',rankChange(p.rank,p.previous_rank));
   const realized=realizedTotal(p);
   stats.append(profileStat('랭킹',rank),profileStat(`평가 수익률 (${basisLabel()})`,signedPct(accountReturn(p))),

@@ -597,28 +597,21 @@ table { font-size:15px; }
 .brand-logo { display:block; height:36px; width:auto; }
 @media(max-width:600px){ .brand-logo { height:26px; } }
 
-/* Profile photo set in the tier emblem's ring (the ring's window is transparent). */
-.tier-frame { position:relative; width:176px; height:176px; margin:-18px -14px -10px; }
-.tier-frame .avatar-large { position:absolute; left:20.6%; top:18.3%; width:58.9%; height:58.9%; border:0; }
-.tier-frame-ring { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
-@media(max-width:600px){ .tier-frame { width:160px; height:160px; } }
-
-/* Tier badge: a small metal pill with a cut gem. */
-.tier-badge { position:relative; display:inline-flex; align-items:center; gap:4px; overflow:hidden; vertical-align:middle;
-  padding:2px 8px 2px 6px; border-radius:999px; font-size:10.5px; font-weight:800; letter-spacing:.8px; line-height:16px; color:#fff;
-  text-shadow:0 1px 0 rgba(0,0,0,.25); box-shadow:inset 0 1px 0 rgba(255,255,255,.55), inset 0 -1px 0 rgba(0,0,0,.15), 0 1px 2px rgba(20,24,32,.18); white-space:nowrap; }
-.tier-badge svg { width:10px; height:10px; fill:currentColor; flex-shrink:0; }
-.tier-badge-large { padding:4px 12px 4px 9px; font-size:14px; letter-spacing:0; line-height:20px; }
-.tier-badge-large svg { width:13px; height:13px; }
-.rank-user .tier-badge { margin-left:8px; }
-.tier-badge-bronze { background:linear-gradient(135deg,#e9b88f,#b76c38 55%,#8c4b22); }
-.tier-badge-silver { background:linear-gradient(135deg,#eef1f4,#a8b1bb 55%,#7b8691); }
-.tier-badge-gold { background:linear-gradient(135deg,#ffe28a,#dea11f 55%,#a87408); }
-.tier-badge-platinum { background:linear-gradient(135deg,#b9eef9,#3fb0c9 55%,#237388); }
-.tier-badge-diamond { background:linear-gradient(135deg,#b7d8ff,#3a86ff 55%,#1f4fc4); }
-.tier-badge-master { background:linear-gradient(135deg,#e6c7ff,#9b45ea 55%,#5f1fa8); }
-/* The top two tiers catch the light now and then. */
-.tier-badge-diamond::after, .tier-badge-master::after { content:""; position:absolute; top:0; bottom:0; left:-60%; width:40%;
-  background:linear-gradient(100deg,transparent,rgba(255,255,255,.55),transparent); transform:skewX(-18deg); animation:tier-shine 4.5s ease-in-out infinite; }
-@keyframes tier-shine { 0%,70% { left:-60%; } 100% { left:130%; } }
-@media (prefers-reduced-motion:reduce) { .tier-badge::after { animation:none; display:none; } }
+/* Tiers, solved.ac style: a gem icon, the name in the tier color, a colored ring on the photo. */
+.tier-icon { display:inline-block; flex-shrink:0; vertical-align:middle; }
+.tier-icon-small { width:17px; height:20px; }
+.tier-icon-medium { width:22px; height:26px; }
+.tier-icon-corner { position:absolute; right:-2px; bottom:-2px; width:34px; height:40px; filter:drop-shadow(0 1px 1.5px rgba(0,0,0,.3)); }
+.tier-value { display:inline-flex; align-items:center; gap:6px; }
+.tier-name { font-size:17px; font-weight:750; }
+.tier-text-bronze { color:#ad5600 !important; } .tier-text-silver { color:#435f7a !important; } .tier-text-gold { color:#d38a00 !important; }
+.tier-text-platinum { color:#1ca77a !important; } .tier-text-diamond { color:#0092d6 !important; } .tier-text-master { color:#9433e0 !important; }
+.rank-user .tier-icon { margin-right:-2px; }
+.tier-ring { position:relative; padding:5px; border-radius:50%; }
+.tier-ring .avatar-large { display:block; border:3px solid #fff; }
+.tier-ring-bronze { background:linear-gradient(135deg,#e59a5c,#ad5600 60%,#6e3600); }
+.tier-ring-silver { background:linear-gradient(135deg,#c3d1de,#5a7590 60%,#2f4459); }
+.tier-ring-gold { background:linear-gradient(135deg,#ffe08a,#ec9a00 60%,#a86a00); }
+.tier-ring-platinum { background:linear-gradient(135deg,#a9f7dc,#27c996 60%,#128a64); }
+.tier-ring-diamond { background:linear-gradient(135deg,#a8e6ff,#00a8f0 60%,#0068a8); }
+.tier-ring-master { background:linear-gradient(135deg,#e7b8ff,#a13ef0 60%,#6415a8); }

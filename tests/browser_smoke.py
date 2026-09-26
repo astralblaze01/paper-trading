@@ -256,10 +256,10 @@ with sync_playwright() as p:
         expect(page.locator('#feeSummary .fee-total')).to_contain_text('총 수수료')
         expect(page.locator('#feeRates')).to_contain_text('토스증권 기준')
         # Profile line: tier emblem left of the rank, realized profit; the photo framed in the tier color.
-        expect(page.locator('#myProfile .profile-tier .tier-badge')).to_be_visible()
+        expect(page.locator('#myProfile .profile-tier .tier-icon')).to_be_visible()
         expect(page.locator('#myProfile')).to_contain_text('실현 손익 (매도 확정)')
         # The photo sits inside the tier emblem's ring.
-        expect(page.locator('#myProfile .tier-frame .tier-frame-ring')).to_have_attribute('src',re.compile(r'^/static/tiers/\w+\.webp$'))
+        expect(page.locator('#myProfile .tier-ring .tier-icon-corner')).to_have_attribute('src',re.compile(r'^/static/tiers/icons/\w+\.svg$'))
         # 수익률 / 수익금 switch on my performance chart.
         page.locator('#myPerformanceMetric [data-metric="pnl"]').click()
         expect(page.locator('#myPerformanceMetric [data-metric="pnl"]')).to_have_attribute('aria-pressed','true')
@@ -287,7 +287,8 @@ with sync_playwright() as p:
         expect(page.locator('#ranking th')).to_contain_text(['순위','사용자 · 프로필 보기','총 평가금액 (KRW)','평가 수익률 (원화 기준)'])
         expect(page.locator('#ranking td').nth(2)).to_contain_text('원')
         expect(page.locator('#ranking tbody tr').first).to_have_class(re.compile(r'\btop-rank-1\b'))
-        expect(page.locator('#ranking tbody tr').first.locator('.tier-badge')).to_have_text('MASTER')
+        expect(page.locator('#ranking tbody tr').first.locator('.tier-icon')).to_have_attribute('src','/static/tiers/icons/master.svg')
+        expect(page.locator('#ranking tbody tr').first.locator('.user-link')).to_have_css('color','rgb(148, 51, 224)')
         expect(page.locator('#ranking tbody tr').first).not_to_have_css('background-image','none')
         # The daily arrow: rendered from the row's morning place.
         page.evaluate("rankingCache={...rankingCache,rows:rankingCache.rows.map((r,i)=>i===0?{...r,previous_rank:3}:i===1?{...r,previous_rank:1}:r)};renderRanking()")
