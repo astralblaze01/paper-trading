@@ -4,10 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{BRAND_NAME}} · 모의투자</title>
-  <link rel="stylesheet" href="/static/style.css?v=38">
-  <script src="/static/app.js?v=38" defer></script>
-  <script src="/static/portal.js?v=38" defer></script>
-  <script src="/static/profile.js?v=38" defer></script>
+  <link rel="stylesheet" href="/static/style.css?v=39">
+  <script src="/static/app.js?v=39" defer></script>
+  <script src="/static/portal.js?v=39" defer></script>
+  <script src="/static/profile.js?v=39" defer></script>
 </head>
 <body>
   <header>
@@ -94,6 +94,7 @@
       <div data-page="portfolio" class="heading"><div><p class="section-label">내 계좌</p><h1 id="greeting">투자 현황</h1></div><button id="refresh" class="secondary">새로고침</button></div>
       <div data-page="portfolio" id="metrics" class="metrics"></div>
       <p data-page="portfolio" id="realized" class="section-description"></p>
+      <section data-page="portfolio" class="panel"><div class="section-heading"><h2>내 성과</h2><span class="unit">평가 수익률 추이 · 하루 한 번 기록</span></div><div id="myPerformanceRanges" class="range-buttons"><button data-period="1W">1W</button><button data-period="1M" aria-pressed="true">1M</button><button data-period="3M">3M</button><button data-period="1Y">1Y</button><button data-period="ALL">ALL</button></div><canvas id="myPerformanceChart" height="220" aria-label="일별 평가 수익률 차트"></canvas><p id="myPerformanceNotice" class="field-help"></p></section>
       <section data-page="portfolio" class="panel allocation-panel"><div class="section-heading"><h2>자산 비중</h2><span class="unit">평가금액 기준 · 현금 포함</span></div><div id="allocation" class="allocation"></div></section>
       <section data-page="ranking" class="panel weekly-panel">
         <div class="section-heading"><h2>주간 순위</h2><span id="weeklySchedule" class="unit"></span></div>
@@ -126,12 +127,12 @@
         <div class="heading"><h1 id="publicTitle">투자 현황</h1></div>
         <div id="publicMetrics" class="metrics"></div>
         <p id="publicReturns" class="field-help return-explanation"></p>
-        <section class="panel"><div class="section-heading"><h2>성과</h2><span class="unit">누적 수익률 · 하루 한 번 기록</span></div><div id="performanceRanges" class="range-buttons"><button data-period="1W">1W</button><button data-period="1M" aria-pressed="true">1M</button><button data-period="3M">3M</button><button data-period="1Y">1Y</button><button data-period="ALL">ALL</button></div><canvas id="performanceChart" height="220" aria-label="일별 누적 수익률 차트"></canvas><p id="performanceNotice" class="field-help"></p></section>
+        <section class="panel"><div class="section-heading"><h2>성과</h2><span class="unit">평가 수익률 추이 · 하루 한 번 기록</span></div><div id="performanceRanges" class="range-buttons"><button data-period="1W">1W</button><button data-period="1M" aria-pressed="true">1M</button><button data-period="3M">3M</button><button data-period="1Y">1Y</button><button data-period="ALL">ALL</button></div><canvas id="performanceChart" height="220" aria-label="일별 평가 수익률 차트"></canvas><p id="performanceNotice" class="field-help"></p></section>
         <section class="panel allocation-panel"><div class="section-heading"><h2>자산 비중</h2><span class="unit">평가금액 기준 · 현금 포함</span></div><div id="publicAllocation" class="allocation"></div></section>
         <section class="panel"><div class="section-heading"><h2>보유 종목</h2><span class="unit">공개 투자 현황</span></div><div id="publicPositions" class="scroll"></div><p id="publicNotice" class="field-help"></p></section>
         <p class="field-help">다른 사용자의 공개 투자 프로필입니다. 거래내역과 주문 권한은 공개하지 않습니다.</p></section>
       <section data-page="history" class="panel"><div class="section-heading"><h2>거래내역</h2><span class="unit">최근 거래부터</span></div><div id="history" class="scroll"></div><details id="legacyMarkets" hidden><summary>이전 시장가 주문 기록</summary><p class="field-help">현재 시장가 주문은 최신 시세가 있을 때만 즉시 체결되며 대기열에 넣지 않습니다.</p><div id="limitRows" class="scroll"></div></details><details id="legacyLimits" hidden><summary>이전 지정가 주문 기록</summary><p class="field-help">기존 주문은 원래 조건으로 유지됩니다. 대기 중인 주문을 취소할 수 있습니다.</p><div id="legacyLimitRows"></div></details><div class="pagination"><button id="previous" class="secondary">이전</button><span id="page"></span><button id="next" class="secondary">다음</button></div></section>
-      <section data-page="ranking" class="panel"><div class="section-heading"><h2>자산 순위</h2><span class="unit">일반 사용자 · 관리자 제외</span></div><p class="section-description">USD로 환산한 총 평가금액이 높은 순서입니다. 원화 자산은 현재 기준환율로 환산합니다. 누적 수익률은 참고용 지표이며 순위에는 쓰지 않습니다. 사용자를 누르면 프로필이 열립니다.</p><p id="rankingStatus" class="field-help"></p><div id="ranking" class="scroll"></div></section>
+      <section data-page="ranking" class="panel"><div class="section-heading"><h2>자산 순위</h2><span class="unit">일반 사용자 · 관리자 제외</span></div><p class="section-description">USD로 환산한 총 평가금액이 높은 순서입니다. 원화 자산은 현재 기준환율로 환산합니다. 평가 수익률은 아직 팔지 않은 종목을 현재가로 평가한 값이 포함된 참고 지표이며 순위에는 쓰지 않습니다. 표시 통화가 달러면 달러 기준, 그 외에는 원화 기준 수익률을 보여줍니다. 사용자를 누르면 프로필이 열립니다.</p><p id="rankingStatus" class="field-help"></p><div id="ranking" class="scroll"></div></section>
     </div>
     <div class="notice"><strong>모의투자 안내</strong><p>모든 자산은 가상이며 실제 돈이나 증권은 거래되지 않습니다. 설정된 모의 수수료가 적용됩니다. 배당·주식 분할은 자동 반영하지 않습니다.</p></div>
   </main>

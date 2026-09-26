@@ -128,6 +128,7 @@ def snapshot_user(uid, day, prices, fxq, now, scheduled):
             user_id=uid, snapshot_date=day, snapshot_at=now, scheduled_for=scheduled,
             equity_krw=equity.quantize(Decimal('.0001')), equity_usd=(equity / rate).quantize(Decimal('.0001')),
             cash_krw=cash['KRW'], cash_usd=cash['USD'], net_contributions_krw=user.net_contributions_krw,
+            net_contributions_usd=user.net_contributions_usd, initial_equity_usd=user.initial_usd,
             initial_equity_krw=user.initial_krw, cumulative_return_pct=total.quantize(Decimal('.00000001')),
             fx_rate=rate, fx_date=fxq['date'], positions=positions, quote_metadata=quotes,
             quality={'complete': True, 'stale': stale, 'oldest_quote_at': _iso(min(stamps, default=None)),
@@ -294,6 +295,19 @@ def flow_adjusted(end, start):
     return flow_adjusted_return(end.equity_krw, start.equity_krw, flow)
 
 
+def flow_adjusted_usd(end, start):
+    """flow_adjusted in dollars; None when either row predates the USD bookkeeping."""
+    if end.net_contributions_usd is None or start.net_contributions_usd is None:
+        return None
+    return flow_adjusted_return(end.equity_usd, start.equity_usd, end.net_contributions_usd - start.net_contributions_usd)
+
+
+def cumulative_usd(row):
+    if row.initial_equity_usd is None or row.net_contributions_usd is None:
+        return None
+    return performance_return(row.equity_usd, row.initial_equity_usd, row.net_contributions_usd)
+
+
 def series(uid, start, end):
     with Session() as db:
         rows = list(db.scalars(select(PerformanceSnapshot).where(
@@ -311,13 +325,15 @@ def series(uid, start, end):
             segment_start, rebased = i, True
         points.append({'date': row.snapshot_date, 'equity_krw': row.equity_krw, 'equity_usd': row.equity_usd,
                        'cumulative_return_pct': row.cumulative_return_pct, 'daily_return_pct': daily,
+                       'cumulative_return_usd_pct': cumulative_usd(row), 'fx_rate': row.fx_rate,
                        'stale': row.stale})
-    result = {'snapshots': points, 'period_return_pct': None, 'period_start': None, 'period_end': None,
-              'baseline_changed': rebased, 'benchmarks': {}}
+    result = {'snapshots': points, 'period_return_pct': None, 'period_return_usd_pct': None,
+              'period_start': None, 'period_end': None, 'baseline_changed': rebased, 'benchmarks': {}}
     if len(rows) - segment_start >= 2:
         first, last = rows[segment_start], rows[-1]
         period = flow_adjusted(last, first)
-        result.update(period_return_pct=period, period_start=first.snapshot_date, period_end=last.snapshot_date)
+        result.update(period_return_pct=period, period_return_usd_pct=flow_adjusted_usd(last, first),
+                      period_start=first.snapshot_date, period_end=last.snapshot_date)
         by_day = {(b.symbol, b.snapshot_date): b for b in bench}
         for symbol in benchmark_symbols():
             a, b = by_day.get((symbol, first.snapshot_date)), by_day.get((symbol, last.snapshot_date))

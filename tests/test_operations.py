@@ -43,7 +43,10 @@ def test_grants_dont_inflate_returns_and_are_idempotent(client):
         assert client.post(f'/api/admin/users/{uid}/manage',headers=headers,json=body).json()['replayed']
     after=portfolio(uid,FakeMarket(),main.fx)
     assert after['return_pct']==before['return_pct']==0
+    # The dollar-basis return ignores grants too; the KRW grant is booked at its day's rate.
+    assert before['return_pct_usd']==0 and abs(after['return_pct_usd'])<D('0.000001')
     assert after['equity']==before['equity']+1100000
+    with Session() as db: assert db.get(User,uid).net_contributions_usd==(1000+D(100000)/after['fx']['rate']).quantize(D('.0001'))
     with Session() as db: assert db.scalar(select(func.count()).select_from(AdminAudit))==2
 
 def test_bulk_grant_targets_active_non_admin_users(client):

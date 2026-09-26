@@ -334,7 +334,8 @@ def _public_user(db, username):
 # transactions or order IDs.
 PUBLIC_PORTFOLIO_FIELDS = ('username', 'wallets', 'positions', 'equity', 'equity_usd', 'base_currency', 'pnl',
                            'return_pct', 'return_basis', 'fx', 'errors', 'stale',
-                           'initial_equity', 'initial_fx_date', 'initial_fx_effect', 'other_pnl')
+                           'initial_equity', 'initial_fx_date', 'initial_fx_effect', 'other_pnl',
+                           'pnl_usd', 'return_pct_usd', 'initial_usd')
 
 @app.get('/api/portfolios/{username}')
 def public_portfolio(username: str, uid=Depends(current_user)):
@@ -419,7 +420,7 @@ def ranking(uid=Depends(current_user)):
         ranked=sorted(zip(ids,values),key=lambda pair:(-pair[1]['equity_usd'],pair[1]['username']))
         with Session() as db: versions=profile_versions(db,ids)
         rows=[{'rank':i+1,'username':v['username'],'equity':v['equity'],'equity_usd':v['equity_usd'],
-               'return_pct':v['return_pct'],'stale':v['stale'],'fx':v['fx'],
+               'return_pct':v['return_pct'],'return_pct_usd':v['return_pct_usd'],'stale':v['stale'],'fx':v['fx'],
                'image_version':versions.get(i_id,0)}
               for i,(i_id,v) in enumerate(ranked)]
         payload=_ranking_payload(rows, [], incomplete=False, updated_at=now.isoformat(), stale=any(v['stale'] for v in values))

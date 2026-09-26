@@ -44,7 +44,7 @@ window.routePage = async function() {
     if(selected==='watchlist')await watchlist();
     if(selected==='ranking')await refreshRankingOnly();
     if(selected==='admin')await admin();
-    if(selected==='portfolio'&&window.loadMyProfile)await loadMyProfile();
+    if(selected==='portfolio'){window.loadMyPerformance?.();if(window.loadMyProfile)await loadMyProfile();}
   } catch(e){message(e.message);}
 };
 // segment is still URI-encoded: the missing-price retry compares it with the live hash.
@@ -335,7 +335,7 @@ $('priceChart').addEventListener('keydown',e=>{if(['ArrowLeft','ArrowRight'].inc
 new ResizeObserver(drawChart).observe($('priceChart'));
 
 function renderPublic(){if(!publicCache)return;const p=publicCache;$('publicTitle').textContent=p.username+'님의 투자 현황';
-  if(window.renderProfileCard)renderProfileCard($('publicProfile'),{username:p.username,bio:p.profile?.bio,image_version:p.profile?.image_version,equity_usd:p.equity_usd,return_pct:p.return_pct,rank:rankOf(p.username),member_days:p.member_days,member_since:p.member_since},false);
+  if(window.renderProfileCard)renderProfileCard($('publicProfile'),{username:p.username,bio:p.profile?.bio,image_version:p.profile?.image_version,equity_usd:p.equity_usd,return_pct:p.return_pct,return_pct_usd:p.return_pct_usd,rank:rankOf(p.username),member_days:p.member_days,member_since:p.member_since},false);
   renderMetrics($('publicMetrics'),p);if(window.renderAllocation)renderAllocation($('publicAllocation'),p);renderPositions($('publicPositions'),p);
   $('publicReturns').textContent=returnExplanation(p);
   $('publicNotice').textContent=(p.return_basis||'초기 KRW 평가액 대비 (외부 입출금 반영)')+(p.errors.length?' · '+p.errors.join(' · '):'')+(p.stale?' · 마지막 시세 기준 평가':'');}
@@ -556,35 +556,51 @@ window.loadLimits=async function(){
 
 
 // Daily snapshots begin when collection starts; no earlier days are invented.
-let performanceUser=null,performancePeriod='1M',performanceVersion=0,performanceData=null;
-async function loadPerformance(username,period=performancePeriod){
-  performanceUser=username;performancePeriod=period;const version=++performanceVersion;
-  document.querySelectorAll('#performanceRanges button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.period===period)));
-  drawPerformance({snapshots:[]});$('performanceNotice').textContent='성과 기록 조회 중…';
-  try{const r=await api('performance/'+encodeURIComponent(username)+'?period='+period);if(version!==performanceVersion)return;drawPerformance(r);}
-  catch(e){if(version===performanceVersion){drawPerformance({snapshots:[]});$('performanceNotice').textContent=e.message;}}
+// One chart widget, used on the public profile and on my own portfolio page.
+// The return basis follows the display currency: USD shows the dollar-basis
+// return, everything else the KRW-basis one (the account's base currency).
+function performanceWidget(ids,path){
+  const w={user:null,period:'1M',version:0,data:null};
+  const canvas=$(ids.chart),notice=$(ids.notice);
+  w.load=async function(username,period=w.period){
+    w.user=username;w.period=period;const version=++w.version;
+    document.querySelectorAll('#'+ids.ranges+' button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.period===period)));
+    w.draw({snapshots:[]});notice.textContent='성과 기록 조회 중…';
+    try{const r=await api(path(username)+'?period='+period);if(version!==w.version)return;w.draw(r);}
+    catch(e){if(version===w.version){w.draw({snapshots:[]});notice.textContent=e.message;}}
+  };
+  w.draw=function(r){
+    w.data=r;
+    const basis=returnBasis(),field=basis==='USD'?'cumulative_return_usd_pct':'cumulative_return_pct';
+    // Days recorded before the dollar bookkeeping have no USD value; they are left out, not guessed.
+    const all=r.snapshots||[],rows=all.filter(x=>x[field]!=null),ctx=canvas.getContext('2d');
+    canvas.hidden=!rows.length;
+    if(!rows.length){notice.textContent=all.length?`${basisLabel(basis)} 성과 기록이 아직 없습니다. 표시 통화를 원화로 바꾸면 원화 기준 기록을 볼 수 있습니다.`:'아직 성과 기록이 없습니다. 매일 한 번 쌓입니다.';return;}
+    const width=canvas.clientWidth,height=canvas.clientHeight,dpr=Math.min(window.devicePixelRatio||1,2);
+    if(!width||!height)return; // ResizeObserver redraws when the page becomes visible.
+    canvas.width=Math.round(width*dpr);canvas.height=Math.round(height*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,width,height);
+    const vals=rows.map(x=>Number(x[field])),low=Math.min(...vals,0),high=Math.max(...vals,0),padding=Math.max((high-low)*.15,.1),min=low-padding,max=high+padding;
+    const left=66,right=width-16,top=24,bottom=height-28,times=rows.map(row=>Date.parse(row.date)),duration=times.at(-1)-times[0];
+    const x=i=>duration?left+(right-left)*(times[i]-times[0])/duration:(left+right)/2,y=v=>bottom-(bottom-top)*(v-min)/(max-min);
+    ctx.font='12px sans-serif';ctx.fillStyle='#697580';ctx.textAlign='right';
+    for(const value of new Set([min,0,max])){ctx.strokeStyle=value===0?'#a8b4c0':'#e7ebef';ctx.beginPath();ctx.moveTo(left,y(value));ctx.lineTo(right,y(value));ctx.stroke();ctx.fillText(pct(value),left-8,y(value)+4);}
+    const last=vals.at(-1);ctx.strokeStyle=trendColor(last);ctx.lineWidth=2.5;ctx.beginPath();vals.forEach((v,i)=>i?ctx.lineTo(x(i),y(v)):ctx.moveTo(x(i),y(v)));ctx.stroke();ctx.lineWidth=1;
+    ctx.fillStyle=trendColor(last);ctx.beginPath();ctx.arc(x(vals.length-1),y(last),4,0,Math.PI*2);ctx.fill();
+    ctx.textAlign=rows.length===1?'center':'right';ctx.fillText(pct(last),x(vals.length-1),Math.max(14,y(last)-10));
+    ctx.fillStyle='#697580';ctx.textAlign=rows.length===1?'center':'left';ctx.fillText(rows[0].date,rows.length===1?x(0):left,height-6);
+    if(rows.length>1){ctx.textAlign='right';ctx.fillText(rows.at(-1).date,right,height-6);}
+    canvas.setAttribute('aria-label',`${rows[0].date}부터 ${rows.at(-1).date}까지 ${basisLabel(basis)} 평가 수익률, 마지막 ${pct(last)}, ${rows.length}일 기록`);
+    const periodValue=basis==='USD'?r.period_return_usd_pct:r.period_return_pct;
+    const period=periodValue==null?'':` · 기간 수익률 ${pct(periodValue)}`;
+    notice.textContent=`${rows.at(-1).date} 기록 · 평가 수익률 ${pct(last)} (${basisLabel(basis)})${period}${rows.length===1?' · 첫 기록을 점으로 표시했습니다. 두 번째 기록부터 선으로 연결합니다.':''} · 하루 한 번 저장한 값으로, 현재 계좌 수익률과 다를 수 있습니다.${r.baseline_changed?' · 기간 중 수익률 기준 재설정 있음':''}${rows.some(x=>x.stale)?' · 일부 날짜는 마지막 확인 시세 기준':''}`;
+  };
+  new ResizeObserver(()=>{if(w.data&&canvas.clientWidth)w.draw(w.data);}).observe(canvas);
+  document.querySelectorAll('#'+ids.ranges+' button').forEach(b=>b.addEventListener('click',()=>{if(w.user)w.load(w.user,b.dataset.period);}));
+  window.addEventListener('displaycurrencychange',()=>{if(w.data)w.draw(w.data);});
+  return w;
 }
-function drawPerformance(r){
-  performanceData=r;
-  const canvas=$('performanceChart'),ctx=canvas.getContext('2d'),rows=r.snapshots||[];
-  canvas.hidden=!rows.length;
-  if(!rows.length){$('performanceNotice').textContent='아직 성과 기록이 없습니다. 매일 한 번 쌓입니다.';return;}
-  const width=canvas.clientWidth,height=canvas.clientHeight,dpr=Math.min(window.devicePixelRatio||1,2);
-  if(!width||!height)return; // ResizeObserver redraws when the page becomes visible.
-  canvas.width=Math.round(width*dpr);canvas.height=Math.round(height*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,width,height);
-  const vals=rows.map(x=>Number(x.cumulative_return_pct)),low=Math.min(...vals,0),high=Math.max(...vals,0),padding=Math.max((high-low)*.15,.1),min=low-padding,max=high+padding;
-  const left=66,right=width-16,top=24,bottom=height-28,times=rows.map(row=>Date.parse(row.date)),duration=times.at(-1)-times[0];
-  const x=i=>duration?left+(right-left)*(times[i]-times[0])/duration:(left+right)/2,y=v=>bottom-(bottom-top)*(v-min)/(max-min);
-  ctx.font='12px sans-serif';ctx.fillStyle='#697580';ctx.textAlign='right';
-  for(const value of new Set([min,0,max])){ctx.strokeStyle=value===0?'#a8b4c0':'#e7ebef';ctx.beginPath();ctx.moveTo(left,y(value));ctx.lineTo(right,y(value));ctx.stroke();ctx.fillText(pct(value),left-8,y(value)+4);}
-  const last=vals.at(-1);ctx.strokeStyle=trendColor(last);ctx.lineWidth=2.5;ctx.beginPath();vals.forEach((v,i)=>i?ctx.lineTo(x(i),y(v)):ctx.moveTo(x(i),y(v)));ctx.stroke();ctx.lineWidth=1;
-  ctx.fillStyle=trendColor(last);ctx.beginPath();ctx.arc(x(vals.length-1),y(last),4,0,Math.PI*2);ctx.fill();
-  ctx.textAlign=rows.length===1?'center':'right';ctx.fillText(pct(last),x(vals.length-1),Math.max(14,y(last)-10));
-  ctx.fillStyle='#697580';ctx.textAlign=rows.length===1?'center':'left';ctx.fillText(rows[0].date,rows.length===1?x(0):left,height-6);
-  if(rows.length>1){ctx.textAlign='right';ctx.fillText(rows.at(-1).date,right,height-6);}
-  canvas.setAttribute('aria-label',`${rows[0].date}부터 ${rows.at(-1).date}까지 원화 기준 누적 수익률, 마지막 ${pct(last)}, ${rows.length}일 기록`);
-  const period=r.period_return_pct==null?'':` · 기간 수익률 ${pct(r.period_return_pct)}`;
-  $('performanceNotice').textContent=`${rows.at(-1).date} 기록 · 누적 수익률 ${pct(last)} (환율 포함)${period}${rows.length===1?' · 첫 기록을 점으로 표시했습니다. 두 번째 기록부터 선으로 연결합니다.':''} · 하루 한 번 저장한 값으로, 현재 계좌 수익률과 다를 수 있습니다.${r.baseline_changed?' · 기간 중 수익률 기준 재설정 있음':''}${rows.some(x=>x.stale)?' · 일부 날짜는 마지막 확인 시세 기준':''}`;
-}
-new ResizeObserver(()=>{if(performanceData&&$('performanceChart').clientWidth)drawPerformance(performanceData);}).observe($('performanceChart'));
-document.querySelectorAll('#performanceRanges button').forEach(b=>b.addEventListener('click',()=>{if(performanceUser)loadPerformance(performanceUser,b.dataset.period);}));
+const publicPerformance=performanceWidget({chart:'performanceChart',notice:'performanceNotice',ranges:'performanceRanges'},name=>'performance/'+encodeURIComponent(name));
+const myPerformance=performanceWidget({chart:'myPerformanceChart',notice:'myPerformanceNotice',ranges:'myPerformanceRanges'},()=>'performance/me');
+function loadPerformance(username,period){return publicPerformance.load(username,period);}
+function drawPerformance(r){publicPerformance.draw(r);}
+window.loadMyPerformance=()=>myPerformance.load(window.sessionUsername);

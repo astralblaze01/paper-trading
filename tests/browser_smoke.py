@@ -210,6 +210,13 @@ with sync_playwright() as p:
         page.locator('#profileImageInput').set_input_files({'name':'avatar.png','mimeType':'image/png','buffer':b'MZ not a png'})
         expect(page.locator('#toasts')).to_contain_text('올바른 이미지 파일이 아닙니다')
         expect(page.locator('#positions .portfolio-stock-link')).to_have_attribute('href','#detail/AAPL')
+        # Account results are valuations, in the basis of the display currency (KRW here).
+        expect(page.locator('#metrics small').filter(has_text='평가손익')).to_have_count(1)
+        expect(page.locator('#metrics')).to_contain_text('원화 기준 · 확정 손익 포함')
+        expect(page.locator('#metrics')).to_contain_text('달러 기준')
+        expect(page.locator('#positions th').nth(5)).to_have_text('평가손익')
+        # My own daily performance chart sits on the portfolio page.
+        page.wait_for_function("(t=>t&&!t.includes('조회 중'))(document.getElementById('myPerformanceNotice').textContent)")
         page.screenshot(path=f'/artifacts/portfolio-{width}.png',full_page=True)
         page.locator('#positions .portfolio-stock-link').click()
         expect(page.locator('#detailTitle')).to_contain_text('Apple')
@@ -225,10 +232,14 @@ with sync_playwright() as p:
         expect(page.locator('#rankingStatus')).to_contain_text('마지막 정상 갱신')
         assert page.locator('#ranking').inner_text()==rows_before
         page.unroute('**/api/ranking')
-        expect(page.locator('#ranking th')).to_contain_text(['순위','사용자 · 프로필 보기','총 평가금액 (KRW)','누적 수익률'])
+        expect(page.locator('#ranking th')).to_contain_text(['순위','사용자 · 프로필 보기','총 평가금액 (KRW)','평가 수익률 (원화 기준)'])
         expect(page.locator('#ranking td').nth(2)).to_contain_text('원')
+        expect(page.locator('#ranking tbody tr').first).to_have_class(re.compile(r'\btop-rank-1\b'))
+        expect(page.locator('#ranking tbody tr .rank-badge').first).to_have_css('border-top-style','solid')
+        page.screenshot(path=f'/artifacts/ranking-{width}.png',full_page=True)
         page.locator('#displayCurrency').select_option('USD')
         expect(page.locator('#ranking th').nth(2)).to_have_text('총 평가금액 (USD)')
+        expect(page.locator('#ranking th').nth(3)).to_have_text('평가 수익률 (달러 기준)')
         expect(page.locator('#ranking td').nth(2)).to_contain_text('$')
         page.locator('#displayCurrency').select_option('KRW')
         other=page.locator('#ranking .user-link').filter(has_text=peer).first

@@ -125,3 +125,18 @@ def migrate(engine):
         if not db.scalar(text('SELECT 1 FROM schema_migrations WHERE version=11')):
             db.execute(text('ALTER TABLE transactions ADD COLUMN IF NOT EXISTS venue VARCHAR(12)'))
             db.execute(text('INSERT INTO schema_migrations(version) VALUES (11)'))
+
+        if not db.scalar(text('SELECT 1 FROM schema_migrations WHERE version=12')):
+            # The USD-basis return needs outside money in USD at the rate it came in.
+            # Older grants were only kept in KRW; convert them at the account's starting rate.
+            db.execute(text('ALTER TABLE users ADD COLUMN IF NOT EXISTS net_contributions_usd NUMERIC(24,4) NOT NULL DEFAULT 0'))
+            db.execute(text("""UPDATE users SET net_contributions_usd = round(net_contributions_krw * initial_usd / initial_krw, 4)
+                               WHERE net_contributions_krw <> 0 AND initial_krw > 0"""))
+            db.execute(text('ALTER TABLE performance_snapshots ADD COLUMN IF NOT EXISTS initial_equity_usd NUMERIC(24,4)'))
+            db.execute(text('ALTER TABLE performance_snapshots ADD COLUMN IF NOT EXISTS net_contributions_usd NUMERIC(24,4)'))
+            # Only snapshots taken under the account's current baseline can borrow its USD principal.
+            db.execute(text("""UPDATE performance_snapshots s SET initial_equity_usd = u.initial_usd,
+                                   net_contributions_usd = round(s.net_contributions_krw * u.initial_usd / u.initial_krw, 4)
+                               FROM users u WHERE s.user_id = u.id AND s.initial_equity_usd IS NULL
+                                   AND u.initial_krw > 0 AND s.initial_equity_krw = u.initial_krw"""))
+            db.execute(text('INSERT INTO schema_migrations(version) VALUES (12)'))

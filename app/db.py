@@ -25,6 +25,7 @@ class User(Base):
     initial_krw: Mapped[Decimal | None] = mapped_column(Numeric(24,4), nullable=True)
     initial_fx_date: Mapped[str | None] = mapped_column(String(10), nullable=True)
     net_contributions_krw: Mapped[Decimal] = mapped_column(Numeric(24,4), default=Decimal(0), server_default='0')
+    net_contributions_usd: Mapped[Decimal] = mapped_column(Numeric(24,4), default=Decimal(0), server_default='0')
     records_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     performance_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     baseline_note: Mapped[str] = mapped_column(String(40), default='registration', server_default='registration')
@@ -262,6 +263,9 @@ class PerformanceSnapshot(Base):
     cash_usd: Mapped[Decimal] = mapped_column(Numeric(24,4))
     net_contributions_krw: Mapped[Decimal] = mapped_column(Numeric(24,4))
     initial_equity_krw: Mapped[Decimal] = mapped_column(Numeric(24,4))
+    # USD basis; NULL on rows taken under a baseline that no longer exists.
+    net_contributions_usd: Mapped[Decimal | None] = mapped_column(Numeric(24,4), nullable=True)
+    initial_equity_usd: Mapped[Decimal | None] = mapped_column(Numeric(24,4), nullable=True)
     cumulative_return_pct: Mapped[Decimal] = mapped_column(Numeric(20,8))
     fx_rate: Mapped[Decimal] = mapped_column(Numeric(24,12))      # KRW per USD (ECB reference)
     fx_date: Mapped[str] = mapped_column(String(10))

@@ -20,6 +20,13 @@ let rankingBucketSeen='', rankingRequest=null;
 try{displayMode=localStorage.getItem(storageNamespace+':currency')||localStorage.getItem('paper-harbor:currency')||'native';}catch{}
 if(!['native','KRW','USD'].includes(displayMode))displayMode='native';
 function viewCurrency(native){return displayMode==='native'?native:displayMode;}
+// Account returns come in two bases.  Dollar display shows the USD-basis
+// return (dollar principal vs dollar value); everything else the KRW basis,
+// which also carries the USD/KRW move.  Holdings keep their own currency.
+function returnBasis(){return displayMode==='USD'?'USD':'KRW';}
+function basisLabel(basis=returnBasis()){return basis==='USD'?'달러 기준':'원화 기준';}
+function accountReturn(p,basis=returnBasis()){return basis==='USD'?p.return_pct_usd:p.return_pct;}
+const signedPctText=x=>x==null?'—':(Number(x)>0?'+':'')+pct(x);
 function viewValue(value,currency,rate=viewFx){
   if(value==null)return null;
   if(viewCurrency(currency)===currency)return Number(value);
@@ -43,13 +50,15 @@ function toast(text,kind='info',timeout=4500){
   setTimeout(dismiss,timeout);
 }
 function stockLink(x){const a=document.createElement('a');a.href='#detail/'+encodeURIComponent(x.symbol);a.textContent=x.name+' · '+x.symbol;a.className='text-button portfolio-stock-link';return a;}
-function renderPositions(target,p){table(target,['종목','수량','평균가','현재가','평가액','미실현 손익','종목 수익률'],p.positions.map(x=>[stockLink(x),x.quantity,viewMoney(x.average_cost,x.currency),viewMoney(x.quote?.native_price??x.quote?.price,x.currency),viewMoney(x.value,x.currency),signed(x.pnl,viewMoney(x.pnl,x.currency)),signedPct(x.return_pct)]));}
+function renderPositions(target,p){table(target,['종목','수량','평균가','현재가','평가액','평가손익','종목 수익률'],p.positions.map(x=>[stockLink(x),x.quantity,viewMoney(x.average_cost,x.currency),viewMoney(x.quote?.native_price??x.quote?.price,x.currency),viewMoney(x.value,x.currency),signed(x.pnl,viewMoney(x.pnl,x.currency)),signedPct(x.return_pct)]));}
 function returnExplanation(p){
-  // The account return is always KRW-based, even when display currency changes.
-  const basis='계좌 누적 수익률은 기준 원금 대비 원화 평가액의 변화이며, 외부 입출금을 제외하고 환율·매매·환전 비용을 포함합니다.';
+  const basis='평가손익·평가 수익률은 아직 팔지 않은 종목을 현재가로 평가한 값에 이미 매도로 확정된 손익을 더한 계좌 전체 성과입니다. 외부 입출금은 제외하고 매매·환전 비용은 포함합니다.';
+  const bases='원화 기준은 시작 원금을 원화로 본 수익률이라 달러 대비 원화 가치 변동(환차손익)이 들어가고, 달러 기준은 시작 원금을 달러로 본 수익률이라 환율 변동이 빠집니다. 상단 표시 통화가 달러면 달러 기준, 그 외에는 원화 기준을 크게 보여줍니다.';
   const holdings='종목 수익률은 해당 거래통화의 평균 매입가 대비 현재가 변화로, 환율 변동은 포함하지 않습니다.';
-  if(p.initial_equity==null||p.pnl==null)return `${basis} ${holdings}`;
-  return `${basis} 기준 원금 ${nativeMoney(p.initial_equity,'KRW')}${p.initial_fx_date?' ('+p.initial_fx_date+' 기준)':''} · 초기 달러 원금의 환율 효과 ${nativeMoney(p.initial_fx_effect,'KRW')} + 그 외 손익(매매·환전·수수료 등) ${nativeMoney(p.other_pnl,'KRW')} = 총 손익 ${nativeMoney(p.pnl,'KRW')}. ${holdings}`;
+  if(p.initial_equity==null||p.pnl==null)return `${basis} ${bases} ${holdings}`;
+  const krw=`원화 기준: 시작 원금 ${nativeMoney(p.initial_equity,'KRW')}${p.initial_fx_date?' ('+p.initial_fx_date+' 환율)':''} · 시작 달러 원금의 환율 효과 ${nativeMoney(p.initial_fx_effect,'KRW')} + 그 외 손익(매매·환전·수수료 등) ${nativeMoney(p.other_pnl,'KRW')} = 평가손익 ${nativeMoney(p.pnl,'KRW')} (${signedPctText(p.return_pct)}).`;
+  const usd=p.pnl_usd==null?'':` 달러 기준: 시작 원금 ${nativeMoney(p.initial_usd,'USD')} · 평가손익 ${nativeMoney(p.pnl_usd,'USD')} (${signedPctText(p.return_pct_usd)}).`;
+  return `${basis} ${bases} ${krw}${usd} ${holdings}`;
 }
 function renderPortfolio(){const p=portfolioCache;if(!p)return;
   $('metrics').replaceChildren();
@@ -57,13 +66,19 @@ function renderPortfolio(){const p=portfolioCache;if(!p)return;
   renderPositions($('positions'),p);
   if(window.renderAllocation)renderAllocation($('allocation'),p);
   if(window.renderMyProfile)renderMyProfile();
-  $('realized').textContent=returnExplanation(p)+' 누적 실현손익: '+viewMoney(p.realized_pnl.USD,'USD')+' / '+viewMoney(p.realized_pnl.KRW,'KRW');
+  $('realized').textContent=returnExplanation(p)+' 이 중 매도로 확정된 실현손익: '+viewMoney(p.realized_pnl.USD,'USD')+' / '+viewMoney(p.realized_pnl.KRW,'KRW')+' (수수료·세금 반영, 거래 통화별).';
 }
 function renderMetrics(target,p){
   target.replaceChildren();
-  const fields=[['총 평가금액',viewMoney(p.equity,'KRW')],['현금',cashLines(p.wallets)],['총 손익',viewMoney(p.pnl,'KRW'),p.pnl],['누적 수익률 (환율 포함)',p.return_pct==null?'—':(Number(p.return_pct)>0?'+':'')+pct(p.return_pct),p.return_pct]];
-  for(const [name,value,change] of fields){const box=document.createElement('div');box.className='metric';const label=document.createElement('small');label.textContent=name;let v;if(value instanceof Node){v=document.createElement('span');v.append(value);}else v=signed(change,value);v.classList.add('metric-value');box.append(label,v);target.append(box);}
+  const basis=returnBasis(),other=basis==='USD'?'KRW':'USD';
+  const pnl=basis==='USD'?p.pnl_usd:p.pnl,ret=accountReturn(p,basis),otherRet=accountReturn(p,other);
+  const fields=[['총 평가금액',viewMoney(p.equity,'KRW')],['현금',cashLines(p.wallets)],
+    ['평가손익',nativeMoney(pnl,basis),pnl,basisLabel(basis)+' · 확정 손익 포함'],
+    ['평가 수익률',signedPctText(ret),ret,`${basisLabel(other)} ${signedPctText(otherRet)}`]];
+  for(const [name,value,change,sub] of fields){const box=document.createElement('div');box.className='metric';const label=document.createElement('small');label.textContent=name;let v;if(value instanceof Node){v=document.createElement('span');v.append(value);}else v=signed(change,value);v.classList.add('metric-value');box.append(label,v);if(sub)box.append(node('small',sub,'metric-sub'));target.append(box);}
 }
+// Ranks 1-3 get a toned numeral (gold, silver, bronze); the row styling lives in style.css.
+function rankBadge(rank){const n=document.createElement('span');n.className='rank-badge';n.textContent=rank;if(rank<=3)n.setAttribute('aria-label',rank+'위');return n;}
 function renderRanking(){if(!rankingCache)return;
   const status=$('rankingStatus');
   if(status){
@@ -79,7 +94,8 @@ function renderRanking(){if(!rankingCache)return;
   }
   const person=x=>{const box=document.createElement('span');box.className='rank-user';if(window.avatar)box.append(avatar(x.username,x.image_version,'small'));box.append(userLink(x.username));return box;};
   // Ranked by USD value; shown in the selected display currency at the snapshot's rate.
-  table($('ranking'),['순위','사용자 · 프로필 보기','총 평가금액 ('+viewCurrency('USD')+')','누적 수익률'],rankingCache.rows.map(x=>[x.rank,person(x),viewMoney(x.equity_usd,'USD',x.fx||viewFx),signedPct(x.return_pct)]));
+  table($('ranking'),['순위','사용자 · 프로필 보기','총 평가금액 ('+viewCurrency('USD')+')','평가 수익률 ('+basisLabel()+')'],rankingCache.rows.map(x=>[rankBadge(x.rank),person(x),viewMoney(x.equity_usd,'USD',x.fx||viewFx),signedPct(accountReturn(x))]));
+  $('ranking').querySelectorAll('tbody tr').forEach((tr,i)=>{const rank=rankingCache.rows[i].rank;if(rank<=3)tr.classList.add('top-rank','top-rank-'+rank);});
   if(window.renderMyProfile)renderMyProfile();
 }
 function syncCurrency(){$('displayCurrency').value=displayMode;$('displayRateNote').textContent=viewFx?`${viewFx.date} 기준 · 1 USD = ${Number(viewFx.rate).toLocaleString('ko-KR',{maximumFractionDigits:2})} KRW · 환산 표시만 변경`:'환율 확인 중';}
@@ -276,7 +292,7 @@ function renderWeekly(){
   const data=weeklyCache;
   const days = ['월', '화', '수', '목', '금', '토', '일'];
   $('weeklySchedule').textContent = data.enabled ? `매주 ${days[data.weekday]}요일 ${data.hour}시 · 한국 시간` : '자동 게시 중지';
-  $('weeklyStatus').textContent = data.error || (data.baseline_at ? `다음 게시: ${reportDate(data.next_due)} · 직전 집계 자산 대비 기간 수익률 · ${data.reports[0]?.return_basis||'누적 수익률은 초기 KRW 평가액 대비 (외부 입출금 반영)'}` : '첫 주간 기록을 준비하고 있습니다. 계좌의 기준 평가금액이 저장되면 집계가 시작됩니다.');
+  $('weeklyStatus').textContent = data.error || (data.baseline_at ? `다음 게시: ${reportDate(data.next_due)} · 직전 집계 자산 대비 기간 수익률 · ${'평가 수익률은 '+(data.reports[0]?.return_basis||'초기 KRW 평가액 대비 (외부 입출금 반영)')}` : '첫 주간 기록을 준비하고 있습니다. 계좌의 기준 평가금액이 저장되면 집계가 시작됩니다.');
   $('weeklyReports').replaceChildren();
   for (const report of data.reports) {
     const article = document.createElement('article'); article.className = 'weekly-report';
@@ -284,7 +300,7 @@ function renderWeekly(){
     const title = document.createElement('h3'); const winners = report.rows.filter(row => row.rank === 1);
     title.textContent = winners.length ? `${winners.length > 1 ? '공동 ' : ''}1위 · ${winners.map(row => row.username).join(', ')} (${pct(winners[0].return_pct)})` : '이번 집계에는 비교 가능한 참여자가 없습니다.';
     const details = document.createElement('details'), summary = document.createElement('summary'), list = document.createElement('div'); list.className = 'scroll'; summary.textContent = `전체 순위 보기 · ${report.rows.length}명`;
-    table(list, ['순위', '사용자', '기간 수익률', '기간 손익 ('+viewCurrency(report.base_currency)+')', '누적 수익률'], report.rows.map(row => [row.rank, userLink(row.username), signedPct(row.return_pct), signed(row.pnl,viewMoney(row.pnl,report.base_currency,report.fx_rate?{rate:report.fx_rate}:null)), signedPct(row.total_return_pct)]));
+    table(list, ['순위', '사용자', '기간 수익률', '기간 손익 ('+viewCurrency(report.base_currency)+')', '평가 수익률 (원화 기준)'], report.rows.map(row => [row.rank, userLink(row.username), signedPct(row.return_pct), signed(row.pnl,viewMoney(row.pnl,report.base_currency,report.fx_rate?{rate:report.fx_rate}:null)), signedPct(row.total_return_pct)]));
     details.append(summary, list);
     const note = document.createElement('p'); note.className = 'weekly-note';
     note.textContent = `시작 평가액이 없거나 0인 ${report.excluded_new_or_zero}명은 비교에서 제외됩니다.` + (report.oldest_quote ? ` 사용 시세 중 가장 오래된 시각: ${reportDate(report.oldest_quote)}.` : '') + (report.late ? ' 게시가 지연되어 실제 집계 시점까지의 성과입니다.' : '');

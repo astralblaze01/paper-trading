@@ -116,7 +116,7 @@ def test_request_id_cache_control_and_access_log(client, caplog):
 
 RANKING_KEYS = ['rows', 'errors', 'incomplete', 'base_currency', 'updated_at', 'return_basis', 'stale',
                 'refresh_interval_seconds', 'refreshed', 'market_open', 'market_status', 'next_refresh_at']
-ROW_KEYS = ['rank', 'username', 'equity', 'equity_usd', 'return_pct', 'stale', 'fx', 'image_version']
+ROW_KEYS = ['rank', 'username', 'equity', 'equity_usd', 'return_pct', 'return_pct_usd', 'stale', 'fx', 'image_version']
 HOLD = '시세 또는 기준환율을 확인할 수 없어 랭킹을 보류합니다.'
 SEOUL = ZoneInfo('Asia/Seoul')
 B1 = datetime(2026, 9, 24, 9, 0, 10, tzinfo=SEOUL)
@@ -399,7 +399,8 @@ def test_transactions_projection_and_pages(client):
 
 PUBLIC_KEYS = ['username', 'wallets', 'positions', 'equity', 'equity_usd', 'base_currency', 'pnl', 'return_pct',
                'return_basis', 'fx', 'errors', 'stale', 'initial_equity', 'initial_fx_date',
-               'initial_fx_effect', 'other_pnl', 'profile', 'member_since', 'member_days']
+               'initial_fx_effect', 'other_pnl', 'pnl_usd', 'return_pct_usd', 'initial_usd',
+               'profile', 'member_since', 'member_days']
 
 
 def test_public_lookups_share_visibility_but_keep_their_messages(client):
@@ -468,7 +469,8 @@ def test_public_lookups_ignore_username_case_like_login_and_avatars(client):
 
 
 PERFORMANCE_KEYS = ['username', 'period', 'from', 'to', 'timezone', 'return_basis',
-                    'snapshots', 'period_return_pct', 'period_start', 'period_end', 'baseline_changed', 'benchmarks']
+                    'snapshots', 'period_return_pct', 'period_return_usd_pct', 'period_start', 'period_end',
+                    'baseline_changed', 'benchmarks']
 BAD_RANGE = {'detail': '기간은 1W, 1M, 3M, 1Y, YTD, ALL 또는 YYYY-MM-DD 형식입니다.'}
 
 

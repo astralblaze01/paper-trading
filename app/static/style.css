@@ -205,9 +205,9 @@ table { font-size:15px; }
 .cost-row { display:flex; justify-content:space-between; flex-wrap:wrap; gap:12px; padding:8px 0; border-bottom:1px solid var(--border); font-size:15px; }
 #publicMetrics { margin-top:24px; }
 .return-explanation { margin:-12px 0 24px; line-height:1.8; }
-#performanceChart { display:block; width:100%; max-width:100%; height:240px; }
-#performanceChart[hidden] { display:none; }
-@media(max-width:600px) { #performanceChart { height:200px; } }
+#performanceChart,#myPerformanceChart { display:block; width:100%; max-width:100%; height:240px; }
+#performanceChart[hidden],#myPerformanceChart[hidden] { display:none; }
+@media(max-width:600px) { #performanceChart,#myPerformanceChart { height:200px; } }
 #publicMetrics .metric>span { display:block; font-size:23px; }
 @media(max-width:600px){.detail-price strong{font-size:28px}.period-performance strong{font-size:21px}.view-settings{align-items:flex-start}.header-inner{gap:12px}.service-label{display:none}.metric-value{font-size:21px}}
 .admin-manage { max-width:720px; padding:24px; margin:28px 0; background:#f6f8fa; border:1px solid var(--border); border-radius:10px; }
@@ -297,7 +297,8 @@ table { font-size:15px; }
  .watch-price { font-size:22px; }
  #ranking table { table-layout:fixed; }
  #ranking td,#ranking th { padding:14px 4px; white-space:normal; font-size:14px; }
- #ranking th:first-child { width:32px; }
+ #ranking th:first-child { width:38px; }
+ #ranking .rank-badge { width:26px; height:26px; font-size:13px; }
  #ranking th:nth-child(2) { width:30%; }
  #ranking th:last-child { width:23%; }
  #ranking .user-link { font-size:18px; }
@@ -352,6 +353,17 @@ table { font-size:15px; }
 .button-link.secondary:hover { background:#f0f3f6; }
 .back-link { display:inline-block; margin-bottom:16px; color:var(--accent); }
 .rank-user { display:inline-flex; align-items:center; gap:10px; }
+/* Asset ranking: ranks 1-3 carry a quiet metal tone on the numeral, the row edge and the avatar ring. */
+.rank-badge { display:inline-flex; align-items:center; justify-content:center; width:30px; height:30px; color:var(--muted); font-weight:600; font-variant-numeric:tabular-nums; }
+.top-rank-1 { --rank-tone:#c29a3a; --rank-ink:#7d5f17; --rank-wash:#faf4e3; }
+.top-rank-2 { --rank-tone:#9aa5b1; --rank-ink:#56616d; --rank-wash:#f1f4f7; }
+.top-rank-3 { --rank-tone:#bf8a62; --rank-ink:#85552f; --rank-wash:#f8efe8; }
+.top-rank .rank-badge { border:1px solid var(--rank-tone); border-radius:50%; background:var(--rank-wash); color:var(--rank-ink); font-family:Georgia, "Times New Roman", serif; font-size:15px; font-weight:700; }
+#ranking .top-rank td:first-child { box-shadow:inset 3px 0 0 var(--rank-tone); }
+#ranking .top-rank .avatar-small { border:2px solid var(--rank-tone); }
+#ranking .top-rank .user-link { font-weight:700; }
+#ranking .top-rank-1 td { background:#fffdf7; }
+.metric .metric-sub { display:block; margin-top:4px; font-size:12px; color:var(--muted); }
 .cash-lines { display:grid; gap:2px; font-size:18px; }
 .metric .metric-value .cash-lines { font-size:18px; }
 

@@ -76,19 +76,25 @@ def portfolio(uid, market, fx):
         rows.append(info | {'quantity':p.quantity,'average_cost':average,'quote':q,'value':value,'pnl':pnl,
                             'return_pct':pnl/(average*p.quantity)*100 if pnl is not None and average else None})
     initial=user.initial_krw
+    equity_usd=(equity/rate['rate']).quantize(Decimal('.0001')) if complete else None
     return {'username':user.username,'wallets':balances,'cash':balances['USD'],'positions':rows,
             'equity':equity if complete else None,'base_currency':'KRW','initial_equity':initial,
             # Rankings compare every account in USD at the current reference rate.
-            'equity_usd':(equity/rate['rate']).quantize(Decimal('.0001')) if complete else None,
+            'equity_usd':equity_usd,
             # Ranking, portfolio and public portfolio all use this same
             # definition.  External grants/transfers are removed from the
             # numerator through net_contributions_krw.
             'return_basis':RETURN_BASIS,
-            'initial_fx_date':user.initial_fx_date,'baseline_note':user.baseline_note,
+            'initial_fx_date':user.initial_fx_date,'baseline_note':user.baseline_note,'initial_usd':user.initial_usd,
             'initial_fx_effect':user.initial_usd*rate['rate']-initial if complete and initial else None,
             'other_pnl':equity-user.net_contributions_krw-user.initial_usd*rate['rate'] if complete and initial else None,
             'net_contributions_krw':user.net_contributions_krw,
             'pnl':equity-initial-user.net_contributions_krw if complete and initial else None,
             'return_pct':performance_return(equity,initial,user.net_contributions_krw) if complete else None,
+            # The same account measured in dollars: the dollar principal against
+            # today's dollar value, outside money at the rate it came in.  It
+            # differs from the KRW return by the USD/KRW move since the start.
+            'pnl_usd':equity_usd-user.initial_usd-user.net_contributions_usd if complete else None,
+            'return_pct_usd':performance_return(equity_usd,user.initial_usd,user.net_contributions_usd) if complete else None,
             'realized_pnl':{'USD':realized.get('USD',Decimal(0)),'KRW':realized.get('KRW',Decimal(0))},
             'fx':rate,'errors':errors,'stale':any(r['quote'] and r['quote']['stale'] for r in rows)}

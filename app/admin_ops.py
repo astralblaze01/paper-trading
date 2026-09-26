@@ -48,6 +48,7 @@ def _grant(user,ws,data,rate,over_cap):
     if ws[data.currency].balance+data.amount>WALLET_CAP: raise HTTPException(409,over_cap)
     ws[data.currency].balance+=data.amount
     user.net_contributions_krw+=data.amount*(rate if data.currency=='USD' else 1)
+    user.net_contributions_usd+=data.amount if data.currency=='USD' else data.amount/rate
 
 def _rebase(db,u,ws,quotes,market,q,now):
     """Restart the return from today's equity; cash and holdings stay."""
@@ -57,13 +58,13 @@ def _rebase(db,u,ws,quotes,market,q,now):
         quote=quotes.get(p.symbol) or market.quote(p.symbol)
         equity+=Decimal(str(quote.get('native_price',quote['price'])))*p.quantity*(1 if p.symbol.startswith('KR:') else rate)
     if equity<=0: raise HTTPException(409,'총자산이 0 이하인 계좌는 기준 재설정이 불가능합니다.')
-    u.initial_krw=equity;u.initial_usd=equity/rate;u.net_contributions_krw=0;u.initial_fx_date=q['date'];u.performance_since=now;u.baseline_note='admin-rebase'
+    u.initial_krw=equity;u.initial_usd=equity/rate;u.net_contributions_krw=0;u.net_contributions_usd=0;u.initial_fx_date=q['date'];u.performance_since=now;u.baseline_note='admin-rebase'
 
 def _restore_initial_funding(db,u,ws,q):
     """Fund the account as a new one: today's initial USD amount, no KRW, and the return basis restarted from it at rate quote q."""
     amount=initial_amount(db)
     ws['USD'].balance=amount;ws['KRW'].balance=0;u.cash=amount
-    u.initial_usd=amount;u.initial_krw=amount*q['rate'];u.initial_fx_date=q['date'];u.net_contributions_krw=0
+    u.initial_usd=amount;u.initial_krw=amount*q['rate'];u.initial_fx_date=q['date'];u.net_contributions_krw=0;u.net_contributions_usd=0
 
 def _clear(db,u,ws,before,actor,reason,q,now):
     """Back to the state right after registration; everything removed is archived first."""
@@ -73,7 +74,7 @@ def _clear(db,u,ws,before,actor,reason,q,now):
     archive={m.__tablename__:records(db,m,target) for m in models}
     archive['wallet_transfers']=[{c.name:getattr(row,c.name) for c in WalletTransfer.__table__.columns} for row in db.scalars(select(WalletTransfer).where(or_(WalletTransfer.sender_id==target,WalletTransfer.recipient_id==target)))]
     archive['wallets']=before;archive['actor']=actor;archive['reason']=reason
-    archive['performance']={'initial_krw':u.initial_krw,'initial_usd':u.initial_usd,'net_contributions_krw':u.net_contributions_krw,'initial_fx_date':u.initial_fx_date,'performance_since':u.performance_since}
+    archive['performance']={'initial_krw':u.initial_krw,'initial_usd':u.initial_usd,'net_contributions_krw':u.net_contributions_krw,'net_contributions_usd':u.net_contributions_usd,'initial_fx_date':u.initial_fx_date,'performance_since':u.performance_since}
     archive['weekly_rows']=[]
     for report in db.scalars(select(WeeklyReport)):
         matches=[r for r in report.rows if r['username']==u.username]

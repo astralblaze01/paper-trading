@@ -39,7 +39,7 @@ window.renderProfileCard=function(target,p,editable){
     if(editable){const edit=node('button','소개 수정','text-button');edit.type='button';edit.addEventListener('click',()=>{bioEditing=true;bioDraft=myProfile?.bio||'';renderMyProfile();});info.append(edit);}
   }
   const stats=node('dl',null,'profile-stats');
-  stats.append(profileStat('랭킹',p.rank?`${p.rank}위`:'—'),profileStat('누적 수익률 (환율 포함)',signedPct(p.return_pct)),profileStat('총 평가금액',viewMoney(p.equity_usd,'USD')));
+  stats.append(profileStat('랭킹',p.rank?`${p.rank}위`:'—'),profileStat(`평가 수익률 (${basisLabel()})`,signedPct(accountReturn(p))),profileStat('총 평가금액',viewMoney(p.equity_usd,'USD')));
   // Days since sign-up in Korea time, the sign-up day counting as day 1 (own and public profiles).
   if(p.member_days){const since=profileStat('가입 기간',`${p.member_days.toLocaleString()}일`);since.classList.add('member-days');if(p.member_since)since.title=new Date(p.member_since).toLocaleDateString('ko-KR',{timeZone:'Asia/Seoul'})+' 가입';stats.append(since);}
   info.append(stats);
@@ -52,7 +52,7 @@ window.renderMyProfile=function(){
   // Keep an open bio editor untouched by periodic refreshes.
   if(bioEditing&&target.querySelector('#bioInput'))return;
   const p=portfolioCache||{};
-  renderProfileCard(target,{username:window.sessionUsername,bio:myProfile.bio,image_version:myProfile.image_version,equity_usd:p.equity_usd,return_pct:p.return_pct,rank:typeof rankOf==='function'?rankOf(window.sessionUsername):null,member_days:myProfile.member_days,member_since:myProfile.member_since},true);
+  renderProfileCard(target,{username:window.sessionUsername,bio:myProfile.bio,image_version:myProfile.image_version,equity_usd:p.equity_usd,return_pct:p.return_pct,return_pct_usd:p.return_pct_usd,rank:typeof rankOf==='function'?rankOf(window.sessionUsername):null,member_days:myProfile.member_days,member_since:myProfile.member_since},true);
 };
 
 async function uploadProfileImage(file){

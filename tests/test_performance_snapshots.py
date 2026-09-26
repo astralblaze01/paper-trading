@@ -12,7 +12,7 @@ from app import main
 from app.db import Session, User, Position, Wallet, PerformanceSnapshot, BenchmarkSnapshot, SnapshotRun, Transaction
 from app.market import MarketError
 from app.performance_snapshots import capture_daily_snapshots, series, scheduled_for, SEOUL
-from app.portfolio import performance_return
+from app.portfolio import performance_return, portfolio
 
 NOW = datetime.now(timezone.utc)
 DAY = NOW.astimezone(SEOUL).date()
@@ -175,6 +175,41 @@ def test_period_returns_remove_grants_and_break_on_rebase():                # 37
     r = series(uid, d, d + timedelta(11))
     assert r['baseline_changed'] and r['period_start'] == d + timedelta(10) and r['period_return_pct'] == D(5)
     assert r['snapshots'][4]['daily_return_pct'] is None
+
+
+def test_account_return_differs_by_basis_when_the_rate_moves():
+    # $100,000 started at 1,300 KRW/USD and is still held as dollars; the rate is now 1,400.
+    uid = account('holder', usd='100000', krw='0')
+    with Session.begin() as db: db.get(User, uid).initial_krw = D(130000000)
+    p = portfolio(uid, Market({}), FX())
+    assert p['pnl'] == D(10000000) and float(p['return_pct']) == pytest.approx(100 / 13)
+    # In dollars nothing was earned: the whole KRW gain is the exchange rate.
+    assert (p['pnl_usd'], p['return_pct_usd'], p['initial_usd']) == (0, 0, 100000)
+
+
+def test_snapshots_carry_the_usd_basis_and_old_rows_have_none():
+    uid = account('alice', usd='101000', krw='0', contributions='1400000')
+    with Session.begin() as db: db.get(User, uid).net_contributions_usd = D(1000)
+    assert run(Market(BENCH)) == 'complete'
+    s = snapshot(uid)
+    assert (s.initial_equity_usd, s.net_contributions_usd) == (D(100000), D(1000))
+    d = DAY - timedelta(2)
+    seed_series(uid, [(d, 140000000, 0, '140000000.0000')])   # recorded before the USD columns existed
+    r = series(uid, d, DAY)
+    assert r['snapshots'][0]['cumulative_return_usd_pct'] is None
+    assert r['snapshots'][-1]['cumulative_return_usd_pct'] == 0
+    assert r['period_return_usd_pct'] is None and r['period_return_pct'] is not None
+
+
+def test_period_return_in_usd_removes_grants():
+    uid = account('bob')
+    d = date(2026, 9, 1)
+    seed_series(uid, [(d, 140000, 0, 140000), (d + timedelta(1), 210000, 70000, 140000)])
+    with Session.begin() as db:
+        for row in db.scalars(select(PerformanceSnapshot).where(PerformanceSnapshot.user_id == uid)):
+            row.initial_equity_usd, row.net_contributions_usd = D(100), row.net_contributions_krw / 1400
+    r = series(uid, d, d + timedelta(1))
+    assert r['period_return_usd_pct'] == 0 and r['snapshots'][-1]['cumulative_return_usd_pct'] == 0
 
 
 def test_performance_api_periods_and_benchmark_excess(client):
