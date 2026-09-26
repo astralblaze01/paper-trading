@@ -312,10 +312,19 @@ def test_korean_master_parser_supports_name_and_code_search():
     rows=parse_master(line+b'\n','kospi')
     assert rows==[{'symbol':'KR:005930','name':'삼성전자','category':'kr','currency':'KRW','exchange':'kospi'}]
 
-def test_kis_read_only_timestamp_and_cache():
+def test_kis_read_only_timestamp_and_cache(monkeypatch):
     import httpx
     from datetime import datetime, timedelta
+    import app.kr_quotes
     from app.multi_market import KoreaPrices, SEOUL
+    # unified_quote puts the current minute into the chart request (and so into its
+    # cache key) and picks "today" from the clock. Pin that clock, so both quotes
+    # below share one request however the wall clock ticks between them.
+    moment = datetime.now(SEOUL).replace(microsecond=0)
+    class Frozen(datetime):
+        @classmethod
+        def now(cls, tz=None): return moment.astimezone(tz) if tz else moment
+    monkeypatch.setattr(app.kr_quotes, 'datetime', Frozen)
     m = KoreaPrices()
     m.configured = True
     m.key = 'test'; m.secret = 'test'
@@ -323,7 +332,7 @@ def test_kis_read_only_timestamp_and_cache():
     redis_cache.delete(m._token_key())
     m.client.close()
     calls = []
-    stamp = datetime.now(SEOUL) - timedelta(minutes=1)
+    stamp = moment - timedelta(minutes=1)
     def handler(request):
         calls.append((request.method, request.url.path))
         if request.url.path == '/oauth2/tokenP':
@@ -333,7 +342,7 @@ def test_kis_read_only_timestamp_and_cache():
             return httpx.Response(200, json={'rt_cd': '0', 'output': {'stck_sdpr': '69000', 'rprs_mrkt_kor_name': 'KOSPI200', 'bstp_kor_isnm': '전기·전자'}})
         assert request.url.path == m.PATH
         assert request.url.params['FID_COND_MRKT_DIV_CODE'] == 'UN'  # unified KRX+NXT
-        filler = datetime.now(SEOUL).replace(second=0)
+        filler = moment.replace(second=0)
         # A later zero-volume bar only repeats the price; it is not a trade.
         return httpx.Response(200, json={'rt_cd': '0', 'output1': {'hts_kor_isnm': '삼성전자','acml_tr_pbmn':'140000000'}, 'output2': [
             {'stck_bsop_date': filler.strftime('%Y%m%d'), 'stck_cntg_hour': filler.strftime('%H%M%S'), 'stck_prpr': '70000', 'cntg_vol': '0'},
