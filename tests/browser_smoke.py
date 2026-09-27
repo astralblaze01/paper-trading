@@ -203,6 +203,8 @@ with sync_playwright() as p:
             labels=page.evaluate("[...document.querySelectorAll('.app-nav a')].filter(a=>a.offsetParent).sort((a,b)=>a.getBoundingClientRect().left-b.getBoundingClientRect().left).map(a=>a.textContent)")
             assert labels==['시장','포트폴리오','랭킹','관심종목','환전'], labels
             expect(page.locator('.strip-history')).to_be_visible()
+            # Regression: the four-column strip overflowed a phone, cutting off 현금 and 새로고침.
+            assert page.evaluate("(()=>{const s=document.querySelector('.portfolio-strip');return s.scrollWidth<=s.clientWidth})()")
         expect(page.locator('#myProfile .avatar')).to_have_attribute('src','/static/avatar-default.svg')
         expect(page.locator('#allocation .allocation-segment')).to_have_count(2)
         expect(page.locator('#allocation .allocation-legend')).to_contain_text('현금')
