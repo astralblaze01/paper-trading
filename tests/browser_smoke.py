@@ -62,7 +62,7 @@ with sync_playwright() as p:
         expect(page.locator('#fxAvailable')).to_contain_text('998,500')
         page.locator('[data-fx-share="50"]').click()
         expect(page.locator('#fxAmount')).to_have_value('499250')
-        expect(page.locator('#fxEstimate')).to_contain_text('최종 수령')
+        expect(page.locator('#fxEstimate')).to_contain_text('받는 금액')
         page.locator('#fxSource').select_option('USD')
         page.locator('[data-fx-share="100"]').click()
         expect(page.locator('#fxAmount')).to_have_value('99000')

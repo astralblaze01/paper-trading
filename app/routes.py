@@ -158,6 +158,15 @@ def install(app,ctx):
         return provider(symbol).candles(symbol,range)
     @app.get('/api/market-status/{symbol}')
     def status(symbol:str,uid=Depends(user)): return provider(symbol).market_status()
+    @app.get('/api/popular')
+    def popular(hours:int=Query(1),uid=Depends(user)):
+        if hours not in (1,24): raise HTTPException(422,'hours는 1 또는 24입니다.')
+        """The five most-viewed or traded stocks across all markets, for the 시장 sidebar (no quote calls)."""
+        with Session() as db:
+            rows=db.execute(select(PopularityEvent.symbol,func.count().label('score'))
+                            .where(PopularityEvent.created_at>=datetime.now(timezone.utc)-timedelta(hours=hours))
+                            .group_by(PopularityEvent.symbol).order_by(func.count().desc(),PopularityEvent.symbol).limit(5)).all()
+        return {'hours':hours,'rows':[{'symbol':symbol,'name':instrument(symbol)['name'],'score':score} for symbol,score in rows]}
     @app.get('/api/explore')
     def explore(market:Literal['US','KR']='US',asset:Literal['kr','us','kr_bond','us_bond','gold']|None=None,kind:Literal['volume','shares','up','down','popular']='volume',hours:Literal[1,24]=24,uid=Depends(user)):
         asset=asset or ('kr' if market=='KR' else 'us')

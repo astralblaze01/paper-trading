@@ -7,9 +7,9 @@
   <script src="/static/theme.js?v=51"></script>
   <link rel="icon" type="image/png" href="/static/brand/mark.png">
   <link rel="stylesheet" href="/static/fonts/fonts.css?v=1">
-  <link rel="stylesheet" href="/static/style.css?v=59">
+  <link rel="stylesheet" href="/static/style.css?v=62">
   <script src="/static/app.js?v=57" defer></script>
-  <script src="/static/portal.js?v=55" defer></script>
+  <script src="/static/portal.js?v=57" defer></script>
   <script src="/static/profile.js?v=54" defer></script>
 </head>
 <body>
@@ -67,14 +67,21 @@
     </section>
     <div id="dashboard" hidden>
       
-      <section data-page="explore" class="panel">
-        <div class="section-heading"><h2>시장 둘러보기</h2></div>
+      <div data-page="explore" class="explore-desk">
+      <section class="panel explore-panel">
+        <h2 class="sr-only">시장 둘러보기</h2>
         <div class="explore-options"><div id="exploreMarkets" class="chip-row" role="group" aria-label="자산"><button type="button" data-asset="kr">국내주식</button><button type="button" data-asset="us">해외주식</button><button type="button" data-asset="kr_bond">국내채권 ETF</button><button type="button" data-asset="us_bond">해외채권 ETF</button><button type="button" data-asset="gold">금 ETF</button></div><div id="exploreKinds" class="chip-row" role="group" aria-label="순위"><button type="button" data-kind="shares">거래량</button><button type="button" data-kind="volume">거래대금</button><button type="button" data-kind="up">급상승</button><button type="button" data-kind="down">급하락</button><button type="button" data-kind="popular">{{BRAND_NAME}} 인기</button></div></div>
         <select id="exploreMarket" hidden aria-hidden="true"><option value="kr">국내주식</option><option value="us">해외주식</option><option value="kr_bond">국내채권 ETF</option><option value="us_bond">해외채권 ETF</option><option value="gold">금 ETF</option></select><select id="exploreKind" hidden aria-hidden="true"><option value="shares">거래량</option><option value="volume">거래대금</option><option value="up">급상승</option><option value="down">급하락</option><option value="popular">{{BRAND_NAME}} 인기</option></select>
         <form id="discoverySearch" class="search-form"><input id="discoveryQuery" aria-label="종목명이나 코드" placeholder="종목명 또는 코드"><button>검색</button></form>
-        <p id="exploreNotice" class="section-description"></p><details class="data-details"><summary>시세 정보</summary><p id="exploreFxNote" class="field-help"></p></details><div id="exploreRows" class="scroll"></div>
+        <details class="data-details"><summary>시세 정보</summary><p id="exploreFxNote" class="field-help"></p></details><div id="exploreRows" class="scroll"></div>
+        <p id="exploreNotice" class="section-description explore-foot"></p>
       </section>
-      <section data-page="fx" class="panel fx-page"><div class="fx-main"><h2>가상 환전</h2><details class="fx-details"><summary>환율 정보</summary><p class="field-help">ECB 일별 기준환율을 사용합니다. 수수료와 스프레드는 환전 견적에 표시합니다.</p></details><div id="fxRate" class="fx-rate" aria-live="polite">환율 확인 중…</div><form id="fxForm"><div class="toolbar"><label>보낼 통화<select id="fxSource"><option value="USD">USD → KRW</option><option value="KRW">KRW → USD</option></select></label><label>보낼 금액 (<span id="fxAmountUnit">USD</span>)<input id="fxAmount" type="number" min="0.0001" step="0.0001" required></label></div><div class="fx-balance"><span id="fxAvailable" aria-live="polite"></span></div><div class="order-quick" aria-label="환전 금액 비율 선택"><span>금액 빠른 선택</span><button type="button" class="secondary" data-fx-share="100">전액</button><button type="button" class="secondary" data-fx-share="50">50%</button><button type="button" class="secondary" data-fx-share="25">25%</button><button type="button" class="secondary" data-fx-share="10">10%</button><button type="button" class="secondary" data-fx-share="5">5%</button></div><p class="field-help">수수료는 보낸 금액에서 빠집니다.</p><div id="fxEstimate" class="quote-info" aria-live="polite"></div><button class="full-width">모의 환전 실행</button></form></div><div class="fx-side"><h3>환전내역</h3><div id="fxHistory" class="scroll"></div></div></section>
+      <aside class="explore-side">
+        <section class="panel popular-card"><div class="section-heading"><h2>{{BRAND_NAME}} 인기</h2><div id="popularHours" class="mini-seg" role="group" aria-label="기간"><button type="button" data-hours="1" aria-pressed="true">1H</button><button type="button" data-hours="24" aria-pressed="false">24H</button></div></div><ol id="popularRows" class="popular-rows"></ol></section>
+        <section class="panel market-hours-card"><h2>장 운영</h2><dl id="marketHours" class="market-hours"></dl></section>
+      </aside>
+    </div>
+      <section data-page="fx" class="fx-page"><div class="fx-main panel"><h2>가상 환전</h2><div id="fxRate" class="fx-rate" aria-live="polite">환율 확인 중…</div><form id="fxForm"><div class="fx-direction" role="radiogroup" aria-label="환전 방향"><button type="button" role="radio" data-fx-source="USD" aria-checked="true">USD → KRW</button><button type="button" role="radio" data-fx-source="KRW" aria-checked="false">KRW → USD</button></div><label class="sr-only">보낼 통화<select id="fxSource"><option value="USD">USD → KRW</option><option value="KRW">KRW → USD</option></select></label><div class="qty-head"><label for="fxAmount">보낼 금액 (<span id="fxAmountUnit">USD</span>)</label><span id="fxAvailable" class="qty-max" aria-live="polite"></span></div><input id="fxAmount" class="qty-input" type="number" min="0.0001" step="0.0001" required inputmode="decimal"><div class="order-quick" aria-label="환전 금액 비율 선택"><button type="button" class="secondary" data-fx-share="100">전액</button><button type="button" class="secondary" data-fx-share="50">50%</button><button type="button" class="secondary" data-fx-share="25">25%</button><button type="button" class="secondary" data-fx-share="10">10%</button><button type="button" class="secondary" data-fx-share="5">5%</button></div><div id="fxEstimate" class="order-estimate fx-estimate" aria-live="polite"></div><button class="full-width fx-submit">모의 환전 실행</button><p class="field-help fx-note">가상 자산 간 환전입니다. 실제 돈은 오가지 않습니다.</p></form></div><div class="fx-side panel"><div class="section-heading"><h2>환전내역</h2><span class="unit">최근 100건</span></div><div id="fxHistory" class="scroll"></div></div></section>
       <section data-page="watchlist" class="panel"><div class="section-heading"><h2>관심종목</h2></div><div id="watchRows" class="scroll"></div></section>
       <section data-page="admin" class="admin-dashboard">
         <div class="admin-top"><div><p class="section-label">운영</p><h1>관리자</h1></div><ul id="adminHealth" class="admin-health" aria-label="서비스 상태"></ul></div>

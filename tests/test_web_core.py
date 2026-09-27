@@ -636,3 +636,21 @@ def test_a_stale_csrf_token_is_marked_so_the_page_can_retry(client):
     # The page's retry takes the session's token, which then works.
     assert client.get('/api/session').json()['csrf'] == token
     assert client.post('/api/orders', headers={'x-csrf-token': token}, json=body()).status_code == 200
+
+
+def test_popular_sidebar_counts_across_markets(client):
+    from app.db import PopularityEvent
+    register(client)
+    now = datetime.now(timezone.utc)
+    with Session.begin() as db:
+        uid = db.scalar(select(User.id))
+        for i, (symbol, n) in enumerate((('AAPL', 3), ('KR:005930', 2), ('SPY', 1))):
+            for k in range(n):
+                db.add(PopularityEvent(user_id=uid, symbol=symbol, kind='view', bucket=i * 10 + k, created_at=now))
+        db.add(PopularityEvent(user_id=uid, symbol='QQQ', kind='view', bucket=99, created_at=now - timedelta(hours=3)))
+    r = client.get('/api/popular?hours=1'); assert r.status_code == 200, r.text
+    rows = r.json()['rows']
+    assert [(r['symbol'], r['score']) for r in rows] == [('AAPL', 3), ('KR:005930', 2), ('SPY', 1)]
+    # Ties sort by symbol; the 3-hour-old view only counts in the 24-hour window.
+    assert [r['symbol'] for r in client.get('/api/popular?hours=24').json()['rows']] == ['AAPL', 'KR:005930', 'QQQ', 'SPY']
+    assert client.get('/api/popular?hours=5').status_code == 422

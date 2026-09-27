@@ -51,7 +51,7 @@ window.routePage = async function() {
   if($('dashboard').hidden)return;
   message('');
   try {
-    if(selected==='explore')await explore();
+    if(selected==='explore'){loadPopular().catch(()=>{});renderMarketHours();await explore();}
     if(selected==='public' && segment)await openPublicPage(segment);
     if(selected==='detail' && segment)await openDetailPage(segment);
     if(selected==='fx'){await Promise.all([fxHistory(),loadFxRate()]);}
@@ -436,7 +436,13 @@ async function fxEstimate(){
   if(!(Number(amount)>0)){$('fxEstimate').textContent='';return;}
   let r;try{r=await api('fx/preview',{source:$('fxSource').value,amount});}catch(e){if(seq===fxPreviewSeq)$('fxEstimate').textContent=e.message;return;}
   if(seq!==fxPreviewSeq)return;
-  $('fxEstimate').textContent=`${r.date} 기준환율 ${r.rate} · 스프레드 ${r.spread_bps} bps · 수수료 ${nativeMoney(r.fee,r.source)}\n최종 수령 ${nativeMoney(r.received,r.target)}\n예상 잔액 ${money(r.balances_after.USD)} / ${nativeMoney(r.balances_after.KRW,'KRW')}`;
+  // Itemized like a receipt: what leaves, the fee, the rate applied, and what arrives.
+  const krwPerUsd=r.source==='USD'?Number(r.applied_rate):1/Number(r.applied_rate);
+  const row=(label,value,cls)=>{const d=node('div',null,'cost-row'+(cls?' '+cls:''));d.append(node('span',label),node('strong',value));return d;};
+  $('fxEstimate').replaceChildren(row('보내는 금액',nativeMoney(amount,r.source)),row('수수료 (보낸 금액에서 차감)','-'+nativeMoney(r.fee,r.source)),
+    row('적용 환율',krwPerUsd.toLocaleString('ko-KR',{minimumFractionDigits:2,maximumFractionDigits:2})),row('받는 금액',nativeMoney(r.received,r.target),'fx-receive'),
+    node('p',`환전 후 잔액 ${money(r.balances_after.USD)} · ${nativeMoney(r.balances_after.KRW,'KRW')}`,'field-help'));
+  const fees=$('fxRateFees');if(fees)fees.textContent=`수수료 ${Number(r.fee_bps)/100}% · 스프레드 ${Number(r.spread_bps)/100}%`;
 }
 // Poll our cached reference; the server schedules external ECB refreshes.
 const FX_REFRESH_MS=30*60*1000;
@@ -444,13 +450,17 @@ async function loadFxRate(){
   try{
     const r=await api('fx');
     const usd=Number(r.rate);
-    $('fxRate').textContent=`1 USD = ${usd.toLocaleString('ko-KR',{maximumFractionDigits:2})} KRW  ·  1,000 KRW = ${(1000/usd).toLocaleString('ko-KR',{maximumFractionDigits:4})} USD  ·  ${r.date} 기준${r.refresh_failed?' · 갱신 실패 · 마지막 정상 환율 사용':''}`;
+    const fees=$('fxRateFees')?.textContent||'';
+    const head=node('div',null,'fx-rate-text');head.append(node('small',`ECB 기준환율 · ${r.date}${r.refresh_failed?' · 갱신 실패, 마지막 정상 환율':''}`),node('strong',`1 USD = ${usd.toLocaleString('ko-KR',{minimumFractionDigits:2,maximumFractionDigits:2})} KRW`));
+    $('fxRate').replaceChildren(head,node('span',fees,'fx-rate-fees'));$('fxRate').lastChild.id='fxRateFees';
+    if(!fees)api('fees').then(f=>{$('fxRateFees').textContent=`수수료 ${Number(f.rates.FX_FEE_BPS)/100}% · 스프레드 ${Number(f.rates.FX_SPREAD_BPS)/100}%`;}).catch(()=>{});
   }catch(e){$('fxRate').textContent='환율을 불러오지 못했습니다. '+e.message;}
 }
 setInterval(()=>{if(!document.hidden&&location.hash==='#fx'&&window.sessionUsername&&!window.isAdmin)loadFxRate();},FX_REFRESH_MS);
 window.updateFxBalance=function(){
   const source=$('fxSource').value,balance=window.walletBalances?.[source];
-  $('fxAvailable').textContent=source==='USD'?`보유 달러 ${nativeMoney(balance,'USD')}`:`보유 원화 ${nativeMoney(balance,'KRW')}`;
+  $('fxAvailable').textContent=`보유 ${nativeMoney(balance,source)}`;
+  document.querySelectorAll('[data-fx-source]').forEach(b=>b.setAttribute('aria-checked',String(b.dataset.fxSource===source)));
   $('fxAmountUnit').textContent=source;
   $('fxAmount').step=source==='USD'?'0.0001':'1';$('fxAmount').min=source==='USD'?'0.0001':'1';
 };
@@ -830,3 +840,34 @@ document.querySelectorAll('[data-mobile-side]').forEach(b=>b.addEventListener('c
   $('orderPanel').scrollIntoView({behavior:'smooth',block:'start'});
 }));
 window.addEventListener('displaycurrencychange',()=>{renderTradeSide();renderTradeHolding();});
+
+// 시장 sidebar: the five most-watched stocks (1H / 24H) and today's regular sessions in Korea time.
+let popularHours=1;
+async function loadPopular(){
+  const r=await api('popular?hours='+popularHours),box=$('popularRows');
+  box.replaceChildren(...r.rows.map((x,i)=>{const li=node('li');const b=node('button',null,'popular-row');b.type='button';
+    b.append(node('span',String(i+1),'popular-rank'),node('strong',x.name),node('span',`${x.score}건`,'popular-score'));
+    b.addEventListener('click',()=>openStock(x.symbol));li.append(b);return li;}));
+  if(!r.rows.length)box.append(node('li','아직 집계된 종목이 없습니다.','field-help'));
+}
+document.querySelectorAll('#popularHours [data-hours]').forEach(b=>b.addEventListener('click',()=>{
+  popularHours=Number(b.dataset.hours);document.querySelectorAll('#popularHours [data-hours]').forEach(x=>x.setAttribute('aria-pressed',String(x===b)));
+  loadPopular().catch(e=>toast(e.message,'error'));
+}));
+// A wall-clock time in one zone, shown as Korea time today (follows US daylight saving).
+function seoulTimeOf(hour,minute,zone){
+  const now=new Date(),parts=Object.fromEntries(new Intl.DateTimeFormat('en-US',{timeZone:zone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(now).map(p=>[p.type,p.value]));
+  const asUTC=Date.UTC(+parts.year,+parts.month-1,+parts.day,+parts.hour,+parts.minute),offset=asUTC-Math.floor(now.getTime()/60000)*60000;
+  const target=Date.UTC(+parts.year,+parts.month-1,+parts.day,hour,minute)-offset;
+  return new Date(target).toLocaleTimeString('ko-KR',{timeZone:'Asia/Seoul',hour:'2-digit',minute:'2-digit',hourCycle:'h23'});
+}
+function renderMarketHours(){
+  const rows=[['한국 정규장',`${seoulTimeOf(9,0,'Asia/Seoul')}–${seoulTimeOf(15,30,'Asia/Seoul')}`],
+    ['미국 정규장',`${seoulTimeOf(9,30,'America/New_York')}–${seoulTimeOf(16,0,'America/New_York')}`],
+    ['표시 통화',$('displayCurrency').selectedOptions[0]?.textContent||'']];
+  $('marketHours').replaceChildren(...rows.flatMap(([k,v])=>[node('dt',k),node('dd',v)]));
+}
+window.addEventListener('displaycurrencychange',()=>{if($('marketHours'))renderMarketHours();});
+
+// USD → KRW / KRW → USD buttons drive the (visually hidden) currency select.
+document.querySelectorAll('[data-fx-source]').forEach(b=>b.addEventListener('click',()=>{if($('fxSource').value===b.dataset.fxSource)return;$('fxSource').value=b.dataset.fxSource;$('fxSource').dispatchEvent(new Event('change'));}));
