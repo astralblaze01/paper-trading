@@ -9,16 +9,17 @@ if (root/'.env').exists():
     for line in (root/'.env').read_text().splitlines():
         if '=' not in line or line.lstrip().startswith('#'):continue
         key,value=line.split('=',1);value=value.strip().strip('\"').strip("'")
-        if any(x in key.upper() for x in ('PASSWORD','SECRET','TOKEN','API_KEY')) and len(value)>=8:secrets.append((key,value))
+        if any(x in key.upper() for x in ('PASSWORD','SECRET','TOKEN','API_KEY')) and len(value)>=8:secrets.append((key,value.encode()))
 issues=[]
 for name in paths:
     p=Path(name)
     if (p.name.startswith('.env') and p.name!='.env.example') or p.suffix in ('.pem','.key','.dump','.sql','.swp','.log') or any(x in p.parts for x in ('backups','artifacts','pgdata','certificates','.codex','.agents')):
         issues.append((name,'private file'));continue
-    text=(root/name).read_text()
+    # Bytes, not text: an image or archive can carry a secret too, and must not stop the scan.
+    data=(root/name).read_bytes()
     for key,value in secrets:
-        if value in text:issues.append((name,'local secret: '+key))
-    if re.search(r'-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----',text):issues.append((name,'private key'))
+        if value in data:issues.append((name,'local secret: '+key))
+    if re.search(rb'-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----',data):issues.append((name,'private key'))
 if issues:
     for name,kind in issues:print(name+': '+kind)
     sys.exit(1)

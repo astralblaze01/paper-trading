@@ -335,7 +335,7 @@ python3 scripts/browser_smoke.py -f compose.yaml -f compose.browser.yaml
 python3 scripts/browser_smoke.py -f compose.yaml -f compose.browser.yaml -- python browser_privacy.py
 ```
 
-공개 전 저장소 파일에 `.env`의 비밀 값이나 개인 파일이 섞였는지 검사할 수 있습니다.
+공개 전 저장소 파일에 `.env`의 비밀 값이나 개인 파일이 섞였는지 검사할 수 있습니다. 이미지 같은 이진 파일도 바이트 단위로 검사하며, 발견한 비밀 값 자체는 출력하지 않습니다.
 
 ```bash
 python3 scripts/check_publication.py
