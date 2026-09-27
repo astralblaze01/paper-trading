@@ -12,6 +12,7 @@ from uuid import UUID
 from pathlib import Path
 from fastapi import FastAPI, Request, HTTPException, Depends, Query
 from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 from pydantic import BaseModel, Field, ConfigDict, field_validator
@@ -40,7 +41,7 @@ from .quote_policy import max_age as quote_max_age
 from .kr_session import SEOUL
 from .tiers import tier_for, previous_ranks
 from .logging_config import configure_logging
-from .security import limiter, worker_token, WORKER_TOKEN_HEADER, SESSION_COOKIE, SESSION_MAX_AGE
+from .security import client_ip, limiter, worker_token, WORKER_TOKEN_HEADER, SESSION_COOKIE, SESSION_MAX_AGE
 
 configure_logging()
 request_log = logging.getLogger('request')
@@ -150,7 +151,7 @@ async def request_context(request, call_next):
     request_id=_request_id(request)
     category=_rate_limit_category(request.method,path)
     if category:
-        identity=request.headers.get('x-real-ip') or (request.client.host if request.client else 'unknown')
+        identity=client_ip(request)
         if not limiter.allow((identity,category),RATE_LIMITS[category]):
             return JSONResponse(status_code=429,content={'detail':'요청이 너무 많습니다. 잠시 후 다시 시도하세요.'},headers={'Retry-After':'60','X-Request-ID':request_id})
     response = await call_next(request)
@@ -163,6 +164,13 @@ async def request_context(request, call_next):
 @app.exception_handler(MarketError)
 async def market_error(request, exc):
     return JSONResponse(status_code=503, content={'detail': str(exc)})
+
+@app.exception_handler(RequestValidationError)
+async def validation_error(request, exc):
+    # Pydantic's input/context can contain passwords or entire submitted bodies.
+    errors = [{key: error[key] for key in ('type', 'loc', 'msg') if key in error}
+              for error in exc.errors()]
+    return JSONResponse(status_code=422, content={'detail': errors})
 
 def csrf(request: Request):
     token = request.session.get('csrf', '')
@@ -249,6 +257,7 @@ def login(data: Credentials, request: Request):
         try: hasher.verify(user.password_hash if user else dummy_hash, data.password)
         except (VerificationError, InvalidHashError): raise HTTPException(401, '사용자 이름 또는 비밀번호가 올바르지 않습니다.')
         if not user: raise HTTPException(401, '사용자 이름 또는 비밀번호가 올바르지 않습니다.')
+        if not user.active: raise HTTPException(403, '정지된 계정입니다.')
         request.session.clear()
         request.session.update(uid=user.id, csrf=secrets.token_urlsafe(32))
     return {'ok': True}

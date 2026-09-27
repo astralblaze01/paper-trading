@@ -64,6 +64,7 @@ def record_limits(monkeypatch, allowed=True):
 
 
 def test_rate_limit_category_and_limit_for_every_branch(client, monkeypatch):
+    monkeypatch.delenv('TRUST_PROXY_HEADERS', raising=False)
     calls = record_limits(monkeypatch)
     for method, path, category, limit in RATE_CASES:
         calls.clear()
@@ -73,7 +74,7 @@ def test_rate_limit_category_and_limit_for_every_branch(client, monkeypatch):
     calls.clear()
     client.get('/api/search')
     client.get('/api/search', headers={'x-real-ip': '203.0.113.9'})
-    assert [key[0] for key, _ in calls] == ['testclient', '203.0.113.9']
+    assert [key[0] for key, _ in calls] == ['testclient', 'testclient']
 
 
 def test_rate_limited_response_and_uncategorised_paths(client, monkeypatch, caplog):

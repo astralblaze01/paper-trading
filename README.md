@@ -314,6 +314,8 @@ HTTPS 구성은 `docker compose -f compose.yaml -f compose.https.yaml ...`로 �
 
 ## 테스트
 
+보안: 앱을 직접 실행하면 `X-Real-IP`를 신뢰하지 않습니다. 기본 Compose는 web 포트를 외부에 공개하지 않고 nginx가 이 헤더를 덮어쓰므로 `TRUST_PROXY_HEADERS=true`를 설정합니다. web에 직접 접근을 허용하는 배포에서는 이 설정을 제거하거나 `false`로 설정하세요. HTTPS 배포에는 `compose.https.yaml`을 적용하여 Secure 세션 쿠키를 사용하세요.
+
 서비스 테스트는 실행 중인 `db` 컨테이너에 별도 데이터베이스(`paper_test`)를 만들어 pytest로 실행합니다. 운영 데이터는 건드리지 않습니다.
 
 ```bash

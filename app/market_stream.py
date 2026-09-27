@@ -19,7 +19,7 @@ from redis.exceptions import RedisError
 from itsdangerous import TimestampSigner, BadSignature
 from .instruments import valid_symbol
 from .quote_data import public_quote
-from .security import SESSION_COOKIE, SESSION_MAX_AGE
+from .security import client_ip, SESSION_COOKIE, SESSION_MAX_AGE
 from .redis_cache import (QUOTE_UPDATES, REFRESH_COALESCE, REFRESH_QUEUE_KEY, STREAM_INTEREST_KEY, SUBSCRIPTIONS_KEY,
                           price_key, refresh_request_key)
 
@@ -260,7 +260,7 @@ class QuoteHub:
 
     async def _admit(self, request, uid):
         """Count the attempt, lease a user/IP slot and wait for the subscriber; returns (keys, token)."""
-        ip = request.headers.get('x-real-ip') or (request.client.host if request.client else 'unknown')
+        ip = client_ip(request)
         ip = hashlib.sha256(ip.encode()).hexdigest()
         keys = [f'market:sse:user:{uid}', f'market:sse:ip:{ip}']
         token = uuid4().hex

@@ -3,6 +3,18 @@ from threading import Lock
 import hashlib
 import hmac
 import time
+import os
+from ipaddress import ip_address
+
+def client_ip(request):
+    """Trust the edge's overwritten header only in explicitly private deployments."""
+    peer = request.client.host if request.client else 'unknown'
+    if os.getenv('TRUST_PROXY_HEADERS', 'false').lower() == 'true':
+        try:
+            return str(ip_address(request.headers.get('x-real-ip', '')))
+        except ValueError:
+            pass
+    return peer
 
 class RateLimiter:
     def __init__(self): self.entries={}; self.lock=Lock()
