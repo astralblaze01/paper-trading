@@ -100,7 +100,7 @@ function medalSvg(rank){
     <path d="M16.5 30h15v25l-7.5-5-7.5 5z" fill="${c.ribbon}"/><g fill="#fff">${ribbonStars}</g>
     <g fill="${c.leaf}">${leaves.join('')}</g><g fill="${c.leaf}" transform="matrix(-1 0 0 1 48 0)">${leaves.join('')}</g>
     <circle cx="24" cy="21" r="15" fill="${c.rim}"/><circle cx="24" cy="21" r="11.5" fill="${c.face}"/>
-    <text x="24" y="26.6" text-anchor="middle" font-size="16" font-weight="600" style="font-family:var(--font-num)" fill="${c.ink}">${rank}</text>
+    <text x="24" y="26.6" text-anchor="middle" font-size="16" font-weight="600" fill="${c.ink}">${rank}</text>
     <path d="${starPath(31.5,11.5,2.2)}" fill="#fff" opacity=".9"/>
     <path d="${starPath(24,35.5,4.6)}" fill="${c.leaf}" stroke="${c.rim}" stroke-width=".8"/></svg>`;
 }

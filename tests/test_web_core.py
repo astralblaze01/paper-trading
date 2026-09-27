@@ -654,3 +654,19 @@ def test_popular_sidebar_counts_across_markets(client):
     # Ties sort by symbol; the 3-hour-old view only counts in the 24-hour window.
     assert [r['symbol'] for r in client.get('/api/popular?hours=24').json()['rows']] == ['AAPL', 'KR:005930', 'QQQ', 'SPY']
     assert client.get('/api/popular?hours=5').status_code == 422
+
+
+def test_stylesheets_load_images_only_from_the_site():
+    """nginx sends default-src 'self' (no img-src data:), so a data: image in CSS never paints in production."""
+    import pathlib, re
+    for css in pathlib.Path('app/static').rglob('*.css'):
+        assert not re.search(r'url\(\s*["\']?data:', css.read_text()), f'{css} embeds a data: URI; put the file under app/static instead'
+    for icon in re.findall(r'url\("(icons/[\w-]+\.svg)"\)', pathlib.Path('app/static/style.css').read_text()):
+        assert (pathlib.Path('app/static') / icon).is_file(), icon
+
+
+def test_scripts_do_not_write_style_attributes_into_markup():
+    """CSP style-src 'self' drops style="..." in HTML strings; element.style set from script is allowed."""
+    import pathlib, re
+    for js in pathlib.Path('app/static').glob('*.js'):
+        assert not re.search(r'<[a-z][^>`]*\sstyle="', js.read_text()), f'{js} builds markup with a style attribute'
