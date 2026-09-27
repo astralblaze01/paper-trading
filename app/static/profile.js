@@ -88,12 +88,22 @@ window.renderHeaderUser=function(){
   box.replaceChildren(avatar(name,myProfile?.image_version,'small'),...(tier?[tierIcon(tier)]:[]),label);
 };
 window.loadMyProfile=async function(){myProfile=await api('profile');renderMyProfile();renderHeaderUser();};
+// The ranking is computed once per 10-second window and shared; an account made inside the
+// current window is not in it yet. Ask again once the window has passed, so the tier and
+// rank appear without a reload.
+let ownRankingRetry=null;
+function awaitOwnRanking(){
+  if(ownRankingRetry||!rankingCache||rankingCache.incomplete||window.isAdmin||typeof rankRow!=='function')return;
+  if(rankRow(window.sessionUsername).rank!=null)return;
+  ownRankingRetry=setTimeout(async()=>{try{await refreshRankingOnly();}catch{}finally{ownRankingRetry=null;}},11000);
+}
 window.renderMyProfile=function(){
   const target=$('myProfile');if(!target||!myProfile||myProfile.username!==window.sessionUsername)return;
   // Keep an open bio editor untouched by periodic refreshes.
   if(bioEditing&&target.querySelector('#bioInput'))return;
   const p=portfolioCache||{};
   renderHeaderUser();
+  awaitOwnRanking();
   renderProfileCard(target,{username:window.sessionUsername,bio:myProfile.bio,image_version:myProfile.image_version,equity_usd:p.equity_usd,return_pct:p.return_pct,return_pct_usd:p.return_pct_usd,realized_pnl:p.realized_pnl,fx:p.fx,...(typeof rankRow==='function'?rankRow(window.sessionUsername):{}),member_days:myProfile.member_days,member_since:myProfile.member_since},true);
 };
 

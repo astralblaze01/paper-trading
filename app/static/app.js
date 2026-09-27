@@ -123,7 +123,7 @@ function renderRanking(){if(!rankingCache)return;
   if(window.renderMyProfile)renderMyProfile();
   window.renderHeaderUser?.();
 }
-function syncCurrency(){$('displayCurrency').value=displayMode;$('displayRateNote').textContent=viewFx?`${viewFx.date} 기준 · 1 USD = ${Number(viewFx.rate).toLocaleString('ko-KR',{maximumFractionDigits:2})} KRW`:'환율 확인 중';}
+function syncCurrency(){$('displayCurrency').value=displayMode;const note=$('displayRateNote');note.textContent=viewFx?`USD/KRW ${Number(viewFx.rate).toLocaleString('ko-KR',{minimumFractionDigits:2,maximumFractionDigits:2})}`:'USD/KRW —';note.title=viewFx?`${viewFx.date} ECB 기준환율 · 금액 표시에만 쓰입니다`:'';}
 async function changeDisplayCurrency(value){displayMode=value;try{localStorage.setItem(storageNamespace+':currency',value);}catch{}syncCurrency();renderPortfolio();renderRanking();renderHistory();if(weeklyCache)renderWeekly();window.dispatchEvent(new Event('displaycurrencychange'));}
 $('displayCurrency').addEventListener('change',e=>changeDisplayCurrency(e.target.value));
 // Theme: A 딥 틸 (light, default) or B 다크 아레나 (dark). Saved per browser; charts redraw.
@@ -181,7 +181,9 @@ async function boot() {
   if(s.username&&!s.is_admin&&window.loadMyProfile)loadMyProfile().catch(()=>{});
   refreshNotice();
   document.querySelectorAll('.app-nav a').forEach(a=>{if(s.is_admin)a.hidden=a.id!=='adminNav';else if(a.id!=='adminNav')a.hidden=false;});
-  const settings=document.querySelector('.view-settings');if(settings)settings.hidden=!!s.is_admin;
+  // The header's app part (search, nav, market status) exists only while signed in.
+  const settings=document.querySelector('.view-settings');if(settings)settings.hidden=!s.username||!!s.is_admin;
+  $('headerSearch').hidden=!s.username||!!s.is_admin;document.querySelector('.app-nav').hidden=!s.username;
   const unavailable = [];
   if (!s.providers.us) unavailable.push('미국 시세');
   if (!s.providers.kr) unavailable.push('한국 시세');
@@ -206,10 +208,11 @@ window.marketPriceText=function(x){
 function renderMarketSessions(markets){
   $('marketSessions').replaceChildren(...markets.map(x=>{
     const state=marketPriceText(x),open=marketIsOpen(x)&&x.tradable!==false,item=document.createElement('span');
-    item.className='market-session '+(open?'is-open':'is-closed');
+    item.className='market-session '+(open?'is-open':'is-closed');item.dataset.code=x.market;
     const dot=document.createElement('i');dot.className='session-dot';dot.setAttribute('aria-hidden','true');
-    item.append(dot,`${x.market==='KR'?'한국':'미국'} ${x.label}${state?' · '+state:''}`);
-    item.title=open?'지금 주문할 수 있습니다':'지금은 주문할 수 없습니다';
+    // Short in the header ("KR 정규장"); the price source and tradability go in the tooltip.
+    item.append(dot,`${x.market} ${x.label}`);
+    item.title=`${x.market==='KR'?'한국':'미국'} ${x.label}${state?' · '+state:''} · ${open?'지금 주문할 수 있습니다':'지금은 주문할 수 없습니다'}`;
     return item;
   }));
 }

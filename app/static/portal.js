@@ -47,7 +47,7 @@ window.routePage = async function() {
   let selected=['explore','portfolio','history','fx','watchlist','ranking','admin','detail','public'].includes(pageName)?pageName:'explore';
   if(window.isAdmin)selected='admin';
   document.querySelectorAll('[data-page]').forEach(el=>el.hidden=el.dataset.page!==selected);
-  document.querySelectorAll('.app-nav a').forEach(a=>a.setAttribute('aria-current',a.hash==='#'+selected?'page':'false'));
+  document.querySelectorAll('.app-nav a').forEach(a=>a.setAttribute('aria-current',(a.id==='tradeNav'?selected==='detail':a.hash==='#'+selected)?'page':'false'));
   if($('dashboard').hidden)return;
   message('');
   try {
@@ -77,7 +77,7 @@ async function openPublicPage(segment){
 async function openDetailPage(segment){
   currentSymbol=decodeURIComponent(segment);chartRows=[];drawChart();
   detailCompany=null;detailQuote=null;orderPreview=null;
-  $('symbol').value=currentSymbol;maxMode=false;$('reservePrice').value='';
+  $('symbol').value=currentSymbol;maxMode=false;$('tradeNav').href='#detail/'+encodeURIComponent(currentSymbol);$('reservePrice').value='';
   loadCompany(currentSymbol);renderReserves();
   await loadStock(true);syncReserveFields();
   await api('popularity',{symbol:currentSymbol,kind:'view'});
@@ -757,3 +757,30 @@ function renderFees(){
   $('feeRates').textContent=`토스증권 기준 · 미국 주식 매수 ${pctText(t.US_BUY_FEE_BPS)} / 매도 ${pctText(t.US_SELL_FEE_BPS)} · 국내 주식 매수 ${pctText(t.KR_BUY_FEE_BPS)} / 매도 ${pctText(t.KR_SELL_FEE_BPS)} · 국내 주식 매도 세금 ${pctText(t.KR_SELL_TAX_BPS)} (ETF·ETN 면제) · 환전 ${pctText(t.FX_FEE_BPS)}`;
 }
 window.addEventListener('displaycurrencychange',renderFees);
+
+// Header search: type to see matches, Enter or click opens the stock; ⌘K / Ctrl+K or '/' focuses it.
+let headerSearchVersion=0,headerSearchTimer=null,headerMatches=[],headerActive=-1;
+function renderHeaderResults(){
+  const box=$('headerResults');box.hidden=!headerMatches.length;
+  box.replaceChildren(...headerMatches.map((r,i)=>{const b=node('button',null,'header-result');b.type='button';b.setAttribute('role','option');b.setAttribute('aria-selected',String(i===headerActive));
+    b.append(node('strong',r.name),node('span',r.symbol.replace(/^KR:/,'')+' · '+(categories[r.category]||r.currency),'field-help'));
+    b.addEventListener('mousedown',e=>{e.preventDefault();pickHeaderResult(r);});return b;}));
+}
+function pickHeaderResult(r){$('headerQuery').value='';headerMatches=[];renderHeaderResults();$('headerQuery').blur();openStock(r.symbol);}
+$('headerQuery').addEventListener('input',()=>{
+  clearTimeout(headerSearchTimer);const q=$('headerQuery').value.trim(),version=++headerSearchVersion;
+  if(!q){headerMatches=[];renderHeaderResults();return;}
+  headerSearchTimer=setTimeout(async()=>{try{const rows=await api('search?'+new URLSearchParams({q,category:'all'}));if(version!==headerSearchVersion)return;headerMatches=rows.slice(0,8);headerActive=headerMatches.length?0:-1;renderHeaderResults();}catch{}},180);
+});
+$('headerQuery').addEventListener('keydown',e=>{
+  if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();if(!headerMatches.length)return;headerActive=(headerActive+(e.key==='ArrowDown'?1:-1)+headerMatches.length)%headerMatches.length;renderHeaderResults();}
+  else if(e.key==='Escape'){headerMatches=[];renderHeaderResults();$('headerQuery').blur();}
+});
+$('headerSearch').addEventListener('submit',e=>{e.preventDefault();const r=headerMatches[headerActive]||headerMatches[0];if(r)pickHeaderResult(r);});
+$('headerQuery').addEventListener('blur',()=>setTimeout(()=>{headerMatches=[];renderHeaderResults();},120));
+document.addEventListener('keydown',e=>{
+  const typing=/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName||'');
+  if(((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k')||(!typing&&e.key==='/')){if($('headerSearch').hidden)return;e.preventDefault();$('headerQuery').focus();}
+});
+// 트레이드 opens the last stock viewed, or Apple for a new account.
+try{const recent=readRecentStocks();if(recent[0])$('tradeNav').href='#detail/'+encodeURIComponent(recent[0].symbol);}catch{}

@@ -42,7 +42,7 @@ with sync_playwright() as p:
         # Who is signed in, left of 로그아웃, without an underline; it links to my portfolio.
         expect(page.locator('#headerUser .header-user-name')).to_have_text(name)
         assert page.evaluate("getComputedStyle(document.getElementById('headerUser')).textDecorationLine")=='none'
-        assert page.locator('#headerUser').bounding_box()['x']<page.locator('#logout').bounding_box()['x']
+        if width>=900: assert page.locator('#headerUser').bounding_box()['x']<page.locator('#logout').bounding_box()['x']
         page.locator('.app-nav a[href="#portfolio"]').click()
         expect(page.locator('#metrics')).to_contain_text('100,000')
         page.locator('a[href="#fx"]').click()
@@ -174,7 +174,7 @@ with sync_playwright() as p:
         if width>=900: assert abs(company_box['x']-chart_box['x'])<2 and company_box['y']<order_box['y']+order_box['height'], (chart_box,order_box,company_box)
         else: assert company_box['y']>order_box['y']+order_box['height']-1 and order_box['y']>chart_box['y'], (chart_box,order_box,company_box)
         page.screenshot(path=f'/artifacts/detail-{width}.png',full_page=True)
-        page.locator('a[href="#watchlist"]').click()
+        page.evaluate("location.hash='#watchlist'")
         expect(page.locator('#watchRows .watch-name')).to_contain_text('Apple')
         expect(page.locator('#watchRows .watch-price')).to_contain_text('100,000원')
         expect(page.locator('#watchRows .watch-change .gain').first).to_have_css('color','rgb(196, 47, 58)')
@@ -184,7 +184,8 @@ with sync_playwright() as p:
         expect(page.locator('#myProfile .profile-name')).to_have_text(name)
         expect(page.locator('#myProfile .member-days')).to_contain_text('가입 기간')
         expect(page.locator('#myProfile .member-days dd')).to_have_text('1일')
-        expect(page.locator('.app-nav a:visible')).to_have_text(['시장 탐색','포트폴리오','관심종목','랭킹','환전','거래내역'])
+        # Desktop: the mockup's six tabs; phones add 관심종목 to the bottom tab bar.
+        expect(page.locator('.app-nav a:visible')).to_have_text(['시장','트레이드','포트폴리오','내역','랭킹','환전']+(['관심종목'] if width<900 else []))
         expect(page.locator('#myProfile .avatar')).to_have_attribute('src','/static/avatar-default.svg')
         expect(page.locator('#allocation .allocation-segment')).to_have_count(2)
         expect(page.locator('#allocation .allocation-legend')).to_contain_text('현금')
@@ -371,7 +372,13 @@ with sync_playwright() as p:
         page.screenshot(path=f'/artifacts/history-{width}.png',full_page=True)
         page.locator('#historySide button[data-side=""]').click();page.locator('#historyMonth').select_option('')
         # The rate note is just the date and the rate.
-        expect(page.locator('#displayRateNote')).to_have_text(re.compile(r'^\d{4}-\d{2}-\d{2} 기준 · 1 USD = [\d,.]+ KRW$'))
+        # Header: the rate in one short line (its date in the tooltip) and the ⌘K search.
+        if width>=1440: expect(page.locator('#displayRateNote')).to_have_text(re.compile(r'^USD/KRW [\d,]+\.\d{2}$'))
+        if width>=900:
+            page.keyboard.press('Control+K'); expect(page.locator('#headerQuery')).to_be_focused()
+            page.locator('#headerQuery').fill('AAPL'); expect(page.locator('#headerResults .header-result').first).to_be_visible()
+            page.keyboard.press('Enter'); expect(page.locator('#detailTitle')).to_contain_text('Apple')
+            expect(page.locator('#tradeNav')).to_have_attribute('aria-current','page')
         # Theme: 딥 틸 by default, 다크 아레나 from the header switch, kept after a reload.
         assert page.evaluate("getComputedStyle(document.documentElement).backgroundColor")=='rgb(243, 244, 243)'
         expect(page.locator('.brand-logo-light')).to_be_visible(); expect(page.locator('.brand-logo-dark')).to_be_hidden()
