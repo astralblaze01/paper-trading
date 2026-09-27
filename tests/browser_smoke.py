@@ -201,6 +201,9 @@ with sync_playwright() as p:
         expect(page.locator('#myProfile .avatar')).to_have_attribute('src','/static/avatar-default.svg')
         expect(page.locator('#allocation .allocation-segment')).to_have_count(2)
         expect(page.locator('#allocation .allocation-legend')).to_contain_text('현금')
+        expect(page.locator('#allocation .allocation-legend')).to_contain_text('해외주식')
+        # Summary strip: me (tier ring, rank line) beside the totals.
+        expect(page.locator('#myMini .mini-name strong')).to_have_text(name)
         page.locator('#displayCurrency').select_option('USD')
         expect(page.locator('#metrics')).to_contain_text('KRW: 998,500원')
         expect(page.locator('#myProfile .profile-stats')).to_contain_text('$')
@@ -265,10 +268,10 @@ with sync_playwright() as p:
         expect(page.locator('#metrics .metric').first.locator('.loss')).to_have_count(1)
         expect(page.locator('#metrics')).to_contain_text('원화 기준')
         expect(page.locator('#metrics')).to_contain_text('달러 기준')
-        expect(page.locator('#positions th').nth(5)).to_have_text('평가손익 (원화 기준)')
-        expect(page.locator('#positions th').nth(6)).to_have_text('수익률 (원화 기준)')
+        expect(page.locator('#positions th').nth(5)).to_have_text('평가손익')
+        expect(page.locator('.holdings-panel .positions-basis')).to_have_text('수익률: 원화 기준')
         # Portfolio order: allocation, holdings, performance, then fees paid per currency.
-        order=page.evaluate("[...document.querySelectorAll('section.panel[data-page=portfolio] .section-heading h2')].map(h=>h.textContent)")
+        order=page.evaluate("[...document.querySelectorAll('.portfolio-desk section.panel .section-heading h2')].map(h=>h.textContent)")
         assert order[:4]==['자산 비중','보유 종목','내 성과','수수료'], order
         expect(page.locator('#feeSummary th')).to_have_text(['항목','달러 (USD)','원화 (KRW)'])
         expect(page.locator('#feeSummary .fee-total')).to_contain_text('총 수수료')
@@ -656,13 +659,13 @@ with sync_playwright() as p:
     page.route('**/api/portfolio',first_without_price)
     page.evaluate('refresh()')
     page.locator('.app-nav a[href="#portfolio"]').click()
-    expect(page.locator('#allocation .allocation-legend li.pending')).to_contain_text('시세 준비 중')
-    expect(page.locator('#allocation .allocation-segment')).to_have_count(8)
-    expect(page.locator('#allocation .allocation-segment')).to_have_count(9,timeout=10000)
-    expect(page.locator('#allocation .allocation-legend li')).to_have_count(9)
-    expect(page.locator('#allocation .allocation-legend li.pending')).to_have_count(0)
+    # By asset class: 해외주식 (AAPL MSFT NVDA QQQ VOO MU RKLB), 금 ETF (IAU), 현금. MSFT waits as pending, then joins.
+    expect(page.locator('#allocation .allocation-legend li.pending')).to_contain_text('시세 준비 중 · ')
+    expect(page.locator('#allocation .allocation-segment')).to_have_count(3)
+    expect(page.locator('#allocation .allocation-legend li.pending')).to_have_count(0,timeout=10000)
+    expect(page.locator('#allocation .allocation-legend li')).to_have_count(3)
     legend=page.locator('#allocation .allocation-legend').inner_text()
-    assert '기타' not in legend and all(n in legend for n in ['Apple','현금']), legend
+    assert all(n in legend for n in ['해외주식','금 ETF','현금']), legend
     page.screenshot(path='/artifacts/allocation-many-1280.png',full_page=True)
     page.close()
     # SSE runs only when the fixture enables it; legacy browser suite remains usable.

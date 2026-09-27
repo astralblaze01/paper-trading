@@ -52,13 +52,15 @@ function toast(text,kind='info',timeout=4500){
   while(region.children.length>3)region.firstElementChild.remove();
   setTimeout(dismiss,timeout);
 }
-function stockLink(x){const a=document.createElement('a');a.href='#detail/'+encodeURIComponent(x.symbol);a.textContent=x.name+' · '+x.symbol;a.className='text-button portfolio-stock-link';return a;}
+// Name over code, as a two-line cell.
+function stockLink(x){const a=document.createElement('a');a.href='#detail/'+encodeURIComponent(x.symbol);a.className='portfolio-stock-link';const n=document.createElement('strong');n.textContent=x.name;const c=document.createElement('small');c.textContent=x.symbol;a.append(n,c);return a;}
 // 거래 통화: each holding in its own currency, no FX. 원화/달러: cost at each fill's rate
 // against today's value, so a US stock in KRW also carries the USD/KRW move.
 function renderPositions(target,p){
   const mode=displayMode==='native'?null:displayMode;
-  const suffix=mode?`(${basisLabel(mode)})`:'(거래 통화)';
-  table(target,['종목','수량','평균가','현재가','평가액','평가손익 '+suffix,'수익률 '+suffix],p.positions.map(x=>{
+  // The basis goes in the section header ("수익률: 원화 기준"), keeping the columns short.
+  const basis=target.closest('section')?.querySelector('.positions-basis');if(basis)basis.textContent=`수익률: ${mode?basisLabel(mode):'거래 통화 기준'}`;
+  table(target,['종목','수량','평균 단가','현재가','평가액','평가손익','수익률'],p.positions.map(x=>{
     const now=x.quote?.native_price??x.quote?.price;
     if(!mode)return [stockLink(x),x.quantity,nativeMoney(x.average_cost,x.currency),nativeMoney(now,x.currency),nativeMoney(x.value,x.currency),signed(x.pnl,nativeMoney(x.pnl,x.currency)),signedPct(x.return_pct)];
     const b=x.basis?.[mode]||{};
@@ -76,9 +78,9 @@ function renderMetrics(target,p){
   target.replaceChildren();
   const basis=returnBasis(),other=basis==='USD'?'KRW':'USD';
   const pnl=basis==='USD'?p.pnl_usd:p.pnl,ret=accountReturn(p,basis),otherRet=accountReturn(p,other);
-  const fields=[['총 평가금액',equityTone(viewMoney(p.equity,'KRW'),pnl,basis==='USD'?.01:1)],['현금',cashLines(p.wallets)],
+  const fields=[['총 평가금액',equityTone(viewMoney(p.equity,'KRW'),pnl,basis==='USD'?.01:1)],
     ['평가손익',nativeMoney(pnl,basis),pnl,basisLabel(basis)],
-    ['평가 수익률',signedPctText(ret),ret,`${basisLabel(other)} ${signedPctText(otherRet)}`]];
+    ['평가 수익률',signedPctText(ret),ret,`${basisLabel(other)} ${signedPctText(otherRet)}`],['현금',cashLines(p.wallets)]];
   for(const [name,value,change,sub] of fields){const box=document.createElement('div');box.className='metric';const label=document.createElement('small');label.textContent=name;let v;if(value instanceof Node){v=document.createElement('span');v.append(value);}else v=signed(change,value);v.classList.add('metric-value');box.append(label,v);if(sub)box.append(node('small',sub,'metric-sub'));target.append(box);}
 }
 // Ranks 1-3 get a medal: ring, laurel wings, a star and a ribbon carrying 3/2/1 stars.

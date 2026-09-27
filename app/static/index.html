@@ -7,10 +7,10 @@
   <script src="/static/theme.js?v=51"></script>
   <link rel="icon" type="image/png" href="/static/brand/mark.png">
   <link rel="stylesheet" href="/static/fonts/fonts.css?v=1">
-  <link rel="stylesheet" href="/static/style.css?v=56">
-  <script src="/static/app.js?v=54" defer></script>
+  <link rel="stylesheet" href="/static/style.css?v=58">
+  <script src="/static/app.js?v=56" defer></script>
   <script src="/static/portal.js?v=55" defer></script>
-  <script src="/static/profile.js?v=52" defer></script>
+  <script src="/static/profile.js?v=53" defer></script>
 </head>
 <body>
   <header>
@@ -111,10 +111,22 @@
           </aside>
         </div>
       </section>
-      <section data-page="portfolio" id="myProfile" class="panel profile-card" aria-label="내 프로필"></section>
-      <div data-page="portfolio" class="heading"><div><p class="section-label">내 계좌</p><h1 id="greeting">투자 현황</h1></div><button id="refresh" class="secondary">새로고침</button></div>
-      <div data-page="portfolio" id="metrics" class="metrics"></div>
-      <section data-page="portfolio" class="panel allocation-panel"><div class="section-heading"><h2>자산 비중</h2></div><div id="allocation" class="allocation"></div></section>
+      <div data-page="portfolio" class="portfolio-desk">
+        <h1 id="greeting" class="sr-only">투자 현황</h1>
+        <div class="panel portfolio-strip"><div id="myMini" class="mini-profile"></div><div id="metrics" class="metrics"></div><button id="refresh" class="secondary strip-refresh" title="새로고침" aria-label="새로고침">새로고침</button></div>
+        <section class="panel allocation-panel"><div class="section-heading"><h2>자산 비중</h2></div><div id="allocation" class="allocation"></div></section>
+        <div class="portfolio-grid">
+          <section class="panel holdings-panel"><div class="section-heading"><h2>보유 종목</h2><span class="unit positions-basis"></span></div><div id="positions" class="scroll"></div></section>
+          <div class="portfolio-side">
+            <section class="panel"><div class="section-heading"><h2>내 성과</h2></div><div class="chart-controls"><div id="myPerformanceMetric" class="chart-metric" role="group" aria-label="그래프 종류"><button type="button" data-metric="return" aria-pressed="true">수익률</button><button type="button" data-metric="pnl" aria-pressed="false">수익금</button></div><div id="myPerformanceRanges" class="range-buttons"><button data-period="1W">1W</button><button data-period="1M" aria-pressed="true">1M</button><button data-period="3M">3M</button><button data-period="1Y">1Y</button><button data-period="ALL">ALL</button></div></div><canvas id="myPerformanceChart" height="220" aria-label="일별 평가 수익률 차트"></canvas><p id="myPerformanceNotice" class="field-help"></p></section>
+            <section class="panel fee-panel"><div class="section-heading"><h2>수수료</h2></div><div id="feeSummary" class="fee-summary"></div><p id="feeRates" class="field-help"></p></section>
+          </div>
+        </div>
+        <div class="portfolio-account">
+          <section id="myProfile" class="panel profile-card" aria-label="내 프로필"></section>
+          <section class="panel account-panel"><h2>계정 설정</h2><p class="field-help">탈퇴하면 계정과 모든 기록이 삭제되고 되돌릴 수 없습니다.</p><button id="withdrawOpen" type="button" class="danger-outline">회원 탈퇴</button></section>
+        </div>
+      </div>
       <section data-page="ranking" class="panel weekly-panel">
         <div class="section-heading"><h2>주간 순위</h2><span id="weeklySchedule" class="unit"></span></div>
         
@@ -122,10 +134,6 @@
         <div id="weeklyReports"></div>
         <div class="pagination"><button id="weeklyPrevious" class="secondary">이전</button><span id="weeklyPage"></span><button id="weeklyNext" class="secondary">다음</button></div>
       </section>
-      <section data-page="portfolio" class="panel holdings-panel"><div class="section-heading"><h2>보유 종목</h2></div><div id="positions" class="scroll"></div></section>
-      <section data-page="portfolio" class="panel"><div class="section-heading"><h2>내 성과</h2></div><div class="chart-controls"><div id="myPerformanceMetric" class="chart-metric" role="group" aria-label="그래프 종류"><button type="button" data-metric="return" aria-pressed="true">수익률</button><button type="button" data-metric="pnl" aria-pressed="false">수익금</button></div><div id="myPerformanceRanges" class="range-buttons"><button data-period="1W">1W</button><button data-period="1M" aria-pressed="true">1M</button><button data-period="3M">3M</button><button data-period="1Y">1Y</button><button data-period="ALL">ALL</button></div></div><canvas id="myPerformanceChart" height="220" aria-label="일별 평가 수익률 차트"></canvas><p id="myPerformanceNotice" class="field-help"></p></section>
-      <section data-page="portfolio" class="panel fee-panel"><div class="section-heading"><h2>수수료</h2></div><div id="feeSummary" class="fee-summary"></div><p id="feeRates" class="field-help"></p></section>
-      <section data-page="portfolio" class="panel account-panel"><h2>계정 설정</h2><p class="field-help">탈퇴하면 계정과 모든 기록이 삭제되고 되돌릴 수 없습니다.</p><button id="withdrawOpen" type="button" class="danger-outline">회원 탈퇴</button></section>
         <div data-page="detail" class="detail-grid trade-desk">
         <aside class="desk-side" aria-label="관심종목">
           <div class="desk-side-head"><a href="#watchlist" class="desk-side-title">관심종목</a><span id="tradeWatchCount" class="desk-side-count"></span></div>
@@ -168,7 +176,7 @@
         <div id="publicMetrics" class="metrics"></div>
         <section class="panel"><div class="section-heading"><h2>성과</h2></div><div class="chart-controls"><div id="performanceMetric" class="chart-metric" role="group" aria-label="그래프 종류"><button type="button" data-metric="return" aria-pressed="true">수익률</button><button type="button" data-metric="pnl" aria-pressed="false">수익금</button></div><div id="performanceRanges" class="range-buttons"><button data-period="1W">1W</button><button data-period="1M" aria-pressed="true">1M</button><button data-period="3M">3M</button><button data-period="1Y">1Y</button><button data-period="ALL">ALL</button></div></div><canvas id="performanceChart" height="220" aria-label="일별 평가 수익률 차트"></canvas><p id="performanceNotice" class="field-help"></p></section>
         <section class="panel allocation-panel"><div class="section-heading"><h2>자산 비중</h2></div><div id="publicAllocation" class="allocation"></div></section>
-        <section class="panel"><div class="section-heading"><h2>보유 종목</h2></div><div id="publicPositions" class="scroll"></div><p id="publicNotice" class="field-help"></p></section>
+        <section class="panel"><div class="section-heading"><h2>보유 종목</h2><span class="unit positions-basis"></span></div><div id="publicPositions" class="scroll"></div><p id="publicNotice" class="field-help"></p></section>
         </section>
       <div data-page="history" class="history-grid">
         <section class="panel history-panel"><div class="section-heading"><h2>거래내역</h2></div><div class="history-filters"><div id="historySide" class="chip-row" role="group" aria-label="매매 구분"><button type="button" data-side="" aria-pressed="true">전체</button><button type="button" data-side="buy" aria-pressed="false">매수</button><button type="button" data-side="sell" aria-pressed="false">매도</button></div><label class="history-month">기간 <select id="historyMonth" aria-label="거래 월"><option value="">전체 기간</option></select></label></div><div id="history" class="scroll"></div><div class="pagination"><button id="previous" class="secondary">이전</button><span id="page"></span><button id="next" class="secondary">다음</button></div></section>
