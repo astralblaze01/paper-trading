@@ -689,7 +689,11 @@ docker compose -p paper-sse-test -f compose.sse-test.yaml restart browserweb
 
 처리방침에 적은 운영 규칙:
 
-- **DB 백업:** `backups/`의 덤프는 장애 복구용이며 만든 지 30일이 지나면 삭제합니다. 백업을 복원하면 그사이 탈퇴한 회원을 다시 삭제합니다.
+- **DB 백업:** `backups/`의 덤프는 장애 복구용이며 만든 지 30일이 지나면 삭제합니다. 백업을 복원하면 그사이 탈퇴한 회원을 다시 삭제합니다. 삭제는 `scripts/prune_backups.py`가 호스트 cron으로 매일 04:17에 자동으로 합니다. 대상은 `backups/` 바로 아래의 덤프 파일(`.dump`, `.sql`, `.dump.gz`, `.sql.gz`)뿐이며 소스 보관 파일은 건드리지 않습니다. 삭제 기록은 `~/.local/state/paper-trading-prune.log`에 남습니다. 서버를 옮기면 cron 등록도 다시 합니다.
+
+  ```bash
+  (crontab -l 2>/dev/null; echo '17 4 * * * /usr/bin/python3 /home/ubuntu/paper-trading/scripts/prune_backups.py >> /home/ubuntu/.local/state/paper-trading-prune.log 2>&1') | crontab -
+  ```
 - **로그:** 서비스별로 최대 약 30MB(10MB × 3개 파일)까지 순환 보관되고, 재배포하면 해당 컨테이너 로그가 함께 삭제됩니다.
 
 시세 공급자 연락처와 문의 초안은 [docs/PROVIDER_CONTACTS.md](docs/PROVIDER_CONTACTS.md)를 참고하세요. 처리방침과 약관을 게시했다고 해서 시세 재제공 허가가 생기지는 않습니다.
