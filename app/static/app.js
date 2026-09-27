@@ -116,14 +116,40 @@ function renderRanking(){if(!rankingCache)return;
       ? `마지막 정상 갱신: ${asOf} · `+(rankingCache.errors||[]).join(' ')
       : (rankingCache.market_open===false
         ? `장이 닫혀 마지막 랭킹을 유지합니다 · 기준 ${asOf}${markets?' · '+markets:''}`
-        : `기준 ${asOf} · 다음 갱신 ${next}${markets?' · '+markets:''} · 10초 단위`);
+        : `USD 환산 · 10초 단위 · ${asOf.split(' ').slice(-1)[0]}`);
+    status.title=`기준 ${asOf} · 다음 갱신 ${next}${markets?' · '+markets:''}`;
   }
-  const person=x=>{const box=document.createElement('span');box.className='rank-user';if(x.tier)box.dataset.tier=x.tier;if(window.avatar)box.append(avatar(x.username,x.image_version,'small'));if(x.tier&&window.tierIcon)box.append(tierIcon(x.tier));const link=userLink(x.username);if(x.tier)link.classList.add('tier-text-'+x.tier);box.append(link);if(window.rankChange)box.append(rankChange(x.rank,x.previous_rank));return box;};
+  const person=x=>{const box=document.createElement('span');box.className='rank-user';if(x.tier)box.dataset.tier=x.tier;if(window.avatar)box.append(avatar(x.username,x.image_version,'small'));if(x.tier&&window.tierIcon)box.append(tierIcon(x.tier));const link=userLink(x.username);if(x.tier)link.classList.add('tier-text-'+x.tier);box.append(link);return box;};
   // Ranked by USD value; shown in the selected display currency at the snapshot's rate.
-  table($('ranking'),['순위','사용자 · 프로필 보기','총 평가금액 ('+viewCurrency('USD')+')','평가 수익률 ('+basisLabel()+')'],rankingCache.rows.map(x=>[rankBadge(x.rank),person(x),equityTone(viewMoney(x.equity_usd,'USD',x.fx||viewFx),accountReturn(x),.01),signedPct(accountReturn(x))]));
+  const change=x=>{const c=window.rankChange?rankChange(x.rank,x.previous_rank):document.createElement('span');if(!c.textContent){c.textContent='–';c.classList.add('same');}return c;};
+  table($('ranking'),['순위','변화','사용자','총 자산 ('+viewCurrency('USD')+')','수익률 ('+basisLabel()+')'],rankingCache.rows.map(x=>[rankBadge(x.rank),change(x),person(x),equityTone(viewMoney(x.equity_usd,'USD',x.fx||viewFx),accountReturn(x),.01),signedPct(accountReturn(x))]));
   $('ranking').querySelectorAll('tbody tr').forEach((tr,i)=>{const rank=rankingCache.rows[i].rank;if(rank<=3)tr.classList.add('top-rank','top-rank-'+rank);});
   if(window.renderMyProfile)renderMyProfile();
   window.renderHeaderUser?.();
+  renderMyStanding();
+}
+// 내 위치: my tier and rank, the top share, and how far the next tier's last place is.
+const TIER_ORDER=['grandmaster','master','diamond','platinum','gold','silver','bronze'];
+function renderMyStanding(){
+  const box=$('myStanding');if(!box)return;
+  const rows=rankingCache?.rows||[],me=rows.find(r=>r.username===window.sessionUsername);
+  box.hidden=!me;if(!me)return;
+  const label=window.TIER_LABELS||{},idx=TIER_ORDER.indexOf(me.tier),up=idx>0?TIER_ORDER[idx-1]:null;
+  const lastOf=t=>rows.filter(r=>r.tier===t).reduce((a,r)=>!a||r.rank>a.rank?r:a,null);
+  const firstOf=t=>rows.filter(r=>r.tier===t).reduce((a,r)=>!a||r.rank<a.rank?r:a,null);
+  const share=Math.max(1,Math.round(me.rank/rows.length*100));
+  let toNext='최고 티어',progress=1;
+  if(up){const target=lastOf(up),floor=lastOf(me.tier);
+    if(target){const gap=Math.max(0,Number(target.equity_usd)-Number(me.equity_usd))+0.01;toNext=`${label[up]||up}까지 +${viewMoney(gap,'USD',me.fx||viewFx)}`;
+      const low=Number(floor.equity_usd),high=Number(target.equity_usd);progress=high>low?Math.min(1,Math.max(0,(Number(me.equity_usd)-low)/(high-low))):0;}}
+  const head=document.createElement('div');head.className='standing-head';
+  if(window.tierIcon)head.append(tierIcon(me.tier,'medium'));
+  const text=document.createElement('div'),title=document.createElement('strong'),sub=document.createElement('small');
+  title.className='tier-text-'+me.tier;title.textContent=`${label[me.tier]||me.tier} · ${me.rank}위`;sub.textContent=`상위 ${share}% · ${toNext}`;
+  text.append(title,sub);head.append(text);
+  const bar=document.createElement('div');bar.className='standing-bar';const fill=document.createElement('span');fill.style.width=`${Math.round(progress*100)}%`;bar.append(fill);
+  bar.setAttribute('role','progressbar');bar.setAttribute('aria-valuenow',String(Math.round(progress*100)));bar.setAttribute('aria-valuemin','0');bar.setAttribute('aria-valuemax','100');
+  $('myStandingBody').replaceChildren(head,bar);
 }
 function syncCurrency(){$('displayCurrency').value=displayMode;const note=$('displayRateNote');note.textContent=viewFx?`USD/KRW ${Number(viewFx.rate).toLocaleString('ko-KR',{minimumFractionDigits:2,maximumFractionDigits:2})}`:'USD/KRW —';note.title=viewFx?`${viewFx.date} ECB 기준환율 · 금액 표시에만 쓰입니다`:'';}
 async function changeDisplayCurrency(value){displayMode=value;try{localStorage.setItem(storageNamespace+':currency',value);}catch{}syncCurrency();renderPortfolio();renderRanking();renderHistory();if(weeklyCache)renderWeekly();window.dispatchEvent(new Event('displaycurrencychange'));}

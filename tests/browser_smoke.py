@@ -298,7 +298,7 @@ with sync_playwright() as p:
         expect(page.locator('#rankingStatus')).to_contain_text('10초 단위')
         with page.expect_response(lambda r:r.url.endswith('/api/ranking'),timeout=15000):
             pass
-        expect(page.locator('#ranking .user-link').first).to_have_css('font-size','18px' if width<600 else '17px')
+        expect(page.locator('#ranking .user-link').first).to_have_css('font-size','16px' if width<600 else '15px')
         rows_before=page.locator('#ranking').inner_text()
         page.route('**/api/ranking',lambda route:route.fulfill(status=503,json={'detail':'test outage'}))
         # Let an automatic 10-second refresh already in flight finish first.
@@ -306,8 +306,8 @@ with sync_playwright() as p:
         expect(page.locator('#rankingStatus')).to_contain_text('마지막 정상 갱신')
         assert page.locator('#ranking').inner_text()==rows_before
         page.unroute('**/api/ranking')
-        expect(page.locator('#ranking th')).to_contain_text(['순위','사용자 · 프로필 보기','총 평가금액 (KRW)','평가 수익률 (원화 기준)'])
-        expect(page.locator('#ranking td').nth(2)).to_contain_text('원')
+        expect(page.locator('#ranking th')).to_contain_text(['순위','변화','사용자','총 자산 (KRW)','수익률 (원화 기준)'])
+        expect(page.locator('#ranking td').nth(3)).to_contain_text('원')
         expect(page.locator('#ranking tbody tr').first).to_have_class(re.compile(r'\btop-rank-1\b'))
         expect(page.locator('#ranking tbody tr').first.locator('.tier-icon')).to_have_attribute('src','/static/tiers/icons/grandmaster.svg')
         expect(page.locator('#ranking tbody tr').first.locator('.user-link')).to_have_css('color','rgb(212, 20, 60)')
@@ -320,13 +320,14 @@ with sync_playwright() as p:
         expect(page.locator('#ranking tbody tr .rank-medal svg')).to_have_count(min(3,page.locator('#ranking tbody tr').count()))
         expect(page.locator('#ranking tbody tr').first.locator('.rank-medal')).to_have_attribute('aria-label','1위')
         # Every account in the fixture is even or down, so the total is default ink or blue, never red.
-        expect(page.locator('#ranking td:nth-child(3) .gain')).to_have_count(0)
+        expect(page.locator('#ranking td:nth-child(4) .gain')).to_have_count(0)
         expect(page.locator('#marketSessions .session-dot').first).to_be_visible()
         page.screenshot(path=f'/artifacts/ranking-{width}.png',full_page=True)
         page.locator('#displayCurrency').select_option('USD')
-        expect(page.locator('#ranking th').nth(2)).to_have_text('총 평가금액 (USD)')
-        expect(page.locator('#ranking th').nth(3)).to_have_text('평가 수익률 (달러 기준)')
-        expect(page.locator('#ranking td').nth(2)).to_contain_text('$')
+        expect(page.locator('#ranking th').nth(3)).to_have_text('총 자산 (USD)')
+        expect(page.locator('#ranking th').nth(4)).to_have_text('수익률 (달러 기준)')
+        expect(page.locator('#ranking td').nth(3)).to_contain_text('$')
+        expect(page.locator('#myStanding')).to_contain_text('위')
         page.locator('#displayCurrency').select_option('KRW')
         other=page.locator('#ranking .user-link').filter(has_text=peer).first
         other_name=other.inner_text()
