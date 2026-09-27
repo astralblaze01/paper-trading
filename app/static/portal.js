@@ -78,7 +78,7 @@ async function openDetailPage(segment){
   currentSymbol=decodeURIComponent(segment);chartRows=[];drawChart();
   detailCompany=null;detailQuote=null;orderPreview=null;
   $('symbol').value=currentSymbol;maxMode=false;$('tradeNav').href='#detail/'+encodeURIComponent(currentSymbol);$('reservePrice').value='';
-  loadCompany(currentSymbol);renderReserves();
+  loadCompany(currentSymbol);renderReserves();openTradeSide();
   await loadStock(true);syncReserveFields();
   await api('popularity',{symbol:currentSymbol,kind:'view'});
 }
@@ -334,7 +334,10 @@ function drawChart(){
  const title=node('strong',`${currentRange} · ${change>0?'+':''}${nativeMoney(change,currency)} (${change>0?'+':''}${pct(percent)})`,change>0?'gain':change<0?'loss':'flat');
  $('periodPerformance').append(title,node('span',`${nativeMoney(first,currency)} → ${nativeMoney(last,currency)}`));
  const date=x=>new Date(x.time*1000).toLocaleString('ko-KR');
- $('periodDates').textContent=`${date(chartRows[0])} ~ ${date(chartRows.at(-1))}`;
+ // Compact span for the chart header: times for intraday ranges, month.day otherwise, with the year only for long ranges.
+ const spanDate=x=>{const d=new Date(x.time*1000),p=n=>String(n).padStart(2,'0'),md=`${p(d.getMonth()+1)}.${p(d.getDate())}`;
+   return ['1D'].includes(currentRange)?`${p(d.getHours())}:${p(d.getMinutes())}`:['5Y','ALL'].includes(currentRange)?`${String(d.getFullYear()).slice(2)}.${md}`:md;};
+ $('periodDates').textContent=`${spanDate(chartRows[0])} → ${spanDate(chartRows.at(-1))}`;
  const lo=Math.min(...vals),hi=Math.max(...vals),span=hi-lo||Math.max(1,hi*.02),{left,right}=chartPlotBounds(w),top=20,bottom=275;
  const x=i=>left+i*(right-left)/Math.max(1,vals.length-1),y=v=>bottom-(v-lo)/span*(bottom-top);
  ctx.font=cssFont('--fs-xs','--font-num');for(let n=0;n<5;n++){const v=lo+span*n/4,yy=y(v);ctx.strokeStyle=themeColor('--chart-grid');ctx.beginPath();ctx.moveTo(left,yy);ctx.lineTo(right,yy);ctx.stroke();ctx.fillStyle=themeColor('--muted');ctx.fillText(v.toLocaleString('ko-KR',{maximumFractionDigits:viewCurrency(currency)==='KRW'?0:2}),2,yy+4);}
@@ -356,14 +359,21 @@ function renderPublic(){if(!publicCache)return;const p=publicCache;$('publicTitl
 // rank, tier and morning rank of a user from the current ranking, for profile cards.
 function rankRow(username){const row=rankOf(username)!=null?(rankingCache.rows||[]).find(r=>r.username===username):null;return row?{rank:row.rank,tier:row.tier,previous_rank:row.previous_rank}:{rank:null};}
 function rankOf(username){if(!rankingCache||rankingCache.incomplete&&!rankingCache.rows?.length)return null;const row=(rankingCache.rows||[]).find(r=>r.username===username);return row?row.rank:null;}
+// The ticket's summary: what matters before pressing the button. The button itself
+// carries the whole order: "매수 · 12주 · 856,928원".
 function renderOrderPreview(){
   const r=orderPreview;if(!r)return;
   const target=$('orderEstimate');target.replaceChildren();
-  const fields=[['보유 주식',r.holding+'주'],['주문 가능 현금',viewMoney(r.balance,r.currency)],['선택 수량',r.quantity+'주'],['체결 금액 참고',viewMoney(r.gross_amount,r.currency)],['수수료',viewMoney(r.fee,r.currency)],['세금',viewMoney(r.tax,r.currency)],[$('side').value==='buy'?'결제 금액':'수령 금액',viewMoney(r.net_amount,r.currency)],['주문 후 잔액',viewMoney(r.balance_after,r.currency)]];
-  if($('side').value==='sell')fields.push(['매도 후 보유',r.holding_after+'주']);
+  const sell=$('side').value==='sell',fee=Number(r.fee_bps);
+  const fields=[['보유 주식',r.holding+'주'],['체결 금액 참고',viewMoney(r.gross_amount,r.currency)],[`수수료${fee?' '+fee/100+'%':''}`,viewMoney(r.fee,r.currency)]];
+  if(Number(r.tax))fields.push(['세금',viewMoney(r.tax,r.currency)]);
+  fields.push([`주문 후 ${r.currency} 잔액`,viewMoney(r.balance_after,r.currency)]);
+  if(sell)fields.push(['매도 후 보유',r.holding_after+'주']);
   for(const [label,value] of fields){const row=node('div',null,'cost-row');row.append(node('span',label),node('strong',value));target.append(row);}
-  target.append(node('p',`실제 ${$('side').value==='buy'?'결제':'수령'}: ${nativeMoney(r.net_amount,r.currency)} (${r.currency})${r.indicative_only?' · 이전 시세 참고':''}${maxMode?' · 최대 수량은 체결 시 다시 계산':''}`,'field-help'));
+  if(r.indicative_only||maxMode)target.append(node('p',[r.indicative_only?'이전 시세 참고':'',maxMode?'최대 수량은 체결 시 다시 계산':''].filter(Boolean).join(' · '),'field-help'));
+  $('qtyMax').textContent=`최대 ${Number(r.max_quantity).toLocaleString()}주`;
   $('submitOrder').disabled=!r.can_submit;
+  if(!window.reserveMode&&r.quantity>0)$('submitOrder').textContent=`${sell?'매도':'매수'} · ${r.quantity}주 · ${nativeMoney(r.net_amount,r.currency)}`;
   if(r.market_closed)target.append(node('p',r.market_closed,'market-closed-note'));
   if(!r.can_submit)target.append(node('p',r.quantity<1?'선택한 비율로 주문할 수 있는 수량이 없습니다.':'잔액 또는 보유 수량을 초과했습니다.','order-error'));
 }
@@ -395,9 +405,10 @@ document.querySelectorAll('.side-toggle [data-side]').forEach(b=>b.addEventListe
 $('side').addEventListener('change',()=>setSide($('side').value));
 window.orderSymbolLabel=function(){return detailCompany?.name||detailQuote?.name||$('symbol').value;};
 ['quantity','side','symbol'].forEach(id=>$(id).addEventListener('input',()=>{maxMode=false;++previewVersion;orderPreview=null;$('submitOrder').disabled=true;clearTimeout(previewTimer);previewTimer=setTimeout(()=>estimate(),200);}));
-handle('watchAdd','click',async()=>{await api('watchlist',{symbol:currentSymbol});toast('관심종목에 추가했습니다.','success');});
+handle('watchAdd','click',async()=>{await api('watchlist',{symbol:currentSymbol});toast('관심종목에 추가했습니다.','success');try{await watchlist();}catch{}});
 async function watchlist(){watchCache=await api('watchlist');renderWatchlist();}
 function renderWatchlist(){
+  window.renderTradeSide?.();
   $('watchRows').replaceChildren();
   for(const r of watchCache){
     const card=node('article',null,'watch-card'),head=node('div',null,'watch-card-head'),title=node('div',null,'watch-title');
@@ -784,3 +795,38 @@ document.addEventListener('keydown',e=>{
 });
 // 트레이드 opens the last stock viewed, or Apple for a new account.
 try{const recent=readRecentStocks();if(recent[0])$('tradeNav').href='#detail/'+encodeURIComponent(recent[0].symbol);}catch{}
+
+// 트레이드 sidebar: the watchlist (the open stock highlighted), recent stocks, and both wallets.
+let tradeWatchLoaded=false;
+window.renderTradeSide=function(){
+  const rows=$('tradeWatchRows');if(!rows)return;
+  $('tradeWatchCount').textContent=`${watchCache.length} / 50`;
+  rows.replaceChildren(...watchCache.map(r=>{
+    const b=node('button',null,'trade-watch-row');b.type='button';if(r.symbol===currentSymbol)b.setAttribute('aria-current','true');
+    const q=r.quote,left=node('span',null,'trade-watch-name'),right=node('span',null,'trade-watch-quote');
+    left.append(node('strong',r.name),node('small',r.symbol.replace(/^KR:/,'')));
+    right.append(node('strong',q?viewMoney(q.native_price,r.currency):'—'),q?signedPct(q.change_pct):node('small','—'));
+    b.append(left,right);b.addEventListener('click',()=>openStock(r.symbol));return b;
+  }));
+  if(!watchCache.length)rows.append(node('p','종목 화면의 "관심종목 추가"로 담아 두세요.','field-help trade-empty'));
+  const w=window.walletBalances;
+  $('tradeWallets').replaceChildren(...(w?[node('dt','USD 지갑'),node('dd',nativeMoney(w.USD,'USD')),node('dt','KRW 지갑'),node('dd',nativeMoney(w.KRW,'KRW'))]:[]));
+};
+// What I hold of the open stock: shares, average cost and return in its own currency.
+window.renderTradeHolding=function(){
+  const box=$('detailHolding');if(!box)return;
+  const p=(portfolioCache?.positions||[]).find(x=>x.symbol===currentSymbol);
+  box.hidden=!p;if(!p)return;
+  const cell=(label,value)=>{const d=node('div');d.append(node('small',label),value instanceof Node?value:node('strong',value));return d;};
+  box.replaceChildren(cell('보유',`${p.quantity.toLocaleString()}주`),cell('평균 단가',nativeMoney(p.average_cost,p.currency)),cell('수익률',signedPct(p.return_pct)));
+};
+async function openTradeSide(){
+  if(!tradeWatchLoaded){tradeWatchLoaded=true;try{await watchlist();}catch{}}
+  renderTradeSide();renderTradeHolding();
+  $('detailSymbol').textContent=`${currentSymbol} · ${/^KR:/.test(currentSymbol)?'국내':'미국'}`;
+}
+document.querySelectorAll('[data-mobile-side]').forEach(b=>b.addEventListener('click',()=>{
+  setSide(b.dataset.mobileSide);$('side').dispatchEvent(new Event('input'));
+  $('orderPanel').scrollIntoView({behavior:'smooth',block:'start'});
+}));
+window.addEventListener('displaycurrencychange',()=>{renderTradeSide();renderTradeHolding();});

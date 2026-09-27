@@ -261,6 +261,7 @@ function retryMissingPrices(load,attempt=1){
 }
 function applyPortfolio(p){
   window.walletBalances=p.wallets; if(window.updateFxBalance)window.updateFxBalance();
+  window.renderTradeSide?.();window.renderTradeHolding?.();
   portfolioCache=p;viewFx=p.fx||viewFx;syncCurrency();renderPortfolio();
 }
 async function reloadPortfolioPrices(){

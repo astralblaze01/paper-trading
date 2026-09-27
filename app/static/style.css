@@ -577,14 +577,47 @@ footer { max-width: 1680px; margin: 0 auto; padding: 8px 32px 28px; display: fle
 .watch-change-label { color: var(--muted); font-size: var(--fs-sm); font-weight: 500; font-family: var(--font-sans); }
 @media (max-width: 850px) { .watch-row { gap: 10px; } }
 
-/* ---- Stock detail: on wide screens company info sits under the chart and the order
-   panel runs down the right; narrow screens keep chart, order, company in that order. ---- */
-.detail-grid { display: grid; grid-template-columns: minmax(0,1fr) 320px; grid-template-areas: "chart order" "company order"; grid-template-rows: auto 1fr; gap: 24px; align-items: start; }
-.detail-grid > .chart-panel { grid-area: chart; }
-.detail-grid > .order-panel { grid-area: order; }
-.detail-grid > .company-panel { grid-area: company; }
-.detail-price { display: grid; gap: 10px; margin: 18px 0 8px; font-size: var(--fs-3xl); font-weight: 600; font-family: var(--font-num); font-variant-numeric: tabular-nums; }
-.detail-price strong { font-size: var(--fs-display); }
+/* ---- 트레이드: a three-column desk. Watchlist and wallets on the left, the stock in the
+   middle, the order ticket on the right. Laptops drop the sidebar; phones stack it all
+   and keep 매도 / 매수 at the bottom of the screen. ---- */
+.trade-desk { display: grid; grid-template-columns: 272px minmax(0,1fr) 360px; grid-template-areas: "side main order"; gap: 20px; align-items: start; }
+.trade-desk > .desk-side { grid-area: side; }
+.trade-desk > .chart-panel { grid-area: main; min-width: 0; }
+.trade-desk > .order-panel { grid-area: order; }
+
+/* Left: watchlist, recent stocks, wallets. */
+.desk-side { position: sticky; top: 16px; display: flex; flex-direction: column; max-height: calc(100vh - 110px); background: var(--surface); border: 1px solid var(--card-line); border-radius: var(--radius-card); overflow: hidden; }
+.desk-side-head { display: flex; align-items: baseline; justify-content: space-between; padding: 16px 18px 12px; border-bottom: 1px solid var(--border); }
+.desk-side-title { font-size: var(--fs-md); font-weight: 700; color: var(--ink); text-decoration: none; }
+.desk-side-count { font-family: var(--font-num); font-size: var(--fs-xs); color: var(--muted); }
+.trade-watch { overflow-y: auto; flex: 0 1 auto; }
+.trade-watch-row { display: flex; justify-content: space-between; gap: 10px; width: 100%; min-height: 0; padding: 12px 18px; background: transparent; color: var(--ink); border: 0; border-bottom: 1px solid var(--border); border-radius: 0; text-align: left; white-space: normal; font-weight: 400; }
+.trade-watch-row:hover { background: var(--surface-2); }
+.trade-watch-row[aria-current="true"] { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+.trade-watch-name, .trade-watch-quote { display: grid; gap: 2px; min-width: 0; }
+.trade-watch-quote { text-align: right; }
+.trade-watch-name strong { font-size: var(--fs-base); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trade-watch-name small, .trade-watch-quote small { font-family: var(--font-num); font-size: var(--fs-xs); color: var(--muted); }
+.trade-watch-quote strong { font-family: var(--font-num); font-size: var(--fs-base); font-weight: 500; }
+.trade-watch-quote span { font-family: var(--font-num); font-size: var(--fs-xs); }
+.trade-empty { padding: 14px 18px; margin: 0; }
+.trade-search { display: none; }
+.trade-recent { padding: 12px 18px; display: flex; flex-wrap: wrap; gap: 4px 10px; border-bottom: 1px solid var(--border); }
+.trade-recent .field-help { width: 100%; margin: 0 0 2px; font-size: var(--fs-xs); }
+.trade-recent .text-button { font-size: var(--fs-sm); padding: 2px 0; }
+.trade-wallets { margin: auto 0 0; padding: 14px 18px; display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; border-top: 1px solid var(--border); font-size: var(--fs-sm); background: var(--surface); }
+.trade-wallets:empty { display: none; }
+.trade-wallets dt { color: var(--muted); }
+.trade-wallets dd { margin: 0; text-align: right; font-family: var(--font-num); }
+
+/* Middle: name, price, chart, holding, indicators, this stock's reservations. */
+.trade-title { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.trade-title > div { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; min-width: 0; }
+.trade-title h1 { font-size: var(--fs-2xl); margin: 0; overflow-wrap: anywhere; }
+.trade-code { font-family: var(--font-num); font-size: var(--fs-sm); color: var(--muted); }
+.trade-title #watchAdd { width: auto; flex-shrink: 0; }
+.detail-price { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; margin: 6px 0 2px; font-size: var(--fs-lg); font-weight: 600; font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+.detail-price strong { font-size: var(--fs-display); letter-spacing: -1px; }
 .detail-price-main { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; }
 .detail-price-main strong { font-size: var(--fs-display); font-variant-numeric: tabular-nums; }
 .detail-price.gain { color: var(--gain); }
@@ -594,68 +627,85 @@ footer { max-width: 1680px; margin: 0 auto; padding: 8px 32px 28px; display: fle
 .quote-badge.live { color: var(--accent); border-color: var(--accent); }
 .detail-change-block { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; font-size: var(--fs-lg); font-weight: 700; font-variant-numeric: tabular-nums; }
 .detail-change-label { color: var(--muted); font-size: var(--fs-sm); font-weight: 500; font-family: var(--font-sans); }
-.detail-change-block .gain, .detail-change-block .loss, .detail-change-block .flat { min-width: 78px; }
-.quote-connection { min-height: 1.4em; color: var(--muted); }
-#priceChart { width: 100%; height: 300px; touch-action: pan-y; }
-.period-performance { display: flex; flex-wrap: wrap; gap: 12px; align-items: baseline; margin-top: 22px; }
-.period-performance strong { font-size: var(--fs-xl); font-family: var(--font-num); }
-#periodDates { margin-top: 10px; font-family: var(--font-num); }
+.detail-change-block .gain, .detail-change-block .loss, .detail-change-block .flat { min-width: 0; }
+.trade-status { display: flex; flex-wrap: wrap; gap: 2px 14px; margin: 4px 0 16px; font-size: var(--fs-xs); color: var(--muted); }
+.trade-status span:empty { display: none; }
+.quote-connection { color: var(--muted); }
+.chart-card { padding: 0; overflow: hidden; margin-bottom: 16px; }
+.chart-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px 16px; padding: 10px 16px; border-bottom: 1px solid var(--border); }
+.chart-toolbar .range-buttons { gap: 2px; }
+.chart-toolbar .range-buttons button { background: transparent; color: var(--muted); min-height: 32px; padding: 5px 11px; font-family: var(--font-num); font-size: var(--fs-sm); border: 0; }
+.chart-toolbar .range-buttons button[aria-pressed="true"] { background: var(--solid); color: #fff; }
+.chart-period { display: flex; align-items: baseline; flex-wrap: wrap; justify-content: flex-end; gap: 4px 10px; font-family: var(--font-num); font-size: var(--fs-sm); color: var(--muted); }
+.period-performance { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; margin: 0; }
+.period-performance strong { font-size: var(--fs-sm); font-family: var(--font-num); }
+#periodDates { margin: 0; }
+#priceChart { width: 100%; height: 300px; touch-action: pan-y; display: block; padding: 8px 12px 0; }
 .chart-tooltip { min-height: 24px; font-size: var(--fs-xs); color: var(--muted); }
-#chartTooltip { font-size: var(--fs-sm); min-height: 56px; font-family: var(--font-num); }
-.company-info { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 22px; margin-top: 20px; }
+#chartTooltip { font-size: var(--fs-xs); min-height: 40px; font-family: var(--font-num); padding: 0 16px; margin: 0; }
+.chart-card #chartNotice { padding: 0 16px 12px; margin: 0; font-size: var(--fs-xs); }
+.chart-card #chartRetry { margin: 0 16px 14px; width: auto; }
+.trade-holding { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 12px; padding: 16px 20px; margin-bottom: 16px; }
+.trade-holding small { display: block; color: var(--muted); font-size: var(--fs-xs); margin-bottom: 4px; }
+.trade-holding strong, .trade-holding span { font-family: var(--font-num); font-size: var(--fs-md); font-weight: 600; }
+.company-panel { margin-bottom: 16px; }
+.company-info { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px 22px; padding: 18px 20px; background: var(--surface); border: 1px solid var(--card-line); border-radius: var(--radius-card); }
 .company-info small, .company-info strong { display: block; overflow-wrap: anywhere; }
-.company-info small { color: var(--muted); margin-bottom: 6px; }
+.company-info small { color: var(--muted); margin-bottom: 6px; font-size: var(--fs-xs); }
 .company-info p, .company-info .valuation { grid-column: 1/-1; }
-.valuation-grid { display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.company-info > p { margin: 0; font-size: var(--fs-xs); color: var(--muted); }
+.valuation-grid { display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); border: 1px solid var(--border); border-radius: var(--radius-control); }
 .valuation-item { padding: 12px 16px; border-left: 1px solid var(--border); }
-.valuation-item:first-child { border-left: 0; padding-left: 0; }
+.valuation-item:first-child { border-left: 0; }
 .company-info .valuation-item strong { font-size: var(--fs-md); font-family: var(--font-num); font-variant-numeric: tabular-nums; }
 .company-info .valuation-item small { cursor: help; }
 .valuation .field-help, .dividend-field .field-help { display: block; font-size: var(--fs-xs); }
 .valuation .field-help { margin: 6px 0 0; }
 .dividend-field .field-help { margin: 4px 0 0; }
-@media (max-width: 850px) {
-  .detail-grid { grid-template-columns: 1fr; grid-template-areas: "chart" "order" "company"; grid-template-rows: none; }
-}
-@media (max-width: 600px) {
-  .detail-change-block { gap: 9px; }
-  .valuation-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
-  .valuation-item { padding: 10px 0; border-left: 0; border-top: 1px solid var(--border); }
-  .valuation-item:first-child { grid-column: 1/-1; border-top: 0; }
-  .valuation-item:nth-child(odd):not(:first-child) { padding-left: 14px; border-left: 1px solid var(--border); }
-}
+.reserve-symbol { padding: 0; overflow: hidden; }
+.reserve-symbol h2 { font-size: var(--fs-md); margin: 0; padding: 14px 20px; border-bottom: 1px solid var(--border); }
+.reserve-symbol #reserveSymbolRows { padding: 0 20px; }
 
-/* ---- Order panel: buy red / sell blue, 바로 주문 / 예약 주문 ---- */
-.order-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 20px 0; }
+/* Right: the order ticket. */
+.order-panel { position: sticky; top: 16px; padding: 20px; }
 .field-label { display: block; font-size: var(--fs-sm); font-weight: 550; margin-bottom: 7px; }
 .quote-info { background: var(--surface-2); padding: 12px; line-height: 1.7; margin: 12px 0 16px; border-radius: var(--radius-control); white-space: pre-line; }
-.side-toggle { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--border-strong); border-radius: var(--radius-control); overflow: hidden; height: 44px; }
-.side-toggle button { min-height: 0; height: 100%; border: 0; border-radius: 0; background: var(--surface); color: var(--muted); font-weight: 650; }
+.side-toggle { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--border-strong); border-radius: var(--radius-control); overflow: hidden; height: 52px; }
+.side-toggle button { min-height: 0; height: 100%; border: 0; border-radius: 0; background: var(--surface); color: var(--muted); font-size: var(--fs-md); font-weight: 700; }
 .side-toggle button + button { border-left: 1px solid var(--border-strong); }
 .side-toggle button:hover { background: var(--surface-2); }
-.side-toggle [data-side="buy"][aria-checked="true"] { color: var(--gain); background: var(--gain-soft); box-shadow: inset 0 -3px 0 var(--gain); }
-.side-toggle [data-side="sell"][aria-checked="true"] { color: var(--loss); background: var(--loss-soft); box-shadow: inset 0 -3px 0 var(--loss); }
-.order-mode { display: grid; grid-template-columns: 1fr 1fr; margin: 14px 0 4px; border: 1px solid var(--border-strong); border-radius: var(--radius-control); overflow: hidden; }
-.order-mode button { border: 0; border-radius: 0; background: var(--surface); color: var(--muted); font-weight: 600; padding: 9px 0; }
-.order-mode button + button { border-left: 1px solid var(--border-strong); }
-.order-mode button[aria-checked="true"] { background: var(--solid); color: #fff; }
-.order-quick { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 16px 0 4px; }
-.order-quick > span { color: var(--muted); font-size: var(--fs-sm); margin-right: 4px; }
-.order-quick button { min-width: 54px; padding: 8px 10px; font-family: var(--font-num); }
+.side-toggle [data-side="buy"][aria-checked="true"] { color: #fff; background: var(--buy-fill); }
+.side-toggle [data-side="sell"][aria-checked="true"] { color: #fff; background: var(--sell-fill); }
+.order-mode { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 14px 0 18px; }
+.order-mode button { border: 1px solid var(--border-strong); border-radius: var(--radius-control); background: var(--surface); color: var(--muted); font-weight: 600; padding: 10px 0; }
+.order-mode button[aria-checked="true"] { border: 2px solid var(--ink); color: var(--ink); background: var(--surface); }
+.qty-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 7px; }
+.qty-head label { margin: 0; font-weight: 700; }
+.qty-max { font-family: var(--font-num); font-size: var(--fs-xs); color: var(--muted); }
+.qty-input { height: 56px; text-align: right; font-family: var(--font-num); font-size: var(--fs-xl); padding: 0 16px; }
+.order-quick { display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap: 6px; margin: 8px 0 0; }
+.order-quick > span { display: none; }
+.order-quick button { min-width: 0; padding: 8px 0; font-family: var(--font-num); font-size: var(--fs-sm); background: var(--surface); color: var(--ink); border: 1px solid var(--border-strong); }
+.order-quick button:hover { background: var(--surface-2); }
+.order-estimate { margin: 18px 0 18px; padding-top: 14px; border-top: 1px dashed var(--border-strong); }
+.order-estimate:empty { display: none; }
+.cost-row { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; font-size: var(--fs-sm); color: var(--muted); }
+.cost-row strong { font-family: var(--font-num); font-weight: 500; color: var(--ink); }
+.cost-row:last-of-type { border-top: 1px solid var(--border); margin-top: 4px; padding-top: 10px; }
+.cost-row:last-of-type strong { font-weight: 700; }
+.order-estimate .field-help { margin: 8px 0 0; font-size: var(--fs-xs); }
+.order-submit { min-height: 56px; font-size: var(--fs-md); font-weight: 700; font-family: var(--font-sans); }
 .order-submit[data-side="buy"] { background: var(--buy-fill); }
 .order-submit[data-side="buy"]:hover { background: var(--buy-hover); }
 .order-submit[data-side="sell"] { background: var(--sell-fill); }
 .order-submit[data-side="sell"]:hover { background: var(--sell-hover); }
 .order-submit.is-reserve { box-shadow: inset 0 0 0 2px rgba(255,255,255,.55); }
+.order-panel .order-note { margin: 14px 0 0; font-size: var(--fs-xs); color: var(--muted); }
 .order-error { color: var(--error-ink); margin: 12px 0 0; }
-#orderEstimate:empty { display: none; }
-.cost-row { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: var(--fs-base); }
 .market-closed-note { margin: 12px 0 0; padding: 10px 12px; background: var(--warn-bg); border-left: 3px solid var(--warn-line); color: var(--warn-ink); font-size: var(--fs-sm); }
-.reserve-fields { margin: 6px 0 4px; padding: 12px 14px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-control); }
+.reserve-fields { margin: 0 0 16px; padding: 12px 14px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-control); }
 .reserve-fields label { margin-top: 8px; }
 .reserve-fields label:first-child { margin-top: 0; }
-.reserve-symbol { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 12px; }
-.reserve-symbol h3 { font-size: var(--fs-base); margin: 0 0 6px; }
 .reserve-row { display: flex; align-items: center; gap: 10px 14px; flex-wrap: wrap; padding: 10px 0; border-bottom: 1px solid var(--surface-3); }
 .reserve-row:last-child { border-bottom: 0; }
 .reserve-text { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; flex: 1; min-width: 0; }
@@ -664,9 +714,35 @@ footer { max-width: 1680px; margin: 0 auto; padding: 8px 32px 28px; display: fle
 .reserve-row.status-rejected .reserve-state { color: var(--error-ink); }
 .reserve-row button { width: auto; }
 .reserve-rows .empty-state { margin: 8px 0; }
+.mobile-trade-bar { display: none; }
+
+@media (max-width: 1280px) {
+  .trade-desk { grid-template-columns: minmax(0,1fr) 340px; grid-template-areas: "main order"; }
+  .trade-desk > .desk-side { display: none; }
+}
+@media (max-width: 850px) {
+  .trade-desk { grid-template-columns: 1fr; grid-template-areas: "main" "order"; }
+  .order-panel { position: static; }
+  .trade-desk > .desk-side { display: none; }
+  .trade-title h1 { font-size: var(--fs-xl); }
+  .detail-price strong { font-size: var(--fs-3xl); }
+  .chart-toolbar { padding: 8px 10px; }
+  .chart-toolbar .range-buttons { width: 100%; justify-content: space-between; }
+  .chart-period { justify-content: flex-start; }
+  #priceChart { padding: 8px 4px 0; }
+  .mobile-trade-bar { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; position: fixed; left: 0; right: 0; bottom: calc(62px + env(safe-area-inset-bottom)); z-index: 29; padding: 10px 16px; background: var(--surface); border-top: 1px solid var(--card-line); }
+  .mobile-trade-bar button { min-height: 50px; font-size: var(--fs-md); font-weight: 700; color: #fff; }
+  .mobile-sell { background: var(--sell-fill); }
+  .mobile-buy { background: var(--buy-fill); }
+  body:has(.trade-desk:not([hidden])) { padding-bottom: 150px; }
+}
 @media (max-width: 600px) {
-  .order-quick { gap: 6px; }
-  .order-quick > span { width: 100%; margin-bottom: 2px; }
+  .detail-change-block { gap: 9px; }
+  .valuation-grid { grid-template-columns: repeat(3, minmax(0,1fr)); }
+  .valuation-item { padding: 10px 12px; border-left: 0; border-top: 1px solid var(--border); }
+  .valuation-item:nth-child(-n+3) { border-top: 0; }
+  .valuation-item:not(:nth-child(3n+1)) { border-left: 1px solid var(--border); }
+  .company-info { padding: 14px; }
 }
 
 /* ---- Portfolio: allocation donut + legend (the legend doubles as the table view), fees ---- */

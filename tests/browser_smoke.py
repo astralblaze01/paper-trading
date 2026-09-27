@@ -124,9 +124,12 @@ with sync_playwright() as p:
         page.locator('[data-order-share="0.05"]').click()
         expect(page.locator('#quantity')).to_have_value('49')
         expect(page.locator('#orderEstimate')).to_contain_text('수수료')
-        expect(page.locator('.side-toggle [data-side="buy"]')).to_have_css('color','rgb(196, 47, 58)')
+        expect(page.locator('.side-toggle [data-side="buy"]')).to_have_css('background-color','rgb(196, 47, 58)')
         expect(page.locator('#submitOrder')).to_have_css('background-color','rgb(196, 47, 58)')
         page.locator('#quantity').fill('2')
+        # The button carries the whole order once the preview is in.
+        expect(page.locator('#submitOrder')).to_have_text(re.compile(r'^매수 · 2주 · '))
+        expect(page.locator('#qtyMax')).to_have_text(re.compile(r'^최대 [\d,]+주$'))
         page.locator('#submitOrder').click()
         expect(page.locator('#toasts')).to_contain_text('매수 주문이 체결되었습니다.')
         expect(page.locator('#toasts')).to_contain_text('Apple 2주')
@@ -134,8 +137,8 @@ with sync_playwright() as p:
         expect(page.locator('#orderEstimate')).to_contain_text('보유 주식2주')
         page.locator('.side-toggle [data-side="sell"]').click()
         expect(page.locator('#side')).to_have_value('sell')
-        expect(page.locator('.side-toggle [data-side="sell"]')).to_have_css('color','rgb(31, 95, 209)')
-        expect(page.locator('#submitOrder')).to_have_text('매도 주문')
+        expect(page.locator('.side-toggle [data-side="sell"]')).to_have_css('background-color','rgb(31, 95, 209)')
+        expect(page.locator('#submitOrder')).to_have_text(re.compile(r'^매도'))
         page.locator('[data-order-share="0.05"]').click()
         expect(page.locator('#quantity')).to_have_value('0')
         expect(page.locator('#submitOrder')).to_be_disabled()
@@ -165,14 +168,23 @@ with sync_playwright() as p:
         page.locator('.order-mode [data-mode="now"]').click()
         expect(page.locator('#reserveFields')).to_be_hidden()
         page.locator('.side-toggle [data-side="sell"]').click()
-        expect(page.locator('#submitOrder')).to_have_text('매도 주문')
+        expect(page.locator('#submitOrder')).to_have_text(re.compile(r'^매도'))
         page.locator('#watchAdd').click()
         expect(page.locator('#toasts')).to_contain_text('관심종목')
         expect(page.locator('#companyInfo')).to_contain_text('배당률')
-        # Wide screens: company info right under the chart, beside the order panel. Phones: after the order panel.
+        # Trade desk: watchlist | stock (chart, indicators) | order ticket. Phones: stock, then the ticket,
+        # with 매도 / 매수 fixed above the tab bar.
         chart_box,order_box,company_box=(page.locator(s).bounding_box() for s in ('.chart-panel','.order-panel','.company-panel'))
-        if width>=900: assert abs(company_box['x']-chart_box['x'])<2 and company_box['y']<order_box['y']+order_box['height'], (chart_box,order_box,company_box)
-        else: assert company_box['y']>order_box['y']+order_box['height']-1 and order_box['y']>chart_box['y'], (chart_box,order_box,company_box)
+        assert abs(company_box['x']-chart_box['x'])<2, (chart_box,company_box)
+        if width>=1300:
+            side_box=page.locator('.desk-side').bounding_box()
+            assert side_box['x']<chart_box['x']<order_box['x'], (side_box,chart_box,order_box)
+            expect(page.locator('#tradeWatchRows .trade-watch-row[aria-current="true"]')).to_contain_text('Apple')
+            expect(page.locator('#tradeWallets')).to_contain_text('USD 지갑')
+        elif width>=900: assert chart_box['x']<order_box['x'], (chart_box,order_box)
+        else:
+            assert order_box['y']>chart_box['y'], (chart_box,order_box)
+            expect(page.locator('.mobile-trade-bar')).to_be_visible()
         page.screenshot(path=f'/artifacts/detail-{width}.png',full_page=True)
         page.evaluate("location.hash='#watchlist'")
         expect(page.locator('#watchRows .watch-name')).to_contain_text('Apple')
@@ -568,9 +580,8 @@ with sync_playwright() as p:
         assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth+1')
         # One snapshot: the quote and chart above may still change the page height.
         grid,*boxes=page.evaluate("[document.querySelector('#companyInfo .valuation-grid'),...document.querySelectorAll('#companyInfo .valuation-item')].map(n=>{const r=n.getBoundingClientRect();return {y:r.y,width:r.width};})")
-        if width<600:   # market cap on its own row, then the four ratios two by two
-            assert abs(boxes[0]['width']-grid['width'])<2,boxes
-            assert boxes[1]['y']==boxes[2]['y']>boxes[0]['y'] and boxes[3]['y']==boxes[4]['y']>boxes[1]['y'],boxes
+        if width<600:   # three per row, as in the mobile design: 시가총액 PER PBR, then ROE PSR
+            assert boxes[0]['y']==boxes[1]['y']==boxes[2]['y']<boxes[3]['y']==boxes[4]['y'],boxes
         else:
             assert len({round(b['y']) for b in boxes})==1,boxes
         page.screenshot(path=f'/artifacts/valuation-{width}.png',full_page=True)
