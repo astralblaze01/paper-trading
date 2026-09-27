@@ -7,10 +7,10 @@
   <script src="/static/theme.js?v=51"></script>
   <link rel="icon" type="image/png" href="/static/brand/mark.png">
   <link rel="stylesheet" href="/static/fonts/fonts.css?v=1">
-  <link rel="stylesheet" href="/static/style.css?v=66">
+  <link rel="stylesheet" href="/static/style.css?v=68">
   <script src="/static/app.js?v=57" defer></script>
-  <script src="/static/portal.js?v=57" defer></script>
-  <script src="/static/profile.js?v=55" defer></script>
+  <script src="/static/portal.js?v=58" defer></script>
+  <script src="/static/profile.js?v=57" defer></script>
 </head>
 <body>
   <header>
@@ -18,7 +18,7 @@
       <a href="/" class="brand"><img src="/static/brand/logo.webp" alt="{{BRAND_NAME}}" class="brand-logo brand-logo-light" width="202" height="36"><img src="/static/brand/logo-dark.webp" alt="{{BRAND_NAME}}" class="brand-logo brand-logo-dark" width="202" height="36"></a>
       <span class="service-label">주식 · 채권 ETF · 금 ETF</span>
       <form id="headerSearch" class="header-search" role="search" hidden autocomplete="off"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="headerQuery" type="search" placeholder="종목명 또는 코드" aria-label="종목 검색" maxlength="60"><kbd>⌘K</kbd><div id="headerResults" class="header-results" role="listbox" hidden></div></form>
-      <nav class="app-nav" aria-label="주요 메뉴" hidden><a href="#explore" data-icon="market">시장</a><a id="tradeNav" href="#detail/AAPL" data-icon="trade">트레이드</a><a href="#portfolio" data-icon="portfolio">포트폴리오</a><a href="#history" class="nav-history" data-icon="history">내역</a><a href="#ranking" data-icon="ranking">랭킹</a><a href="#fx" data-icon="fx">환전</a><a href="#watchlist" class="nav-watchlist" data-icon="star">관심종목</a><a id="adminNav" href="#admin" hidden>관리자</a></nav>
+      <nav class="app-nav" aria-label="주요 메뉴" hidden><a href="#explore" data-icon="market">시장</a><a href="#portfolio" data-icon="portfolio">포트폴리오</a><a href="#ranking" data-icon="ranking">랭킹</a><a href="#watchlist" data-icon="star">관심종목</a><a href="#fx" data-icon="fx">환전</a><a id="adminNav" href="#admin" hidden>관리자</a></nav>
       <div class="header-status view-settings" hidden><span id="marketSessions" class="market-sessions"></span><span id="displayRateNote" class="rate-note"></span><label class="currency-pick" title="표시 통화"><span class="sr-only">표시 통화</span><select id="displayCurrency"><option value="native">거래 통화</option><option value="KRW">원화</option><option value="USD">달러</option></select></label></div>
       <button id="themeToggle" type="button" class="theme-toggle" aria-label="다크 모드로 전환" title="다크 모드"></button>
       <a id="headerUser" class="header-user" href="#portfolio" hidden aria-label="내 포트폴리오"></a>

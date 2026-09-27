@@ -47,7 +47,7 @@ window.routePage = async function() {
   let selected=['explore','portfolio','history','fx','watchlist','ranking','admin','detail','public'].includes(pageName)?pageName:'explore';
   if(window.isAdmin)selected='admin';
   document.querySelectorAll('[data-page]').forEach(el=>el.hidden=el.dataset.page!==selected);
-  document.querySelectorAll('.app-nav a').forEach(a=>a.setAttribute('aria-current',(a.id==='tradeNav'?selected==='detail':a.hash==='#'+selected)?'page':'false'));
+  document.querySelectorAll('.app-nav a').forEach(a=>a.setAttribute('aria-current',a.hash==='#'+selected?'page':'false'));
   if($('dashboard').hidden)return;
   message('');
   try {
@@ -77,7 +77,7 @@ async function openPublicPage(segment){
 async function openDetailPage(segment){
   currentSymbol=decodeURIComponent(segment);chartRows=[];drawChart();
   detailCompany=null;detailQuote=null;orderPreview=null;
-  $('symbol').value=currentSymbol;maxMode=false;$('tradeNav').href='#detail/'+encodeURIComponent(currentSymbol);$('reservePrice').value='';
+  $('symbol').value=currentSymbol;maxMode=false;$('reservePrice').value='';
   loadCompany(currentSymbol);renderReserves();openTradeSide();
   await loadStock(true);syncReserveFields();
   await api('popularity',{symbol:currentSymbol,kind:'view'});
@@ -804,7 +804,7 @@ document.addEventListener('keydown',e=>{
   if(((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k')||(!typing&&e.key==='/')){if($('headerSearch').hidden)return;e.preventDefault();$('headerQuery').focus();}
 });
 // 트레이드 opens the last stock viewed, or Apple for a new account.
-try{const recent=readRecentStocks();if(recent[0])$('tradeNav').href='#detail/'+encodeURIComponent(recent[0].symbol);}catch{}
+
 
 // 트레이드 sidebar: the watchlist (the open stock highlighted), recent stocks, and both wallets.
 let tradeWatchLoaded=false;

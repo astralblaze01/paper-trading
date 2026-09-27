@@ -196,19 +196,16 @@ with sync_playwright() as p:
         expect(page.locator('#myProfile .profile-name')).to_have_text(name)
         expect(page.locator('#myProfile .member-days')).to_contain_text('가입 기간')
         expect(page.locator('#myProfile .member-days dd')).to_have_text('1일')
-        # Desktop: the mockup's six tabs; phones: 시장 · 포트폴리오 · 랭킹 · 관심종목 · 환전 in the bottom tab bar.
-        expect(page.locator('.app-nav a:visible')).to_have_text(['시장','트레이드','포트폴리오','내역','랭킹','환전'] if width>=900 else ['시장','포트폴리오','랭킹','환전','관심종목'])
+        # Header and phone tab bar alike: 시장 · 포트폴리오 · 랭킹 · 관심종목 · 환전; 내역 opens from the portfolio strip.
+        expect(page.locator('.app-nav a:visible')).to_have_text(['시장','포트폴리오','랭킹','관심종목','환전'])
+        expect(page.locator('.strip-history')).to_be_visible()
         if width<900:
-            # Phone tab bar in the user's order (DOM order differs; CSS order sets it), 내역 from the portfolio strip.
-            labels=page.evaluate("[...document.querySelectorAll('.app-nav a')].filter(a=>a.offsetParent).sort((a,b)=>a.getBoundingClientRect().left-b.getBoundingClientRect().left).map(a=>a.textContent)")
-            assert labels==['시장','포트폴리오','랭킹','관심종목','환전'], labels
-            expect(page.locator('.strip-history')).to_be_visible()
             # Regression: the four-column strip overflowed a phone, cutting off 현금 and 새로고침.
             assert page.evaluate("(()=>{const s=document.querySelector('.portfolio-strip');return s.scrollWidth<=s.clientWidth})()")
         expect(page.locator('#myProfile .avatar')).to_have_attribute('src','/static/avatar-default.svg')
         expect(page.locator('#allocation .allocation-segment')).to_have_count(2)
         expect(page.locator('#allocation .allocation-legend')).to_contain_text('현금')
-        expect(page.locator('#allocation .allocation-legend')).to_contain_text('해외주식')
+        expect(page.locator('#allocation .allocation-legend')).to_contain_text('Apple')
         # My profile (bio, tier, rank) comes first, above the summary strip; the allocation is a donut.
         assert page.evaluate("[...document.querySelector('.portfolio-desk').children].filter(e=>e.id==='myProfile'||e.classList.contains('portfolio-strip')).map(e=>e.id||'strip')")==['myProfile','strip']
         expect(page.locator('#allocation svg circle.allocation-segment')).to_have_count(2)
@@ -403,7 +400,6 @@ with sync_playwright() as p:
             page.keyboard.press('Control+K'); expect(page.locator('#headerQuery')).to_be_focused()
             page.locator('#headerQuery').fill('AAPL'); expect(page.locator('#headerResults .header-result').first).to_be_visible()
             page.keyboard.press('Enter'); expect(page.locator('#detailTitle')).to_contain_text('Apple')
-            expect(page.locator('#tradeNav')).to_have_attribute('aria-current','page')
         # Theme: 딥 틸 by default, 다크 아레나 from the header switch, kept after a reload.
         assert page.evaluate("getComputedStyle(document.documentElement).backgroundColor")=='rgb(243, 244, 243)'
         expect(page.locator('.brand-logo-light')).to_be_visible(); expect(page.locator('.brand-logo-dark')).to_be_hidden()
@@ -669,13 +665,14 @@ with sync_playwright() as p:
     page.route('**/api/portfolio',first_without_price)
     page.evaluate('refresh()')
     page.locator('.app-nav a[href="#portfolio"]').click()
-    # By asset class: 해외주식 (AAPL MSFT NVDA QQQ VOO MU RKLB), 금 ETF (IAU), 현금. MSFT waits as pending, then joins.
+    # One slice per holding plus cash: 8 holdings and cash. MSFT waits as pending, then joins.
     expect(page.locator('#allocation .allocation-legend li.pending')).to_contain_text('시세 준비 중')
-    expect(page.locator('#allocation .allocation-segment')).to_have_count(3)
-    expect(page.locator('#allocation .allocation-legend li.pending')).to_have_count(0,timeout=10000)
-    expect(page.locator('#allocation .allocation-legend li')).to_have_count(3)
+    expect(page.locator('#allocation .allocation-segment')).to_have_count(8)
+    expect(page.locator('#allocation .allocation-segment')).to_have_count(9,timeout=10000)
+    expect(page.locator('#allocation .allocation-legend li')).to_have_count(9)
+    expect(page.locator('#allocation .allocation-legend li.pending')).to_have_count(0)
     legend=page.locator('#allocation .allocation-legend').inner_text()
-    assert all(n in legend for n in ['해외주식','금 ETF','현금']), legend
+    assert all(n in legend for n in ['Microsoft','IAU','현금']), legend
     page.screenshot(path='/artifacts/allocation-many-1280.png',full_page=True)
     page.close()
     # SSE runs only when the fixture enables it; legacy browser suite remains usable.

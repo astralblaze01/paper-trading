@@ -93,7 +93,9 @@
   --tier-diamond: #0092d6;  --tier-master: #9433e0;  --tier-grandmaster: #d4143c;
 
   /* Charts (read by app.js through themeColor). */
-  --alloc-cash: #16201f;  --alloc-us: #0f5b57;  --alloc-kr: #5aa89a;  --alloc-gold: #c8962a;  --alloc-bond: #b9c2c1;
+  /* Allocation: seven distinct holding slots in fixed order, a neutral for any beyond, cash in ink. */
+  --alloc-1: #0f5b57;  --alloc-2: #d9822b;  --alloc-3: #2f6fd0;  --alloc-4: #c8962a;  --alloc-5: #b2456e;  --alloc-6: #5aa89a;  --alloc-7: #6a55b4;
+  --alloc-extra: #9aa4a2;  --alloc-cash: #16201f;
   --chart-grid: #eef1f0;
   --chart-axis: #aab3b1;
 
@@ -115,7 +117,8 @@
 }
 /* 다크 아레나: neutral charcoal; only tokens change. */
 :root[data-theme="dark"] {
-  --alloc-cash: #4a5250;  --alloc-us: #2e8f7c;  --alloc-kr: #6cc3aa;  --alloc-gold: #d4a73c;  --alloc-bond: #7c8785;
+  --alloc-1: #2e9c88;  --alloc-2: #e8964a;  --alloc-3: #5b93e8;  --alloc-4: #d9b24c;  --alloc-5: #d0678f;  --alloc-6: #7fd0bb;  --alloc-7: #9282d6;
+  --alloc-extra: #6c7775;  --alloc-cash: #c9d1cf;
   color-scheme: dark;
   --bg: #121417;
   --surface: #1a1d21;
@@ -233,7 +236,6 @@ body:has(#headerSearch:not([hidden])) .service-label { display: none; }
 .app-nav a { position: relative; color: var(--muted); text-decoration: none; white-space: nowrap; font-size: var(--fs-md); font-weight: 500; padding: 21px 0; }
 .app-nav a:hover { color: var(--ink); }
 .app-nav a[aria-current="page"] { color: var(--accent); font-weight: 700; box-shadow: inset 0 -2px 0 var(--accent); }
-.app-nav .nav-watchlist { display: none; }
 .app-nav a[hidden] { display: none; }
 .header-status { display: flex; align-items: center; gap: 16px; margin-left: auto; flex-shrink: 0; }
 .market-sessions { display: inline-flex; gap: 14px; font-family: var(--font-num); font-size: var(--fs-xs); color: var(--muted); white-space: nowrap; }
@@ -275,15 +277,6 @@ footer { max-width: 1680px; margin: 0 auto; padding: 8px 32px 28px; display: fle
   .app-nav a { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 4px 0; font-size: var(--fs-2xs); }
   .app-nav a::before { content: ""; width: 22px; height: 22px; background: currentColor; -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat; -webkit-mask-size: contain; mask-size: contain; }
   .app-nav a[aria-current="page"] { box-shadow: none; }
-  .app-nav .nav-watchlist { display: flex; }
-  /* Phone tab bar: 시장 · 포트폴리오 · 랭킹 · 관심종목 · 환전. 트레이드 opens from a stock;
-     내역 opens from the portfolio strip. */
-  .app-nav #tradeNav, .app-nav .nav-history { display: none; }
-  .app-nav a[data-icon="market"] { order: 1; }
-  .app-nav a[data-icon="portfolio"] { order: 2; }
-  .app-nav a[data-icon="ranking"] { order: 3; }
-  .app-nav .nav-watchlist { order: 4; }
-  .app-nav a[data-icon="fx"] { order: 5; }
   body:has(.app-nav:not([hidden])) { padding-bottom: 72px; }
   main { padding: 18px 16px 0; }
   .notice { display: block; }
@@ -791,8 +784,7 @@ footer { max-width: 1680px; margin: 0 auto; padding: 8px 32px 28px; display: fle
 .portfolio-strip .metrics { border: 0; border-radius: 0; margin: 0; padding: 18px 0; grid-template-columns: 1.2fr 1fr 1fr 1.1fr; }
 .strip-actions { display: flex; align-items: center; gap: 10px; margin: 0 16px; }
 .portfolio-strip .strip-refresh { width: auto; min-height: 32px; padding: 6px 12px; font-size: var(--fs-xs); }
-.strip-history { display: none; font-size: var(--fs-xs); font-weight: 600; color: var(--accent); text-decoration: none; }
-@media (max-width: 850px) { .strip-history { display: inline; } }
+.strip-history { font-size: var(--fs-xs); font-weight: 600; color: var(--accent); text-decoration: none; }
 .holdings-panel { min-height: 360px; }
 .portfolio-stock-link { display: grid; gap: 1px; text-decoration: none; color: var(--ink); }
 .portfolio-stock-link strong { font-size: var(--fs-base); font-weight: 700; }
@@ -812,9 +804,9 @@ footer { max-width: 1680px; margin: 0 auto; padding: 8px 32px 28px; display: fle
   .strip-actions { justify-self: stretch; justify-content: space-between; margin: 0; padding: 12px 20px; border-top: 1px solid var(--border); }
 }
 
-/* Allocation: a donut by asset class, the total in the middle, and a legend with
-   each class's holdings, value and share beside it. */
-.allocation { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 32px; align-items: center; }
+/* Allocation: a donut by holding plus cash, the total in the middle, and a legend with
+   each holding's code, value and share beside it. */
+.allocation { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 32px; align-items: start; }
 .allocation > .empty-state { grid-column: 1/-1; }
 .allocation-chart { position: relative; }
 .allocation-chart svg { display: block; width: 100%; height: auto; }
@@ -837,22 +829,12 @@ footer { max-width: 1680px; margin: 0 auto; padding: 8px 32px 28px; display: fle
 .allocation-legend .legend-share { text-align: right; font-family: var(--font-num); font-weight: 700; font-variant-numeric: tabular-nums; }
 .allocation-legend li.pending { color: var(--muted); }
 .allocation-legend li.pending .swatch { background: transparent; border: 1.5px dashed var(--faint); }
-.allocation-segment.alloc-cash { stroke: var(--alloc-cash); }
-.allocation-segment.alloc-us { stroke: var(--alloc-us); }
-.allocation-segment.alloc-kr { stroke: var(--alloc-kr); }
-.allocation-segment.alloc-gold { stroke: var(--alloc-gold); }
-.allocation-segment.alloc-bond { stroke: var(--alloc-bond); }
 @media (max-width: 700px) {
   .allocation { grid-template-columns: 1fr; gap: 16px; }
   .allocation-chart { max-width: 200px; margin: 0 auto; width: 100%; }
   .allocation-legend li { grid-template-columns: 12px minmax(0, 1fr) 56px; }
   .allocation-legend .legend-value { grid-column: 2; grid-row: 2; }
 }
-.alloc-cash { background: var(--alloc-cash); }
-.alloc-us { background: var(--alloc-us); }
-.alloc-kr { background: var(--alloc-kr); }
-.alloc-gold { background: var(--alloc-gold); }
-.alloc-bond { background: var(--alloc-bond); }
 @media (max-width: 760px) { .holdings-panel { min-height: 220px; } }
 .fee-total { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 14px 0 12px; border-bottom: 1px solid var(--border); margin-bottom: 6px; }
 .fee-total span { color: var(--muted); font-weight: 600; }
