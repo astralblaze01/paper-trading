@@ -97,23 +97,12 @@ function awaitOwnRanking(){
   if(rankRow(window.sessionUsername).rank!=null)return;
   ownRankingRetry=setTimeout(async()=>{try{await refreshRankingOnly();}catch{}finally{ownRankingRetry=null;}},11000);
 }
-// The portfolio strip's first cell: photo in the tier ring, the name in the tier color,
-// and "13위 · 상위 32% · 가입 42일". The full profile (bio, photo) sits at the bottom of the page.
-function renderMiniProfile(){
-  const box=$('myMini');if(!box||!myProfile)return;
-  const row=typeof rankRow==='function'?rankRow(window.sessionUsername):{},photo=avatar(window.sessionUsername,myProfile.image_version,'small');
-  const total=rankingCache?.rows?.length,share=row.rank&&total?Math.max(1,Math.round(row.rank/total*100)):null;
-  const name=node('div',null,'mini-name');if(row.tier)name.append(tierIcon(row.tier));const n=node('strong',window.sessionUsername);if(row.tier)n.className='tier-text-'+row.tier;name.append(n);
-  const facts=[row.rank?`${row.rank}위`:null,share?`상위 ${share}%`:null,myProfile.member_days?`가입 ${myProfile.member_days}일`:null].filter(Boolean).join(' · ');
-  const text=node('div',null,'mini-text');text.append(name,node('small',facts||'랭킹 집계 중'));
-  box.replaceChildren(row.tier?tierFrame(photo,row.tier):photo,text);
-}
 window.renderMyProfile=function(){
   const target=$('myProfile');if(!target||!myProfile||myProfile.username!==window.sessionUsername)return;
   // Keep an open bio editor untouched by periodic refreshes.
   if(bioEditing&&target.querySelector('#bioInput'))return;
   const p=portfolioCache||{};
-  renderHeaderUser();renderMiniProfile();
+  renderHeaderUser();
   awaitOwnRanking();
   renderProfileCard(target,{username:window.sessionUsername,bio:myProfile.bio,image_version:myProfile.image_version,equity_usd:p.equity_usd,return_pct:p.return_pct,return_pct_usd:p.return_pct_usd,realized_pnl:p.realized_pnl,fx:p.fx,...(typeof rankRow==='function'?rankRow(window.sessionUsername):{}),member_days:myProfile.member_days,member_since:myProfile.member_since},true);
 };
@@ -205,31 +194,50 @@ $('cropForm').addEventListener('submit',async e=>{
   }catch(err){toast(err.message,'error');$('cropApply').disabled=false;}
 });
 
-/* Asset allocation by class (현금, 해외주식, 국내주식, 금 ETF, 채권 ETF) as one stacked bar.
-   The legend names every class with its share, so identity never relies on color
-   alone; the holdings table lists each stock. Holdings without a price yet are
-   named in a pending legend row until the next check fills them in. */
-const ALLOCATION_CLASSES=[['cash','현금'],['us','해외주식'],['kr','국내주식'],['gold','금 ETF'],['bond','채권 ETF']];
+/* Asset allocation by class (현금, 해외주식, 국내주식, 금 ETF, 채권 ETF) as a donut with
+   the total in the middle. The legend names every class with its share, value and
+   holdings, so identity never relies on color alone. Hovering a slice or a legend
+   row highlights the other. Holdings without a price yet are named in a pending
+   legend row until the next check fills them in. */
+const ALLOCATION_CLASSES=[['cash','현금'],['us','해외주식'],['kr','국내주식'],['gold','금 ETF'],['bond','채권 ETF']],SVG_NS='http://www.w3.org/2000/svg';
 function allocationClass(x){return x.category==='gold'?'gold':/bond/.test(x.category||'')?'bond':x.currency==='KRW'?'kr':'us';}
+function svg(tag,attrs){const n=document.createElementNS(SVG_NS,tag);for(const [k,v] of Object.entries(attrs))n.setAttribute(k,v);return n;}
 window.renderAllocation=function(target,p){
   if(!target)return;target.replaceChildren();
   const rate=Number(p?.fx?.rate);
   if(!p||!Number.isFinite(rate)||rate<=0){target.append(node('p','기준환율을 확인한 뒤 자산 비중을 표시합니다.','empty-state'));return;}
-  const toKRW=(v,c)=>c==='KRW'?Number(v):Number(v)*rate,sums={};
-  for(const x of p.positions.filter(x=>x.value!=null)){const k=allocationClass(x);sums[k]=(sums[k]||0)+toKRW(x.value,x.currency);}
-  const cash=toKRW(p.wallets.USD,'USD')+Number(p.wallets.KRW);if(cash>0)sums.cash=cash;
+  const toKRW=(v,c)=>c==='KRW'?Number(v):Number(v)*rate,sums={},names={};
+  for(const x of p.positions.filter(x=>x.value!=null)){const k=allocationClass(x);sums[k]=(sums[k]||0)+toKRW(x.value,x.currency);(names[k]||=[]).push(x.name);}
+  const cash=toKRW(p.wallets.USD,'USD')+Number(p.wallets.KRW);if(cash>0){sums.cash=cash;names.cash=['USD·KRW 지갑'];}
   const pending=p.positions.filter(x=>x.value==null);
   const total=Object.values(sums).reduce((a,v)=>a+v,0);
   if(total<=0){target.append(node('p',pending.length?'시세를 준비 중입니다. 잠시 후 자동으로 다시 확인합니다.':'평가할 자산이 없습니다.','empty-state'));return;}
-  const slices=ALLOCATION_CLASSES.filter(([k])=>sums[k]>0).map(([k,label])=>({key:k,label,krw:sums[k],share:sums[k]/total*100})).sort((a,b)=>b.krw-a.krw);
-  const bar=node('div',null,'allocation-bar');bar.setAttribute('role','img');bar.setAttribute('aria-label','자산 비중: '+slices.map(s=>`${s.label} ${s.share.toFixed(1)}%`).join(', '));
-  const legend=node('ul',null,'allocation-legend');
+  const slices=ALLOCATION_CLASSES.filter(([k])=>sums[k]>0).map(([k,label])=>({key:k,label,krw:sums[k],share:sums[k]/total*100,names:names[k]})).sort((a,b)=>b.krw-a.krw);
+  const size=200,r=78,width=26,C=2*Math.PI*r,gap=slices.length>1?2:0;
+  const chart=node('div',null,'allocation-chart'),figure=svg('svg',{viewBox:`0 0 ${size} ${size}`,role:'img','aria-label':'자산 비중: '+slices.map(s=>`${s.label} ${s.share.toFixed(1)}%`).join(', ')});
+  figure.append(svg('circle',{cx:size/2,cy:size/2,r,fill:'none',class:'allocation-track','stroke-width':width}));
+  const tip=node('div',null,'allocation-tip');tip.hidden=true;
+  const legend=node('ul',null,'allocation-legend'),pairs=[];let offset=0;
+  const highlight=active=>{for(const [s,seg,li] of pairs){seg.classList.toggle('dimmed',!!active&&s!==active);li.classList.toggle('active',s===active);}};
   for(const s of slices){
-    const seg=node('span',null,'allocation-segment alloc-'+s.key);seg.style.flexGrow=String(s.share);seg.title=`${s.label} ${s.share.toFixed(1)}% · ${viewMoney(s.krw,'KRW')}`;bar.append(seg);
-    const li=node('li');li.title=seg.title;li.append(node('span',null,'swatch alloc-'+s.key),node('span',s.label,'legend-name'),node('strong',`${Math.round(s.share)}%`,'legend-share'));legend.append(li);
+    // Small classes keep a visible 3px sliver instead of disappearing.
+    const len=s.share/100*C,visible=Math.min(len,Math.max(len-gap,3));
+    const seg=svg('circle',{cx:size/2,cy:size/2,r,fill:'none','stroke-width':width,'stroke-dasharray':`${visible} ${C-visible}`,'stroke-dashoffset':String(-offset),transform:`rotate(-90 ${size/2} ${size/2})`,class:'allocation-segment alloc-'+s.key,tabindex:'0'});
+    seg.append(svg('title',{}));seg.firstChild.textContent=`${s.label} ${s.share.toFixed(1)}%`;
+    const show=e=>{tip.replaceChildren(node('strong',s.label),node('span',`${s.share.toFixed(1)}% · ${viewMoney(s.krw,'KRW')}`));tip.hidden=false;const box=chart.getBoundingClientRect(),x=(e?.clientX??box.left+box.width/2)-box.left,y=(e?.clientY??box.top+box.height/2)-box.top;tip.style.left=Math.min(Math.max(x,70),box.width-70)+'px';tip.style.top=Math.max(y-12,0)+'px';highlight(s);};
+    const hide=()=>{tip.hidden=true;highlight(null);};
+    seg.addEventListener('pointermove',show);seg.addEventListener('focus',()=>show());seg.addEventListener('pointerleave',hide);seg.addEventListener('blur',hide);
+    figure.append(seg);offset+=len;
+    const li=node('li'),name=node('span',null,'legend-name');name.append(node('strong',s.label),node('small',s.names.join(', ')));
+    li.append(node('span',null,'swatch alloc-'+s.key),name,node('span',viewMoney(s.krw,'KRW'),'legend-value'),node('strong',`${s.share.toFixed(1)}%`,'legend-share'));
+    li.addEventListener('pointerenter',()=>highlight(s));li.addEventListener('pointerleave',()=>highlight(null));
+    pairs.push([s,seg,li]);legend.append(li);
   }
-  if(pending.length){const li=node('li',null,'pending');li.append(node('span',null,'swatch'),node('span',`시세 준비 중 · ${pending.map(x=>x.name).join(', ')}`,'legend-name'));legend.append(li);}
-  target.append(bar,legend);
+  const label=svg('text',{x:size/2,y:size/2-6,'text-anchor':'middle',class:'allocation-total-label'});label.textContent='총 자산';
+  const value=svg('text',{x:size/2,y:size/2+16,'text-anchor':'middle',class:'allocation-total'});value.textContent=viewMoney(total,'KRW');
+  figure.append(label,value);chart.append(figure,tip);
+  if(pending.length){const li=node('li',null,'pending'),name=node('span',null,'legend-name');name.append(node('strong','시세 준비 중'),node('small',pending.map(x=>x.name).join(', ')));li.append(node('span',null,'swatch'),name);legend.append(li);}
+  target.append(chart,legend);
 };
 window.addEventListener('displaycurrencychange',()=>{if(portfolioCache)renderAllocation($('allocation'),portfolioCache);if(publicCache)renderAllocation($('publicAllocation'),publicCache);});
 

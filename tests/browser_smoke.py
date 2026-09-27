@@ -196,14 +196,21 @@ with sync_playwright() as p:
         expect(page.locator('#myProfile .profile-name')).to_have_text(name)
         expect(page.locator('#myProfile .member-days')).to_contain_text('가입 기간')
         expect(page.locator('#myProfile .member-days dd')).to_have_text('1일')
-        # Desktop: the mockup's six tabs; phones add 관심종목 to the bottom tab bar.
-        expect(page.locator('.app-nav a:visible')).to_have_text(['시장','트레이드','포트폴리오','내역','랭킹','환전']+(['관심종목'] if width<900 else []))
+        # Desktop: the mockup's six tabs; phones: 시장 · 포트폴리오 · 랭킹 · 관심종목 · 환전 in the bottom tab bar.
+        expect(page.locator('.app-nav a:visible')).to_have_text(['시장','트레이드','포트폴리오','내역','랭킹','환전'] if width>=900 else ['시장','포트폴리오','랭킹','환전','관심종목'])
+        if width<900:
+            # Phone tab bar in the user's order (DOM order differs; CSS order sets it), 내역 from the portfolio strip.
+            labels=page.evaluate("[...document.querySelectorAll('.app-nav a')].filter(a=>a.offsetParent).sort((a,b)=>a.getBoundingClientRect().left-b.getBoundingClientRect().left).map(a=>a.textContent)")
+            assert labels==['시장','포트폴리오','랭킹','관심종목','환전'], labels
+            expect(page.locator('.strip-history')).to_be_visible()
         expect(page.locator('#myProfile .avatar')).to_have_attribute('src','/static/avatar-default.svg')
         expect(page.locator('#allocation .allocation-segment')).to_have_count(2)
         expect(page.locator('#allocation .allocation-legend')).to_contain_text('현금')
         expect(page.locator('#allocation .allocation-legend')).to_contain_text('해외주식')
-        # Summary strip: me (tier ring, rank line) beside the totals.
-        expect(page.locator('#myMini .mini-name strong')).to_have_text(name)
+        # My profile (bio, tier, rank) comes first, above the summary strip; the allocation is a donut.
+        assert page.evaluate("[...document.querySelector('.portfolio-desk').children].filter(e=>e.id==='myProfile'||e.classList.contains('portfolio-strip')).map(e=>e.id||'strip')")==['myProfile','strip']
+        expect(page.locator('#allocation svg circle.allocation-segment')).to_have_count(2)
+        expect(page.locator('#allocation .allocation-total-label')).to_have_text('총 자산')
         page.locator('#displayCurrency').select_option('USD')
         expect(page.locator('#metrics')).to_contain_text('KRW: 998,500원')
         expect(page.locator('#myProfile .profile-stats')).to_contain_text('$')
@@ -661,7 +668,7 @@ with sync_playwright() as p:
     page.evaluate('refresh()')
     page.locator('.app-nav a[href="#portfolio"]').click()
     # By asset class: 해외주식 (AAPL MSFT NVDA QQQ VOO MU RKLB), 금 ETF (IAU), 현금. MSFT waits as pending, then joins.
-    expect(page.locator('#allocation .allocation-legend li.pending')).to_contain_text('시세 준비 중 · ')
+    expect(page.locator('#allocation .allocation-legend li.pending')).to_contain_text('시세 준비 중')
     expect(page.locator('#allocation .allocation-segment')).to_have_count(3)
     expect(page.locator('#allocation .allocation-legend li.pending')).to_have_count(0,timeout=10000)
     expect(page.locator('#allocation .allocation-legend li')).to_have_count(3)
