@@ -21,7 +21,7 @@
 화면 표시·회원 제공·저장·파생 결과 제공을 포함한 허용 범위와 한국 및 미국 거래소별 별도 계약 필요 여부, 실시간/지연/종가 데이터별 조건, 비용 및 소규모 테스트 허용 범위도 확인하고 싶습니다.
 
 감사합니다.
-[이름 / 회신 이메일]
+김형우 (7829hw@gmail.com), 황현태 (jack3618@knu.ac.kr)
 
 ## Finnhub
 
@@ -45,4 +45,4 @@ Monetization and prizes: [plans or TBD]
 Which license or written authorization permits this use, including sharing derived results with users? Are separate exchange agreements or end-user entitlements required? Please advise on caching, historical storage, deletion, attribution, reporting obligations, pricing, and any available small-scale non-commercial pilot option.
 
 Best regards,
-[Name / contact]
+김형우 [English name] (7829hw@gmail.com), 황현태 [English name] (jack3618@knu.ac.kr)

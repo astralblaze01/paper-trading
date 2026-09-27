@@ -680,4 +680,4 @@ docker compose -p paper-sse-test -f compose.sse-test.yaml restart browserweb
 
 기존·신규 계정 모두 프로필·포트폴리오 및 랭킹 공개 기본값은 꺼짐입니다. 회원은 **내 포트폴리오 → 다른 회원에게 공개**에서 상세 프로필 공개와 랭킹 참여를 각각 선택할 수 있습니다. 설정 해제는 API 접근, 사진, 캐시된 랭킹, 과거 주간 랭킹에도 반영됩니다. 공개 변경 시각·안내 버전은 계정과 함께 관리·삭제합니다. 이는 공개 범위 관리 기능이며 법적 검토 또는 시세 재제공 허가를 대신하지 않습니다.
 
-공식 공급자 연락처와 발송 문안은 [docs/PROVIDER_CONTACTS.md](docs/PROVIDER_CONTACTS.md), 미게시 법적 문서 초안은 [개인정보 처리방침](docs/PRIVACY_POLICY_DRAFT.md)과 [이용약관](docs/TERMS_DRAFT.md)을 참고하세요. 운영자·연락처·로그 및 백업 보유 정책 등 미확정 사항을 채우기 전에는 완성된 정책으로 게시하지 않습니다.
+공식 공급자 연락처와 발송 문안은 [docs/PROVIDER_CONTACTS.md](docs/PROVIDER_CONTACTS.md), 미게시 법적 문서 초안은 [개인정보 처리방침](docs/PRIVACY_POLICY_DRAFT.md)과 [이용약관](docs/TERMS_DRAFT.md)을 참고하세요. 운영자는 김형우(7829hw@gmail.com)·황현태(jack3618@knu.ac.kr)입니다. 로그 및 백업 보유 정책 등 미확정 사항을 채우기 전에는 완성된 정책으로 게시하지 않습니다.
