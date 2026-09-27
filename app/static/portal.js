@@ -474,12 +474,40 @@ function adminMarketText(name,m){
  const st=m.stream,rest=Object.entries(m.rest).map(([k,v])=>`${k} ${v?(v.ok?'ok':'fail '+(v.error||'')):'no data'}`).join(', ');
  return `${name} Session: ${m.session} (${m.label}) · open ${m.open} · tradable ${m.tradable} · venue ${m.venue||'—'}${m.venues_open?.length?' ['+m.venues_open.join('+')+']':''} · Price mode: ${m.price_mode} · Stream: ${st.state}${st.healthy?' (healthy)':''} · Last message: ${st.last_message_age==null?'—':st.last_message_age+'s ago'} · Subscribed: ${st.subscribed.join(' ')||'—'} (전체 ${st.all_subscribed.length} / ${st.limit??'—'}) · REST: ${rest}`;
 }
+// Dashboard status: health as dots, one line per market, the raw diagnostics folded away.
+const SESSION_KO={regular:'정규장',pre_market:'프리장',after_hours:'애프터장',overnight:'데이마켓',closed:'장 마감',unknown:'확인 불가'};
+function adminStateSpan(text,ok){const n=node('span',text,'admin-state '+(ok==null?'':ok?'ok':'bad'));return n;}
 function renderAdminStatus(r){
- $('adminHealth').textContent=`DB ${r.health.database} · Redis ${r.health.redis} · 국내 시세 ${r.providers.kr?'설정됨':'미설정'} · 미국 시세 ${r.providers.us?'설정됨':'미설정'}`;
- $('adminMarket').textContent=[adminMarketText('KR',r.kr_market),adminMarketText('US',r.us_market),r.us_market?`Queued: ${r.us_market.stream.queued.join(' ')||'—'} · Reconnects: ${r.us_market.stream.reconnects}${r.us_market.stream.last_error?' · Last error: '+r.us_market.stream.last_error:''} · Redis ${r.health.redis}`:''].filter(Boolean).join('\n');
- if(r.quotes){const q=r.quotes;$('adminMarket').textContent+=`\n가격 저장 ${q.state} · 요청 ${q.requested??'—'}종목 / 보존 ${q.available??'—'}종목 / 갱신 실패 ${q.failed??'—'}종목${q.last_saved?' · 마지막 가격 수집 '+new Date(q.last_saved*1000).toLocaleString():''}`;}
- $('adminFees').textContent=Object.entries(r.fees).map(([k,v])=>k+': '+v+' bps').join(' · ');
+ // 'ok' green, 'warn' amber (degraded), 'bad' red.
+ const level=ok=>ok?'ok':'bad';
+ const items=[['DB',level(r.health.database==='ok')],['Redis',level(r.health.redis==='ok')],['국내 시세',level(!!r.providers.kr)],['미국 시세',level(!!r.providers.us)]];
+ if(r.quotes)items.push(['가격 저장',{ok:'ok',idle:'ok',degraded:'warn'}[r.quotes.state]||'bad']);
+ $('adminHealth').replaceChildren(...items.map(([label,state])=>{const li=node('li',label);if(state!=='ok')li.className=state;li.title={ok:'정상',warn:'일부 지연',bad:'확인 필요'}[state];return li;}));
+ const rows=[['한국',r.kr_market],['미국',r.us_market]].filter(([,m])=>m).map(([name,m])=>{
+  const row=node('div',null,'admin-market-row'),st=m.stream||{};
+  // Same rule as the market dots in the header: open, and not flagged untradable.
+  const canTrade=marketIsOpen(m)&&m.tradable!==false;
+  const line=node('span');line.append(adminStateSpan(m.label||SESSION_KO[m.session]||m.session,canTrade),` · 주문 ${canTrade?'가능':'불가'}`);
+  const age=st.last_message_age==null?'—':`${st.last_message_age}초 전`;
+  row.append(node('strong',name),line,node('small',`스트림 ${st.healthy?'정상':st.state||'—'} · 마지막 체결 ${age} · 구독 ${(st.subscribed||[]).length}종목 · 가격 ${m.price_mode||'—'}`));
+  return row;
+ });
+ const box=$('adminMarket');box.replaceChildren(...rows);
+ if(r.quotes){const q=r.quotes;box.append(node('p',`가격 저장 ${q.state} · 요청 ${q.requested??'—'} · 보존 ${q.available??'—'} · 실패 ${q.failed??'—'}${q.last_saved?' · 마지막 수집 '+new Date(q.last_saved*1000).toLocaleTimeString('ko-KR'):''}`,'admin-quotes'));}
+ const raw=node('details',null,'admin-raw');raw.append(node('summary','진단 원문'),node('pre',[adminMarketText('KR',r.kr_market),adminMarketText('US',r.us_market),r.us_market?`Queued: ${r.us_market.stream.queued.join(' ')||'—'} · Reconnects: ${r.us_market.stream.reconnects}${r.us_market.stream.last_error?' · Last error: '+r.us_market.stream.last_error:''}`:''].filter(Boolean).join('\n\n')));
+ box.append(raw);
+ const pct=b=>`${Number(b)/100}%`,f=r.fees;
+ $('adminFees').replaceChildren(...[['미국 매수 / 매도',`${pct(f.US_BUY_FEE_BPS)} / ${pct(f.US_SELL_FEE_BPS)}`],['국내 매수 / 매도',`${pct(f.KR_BUY_FEE_BPS)} / ${pct(f.KR_SELL_FEE_BPS)}`],['국내 매도 세금',pct(f.KR_SELL_TAX_BPS)],['환전 수수료 + 스프레드',`${pct(f.FX_FEE_BPS)} + ${pct(f.FX_SPREAD_BPS)}`]].flatMap(([k,v])=>[node('dt',k),node('dd',v)]));
  $('initialAmount').value=r.initial_usd;
+}
+// Today's daily performance record, from the snapshot collector.
+async function renderAdminSnapshots(){
+ const box=$('adminSnapshots');
+ try{
+  const s=await api('admin/performance-snapshots'),run=s.today_run;
+  const outcome={complete:'완료',partial:'일부 실패',missed:'놓침',running:'진행 중'}[run?.outcome]||run?.outcome||'대기';
+  box.replaceChildren(node('span','일별 성과 기록 '),node('strong',outcome),node('span',run?` · ${run.succeeded??0}/${run.eligible??0}개 계좌`:` · ${new Date(s.scheduled_for).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})} 예정`),node('span',s.last_snapshot_at?` · 마지막 ${new Date(s.last_snapshot_at).toLocaleString('ko-KR')}`:''));
+ }catch(e){box.textContent='일별 성과 기록 상태를 불러오지 못했습니다.';}
 }
 function renderAdminOverview(r){
  $('adminOverview').replaceChildren();
@@ -517,16 +545,20 @@ function renderAdminUsers(){
  go('다음 ›',adminUserPage+1,false,adminUserPage===pages);
 }
 $('adminUserSort').addEventListener('change',()=>{adminUserPage=1;renderAdminUsers();});
+// Audit action codes as the admin reads them.
+const ADMIN_ACTIONS={grant:'지원금 지급',bulk_grant:'전체 지원금',rebase:'기준 재설정',clear:'계정 초기화',delete:'계정 삭제',account_delete:'계정 삭제',
+  account_status:'계정 정지/활성화',initial_amount:'초기 지급액 변경',season_reset:'시즌 초기화',notice_post:'공지 등록',notice_clear:'공지 내리기'};
 async function admin(){
  const r=await api('admin');adminUsers=r.users;
  renderAdminStatus(r);
  noticeTemplates=r.notice_templates||noticeTemplates;renderNoticeAdmin(r.notices||[]);
  renderAdminOverview(r);
  renderAdminUsers();
+ renderAdminSnapshots();
  if(adminSelectedId!==null&&!adminSelected())adminSelectedId=null;
  await searchAdminUsers();renderAdminSelected();
  const rows=await api('admin/audit');
- table($('adminAudit'),['시각','운영자','대상','작업','사유'],rows.map(r=>[new Date(r.created_at).toLocaleString(),r.actor||'삭제된 계정',r.target||'삭제된 계정',r.action,r.reason]));
+ table($('adminAudit'),['시각','운영자','대상','작업','사유'],rows.map(r=>[new Date(r.created_at).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}),r.actor||'삭제된 계정',r.target||'삭제된 계정',ADMIN_ACTIONS[r.action]||r.action,r.reason]));
 }
 // Searches the server by ID or administrator memo.
 async function searchAdminUsers(){

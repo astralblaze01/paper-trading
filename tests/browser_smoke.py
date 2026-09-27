@@ -420,7 +420,6 @@ with sync_playwright() as p:
     page.locator('[data-admin-action="clear"]').click()
     expect(page.locator('#adminResult')).to_contain_text('회원가입 직후 상태로 초기화했습니다.')
     # User list: sortable, 10 per page with numbered page links.
-    page.locator('.admin-user-list summary').click()
     expect(page.locator('#adminUsers .admin-user-row').first).to_be_visible()
     assert page.locator('#adminUsers .admin-user-row').count()<=10
     expect(page.locator('#adminUserPages button[aria-current="page"]')).to_have_text('1')
@@ -436,6 +435,16 @@ with sync_playwright() as p:
     expect(page.locator('#adminResult')).to_contain_text('지원금을 지급했습니다.')
     assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth+1')
     page.screenshot(path='/artifacts/explore-admin-390.png',full_page=True)
+    # Dashboard: health dots, market rows, fee table; on a wide screen, two columns.
+    expect(page.locator('#adminHealth li')).to_have_count(5)
+    expect(page.locator('#adminMarket .admin-market-row').first).to_be_visible()
+    expect(page.locator('#adminFees dt').first).to_have_text('미국 매수 / 매도')
+    expect(page.locator('#adminSnapshots')).to_contain_text('일별 성과 기록')
+    page.set_viewport_size({'width':1440,'height':1000})
+    side,main=page.locator('.admin-side').bounding_box(),page.locator('#adminManage').bounding_box()
+    assert side['x']>main['x']+main['width']-1, (side,main)
+    page.screenshot(path='/artifacts/admin-1440.png',full_page=True)
+    page.set_viewport_size({'width':390,'height':844})
     # Notices: the maintenance template, then a custom notice; users see a banner and keep trading.
     user=browser.new_page(viewport={'width':390,'height':844})
     user.goto('http://browserweb:8000/')
