@@ -13,7 +13,10 @@ MAX_IMAGE_BYTES = 5 * 1024 * 1024
 IMAGE_TYPES = {'image/jpeg': 'JPEG', 'image/png': 'PNG', 'image/webp': 'WEBP'}
 AVATAR_SIZE = 512
 BIO_LENGTH = 160
-PRIVACY_NOTICE_VERSION = '2026-09-27-v1'
+# Version of the sign-up agreement (terms, privacy policy, public ranking).
+# Members are shown on the ranking and their portfolio to other members once
+# they agree; accounts that have not agreed yet (from before) stay hidden.
+PRIVACY_NOTICE_VERSION = '2026-09-27-v2'
 
 
 def delete_account_data(db, user):
@@ -109,11 +112,16 @@ class WithdrawInput(BaseModel):
     model_config = ConfigDict(extra='forbid')
     password: str = Field(min_length=1, max_length=128)
 
-class PrivacyInput(BaseModel):
+class ConsentInput(BaseModel):
     model_config = ConfigDict(extra='forbid')
-    profile_public: bool = Field(strict=True)
-    ranking_public: bool = Field(strict=True)
     notice_version: str = Field(max_length=32)
+
+
+def record_consent(db, user, now=None):
+    """Make the account public on the ranking and profile pages, and log the agreed version."""
+    user.profile_public = user.ranking_public = True
+    db.add(PrivacyChoice(user_id=user.id, profile_public=True, ranking_public=True,
+                         notice_version=PRIVACY_NOTICE_VERSION, created_at=now or datetime.now(timezone.utc)))
 
 
 def install_accounts(app, ctx):
@@ -124,29 +132,24 @@ def install_accounts(app, ctx):
         with Session() as db:
             me = db.get(User, uid)
             return {'username': me.username, **profile_of(db, uid), 'bio_max_length': BIO_LENGTH,
-                    'profile_public': me.profile_public, 'ranking_public': me.ranking_public,
+                    'consent_required': not me.is_admin and not (me.profile_public and me.ranking_public),
                     'privacy_notice_version': PRIVACY_NOTICE_VERSION,
                     'member_since': me.created_at, 'member_days': membership_days(me.created_at)}
 
-    @app.post('/api/profile/privacy', dependencies=[Depends(csrf)])
-    def save_privacy(data: PrivacyInput, uid=Depends(user)):
+    @app.post('/api/consent', dependencies=[Depends(csrf)])
+    def consent(data: ConsentInput, uid=Depends(user)):
+        """An account from before the agreement accepts it; there is no opting back out but withdrawal."""
         if data.notice_version != PRIVACY_NOTICE_VERSION:
-            raise HTTPException(409, '공개 설정 안내가 변경되었습니다. 페이지를 새로고침하세요.')
+            raise HTTPException(409, '약관 안내가 변경되었습니다. 페이지를 새로고침하세요.')
         # Same order as ranking(): process lock, then database transaction.
         with ctx._ranking_lock:
             with Session.begin() as db:
                 me = lock_user(db, uid)
                 if me is None: raise HTTPException(401, '로그인이 필요합니다.')
-                if me.is_admin and (data.profile_public or data.ranking_public):
-                    raise HTTPException(403, '관리자 계정은 회원 공개에 참여할 수 없습니다.')
-                if (me.profile_public, me.ranking_public) != (data.profile_public, data.ranking_public):
-                    me.profile_public, me.ranking_public = data.profile_public, data.ranking_public
-                    db.add(PrivacyChoice(user_id=uid, profile_public=data.profile_public,
-                                         ranking_public=data.ranking_public, notice_version=PRIVACY_NOTICE_VERSION,
-                                         created_at=datetime.now(timezone.utc)))
+                if me.is_admin: raise HTTPException(403, '관리자 계정은 회원 공개에 참여할 수 없습니다.')
+                if not (me.profile_public and me.ranking_public): record_consent(db, me)
             ctx._ranking_cache.clear()
-        return {'profile_public': data.profile_public, 'ranking_public': data.ranking_public,
-                'privacy_notice_version': PRIVACY_NOTICE_VERSION}
+        return {'consent_required': False, 'privacy_notice_version': PRIVACY_NOTICE_VERSION}
 
     @app.post('/api/profile', dependencies=[Depends(csrf)])
     def save_profile(data: BioInput, uid=Depends(user)):

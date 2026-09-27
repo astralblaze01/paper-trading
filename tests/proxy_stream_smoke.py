@@ -9,7 +9,7 @@ async def login(client, base, name):
     session = (await client.get(base+'/api/session')).json()
     credentials = {'username': name, 'password': 'proxy-fixture-password'}
     headers = {'x-csrf-token': session['csrf']}
-    response = await client.post(base+'/api/register', json=credentials | {'password_confirm': credentials['password']}, headers=headers)
+    response = await client.post(base+'/api/register', json=credentials | {'password_confirm': credentials['password'], 'agree_terms': True, 'over_14': True, 'notice_version': session['notice_version']}, headers=headers)
     response.raise_for_status()
     (await client.post(base+'/api/login', json=credentials, headers=headers)).raise_for_status()
 

@@ -329,10 +329,10 @@ docker compose exec web python tests/run.py
 python3 scripts/browser_smoke.py -f compose.yaml -f compose.browser.yaml
 ```
 
-회원 공개 설정(기본 비공개, 공개 선택·해제, 새로고침 후 유지, 다른 회원의 접근 차단)은 같은 테스트 앱에서 데스크톱·모바일로 따로 검사합니다.
+약관 동의(처리방침·약관 페이지, 가입 필수 항목, 동의 전 계정의 동의 창)는 같은 테스트 앱에서 데스크톱·모바일로 따로 검사합니다.
 
 ```bash
-python3 scripts/browser_smoke.py -f compose.yaml -f compose.browser.yaml -- python browser_privacy.py
+python3 scripts/browser_smoke.py -f compose.yaml -f compose.browser.yaml -- python browser_consent.py
 ```
 
 공개 전 저장소 파일에 `.env`의 비밀 값이나 개인 파일이 섞였는지 검사할 수 있습니다. 이미지 같은 이진 파일도 바이트 단위로 검사하며, 발견한 비밀 값 자체는 출력하지 않습니다.
@@ -676,8 +676,20 @@ docker compose -p paper-sse-test -f compose.sse-test.yaml restart browserweb
 
 실행 결과와 제약은 [SSE 구현 검증 보고서](docs/QUOTE_SSE_RESULT.md)에 기록합니다.
 
-## 회원 공개 설정
+## 약관 동의와 회원 공개
 
-기존·신규 계정 모두 프로필·포트폴리오 및 랭킹 공개 기본값은 꺼짐입니다. 회원은 **내 포트폴리오 → 다른 회원에게 공개**에서 상세 프로필 공개와 랭킹 참여를 각각 선택할 수 있습니다. 설정 해제는 API 접근, 사진, 캐시된 랭킹, 과거 주간 랭킹에도 반영됩니다. 공개 변경 시각·안내 버전은 계정과 함께 관리·삭제합니다. 이는 공개 범위 관리 기능이며 법적 검토 또는 시세 재제공 허가를 대신하지 않습니다.
+회원 간 수익률을 겨루는 서비스이므로 랭킹 참여와 프로필·포트폴리오 공개는 서비스 이용 조건입니다.
 
-공식 공급자 연락처와 발송 문안은 [docs/PROVIDER_CONTACTS.md](docs/PROVIDER_CONTACTS.md), 미게시 법적 문서 초안은 [개인정보 처리방침](docs/PRIVACY_POLICY_DRAFT.md)과 [이용약관](docs/TERMS_DRAFT.md)을 참고하세요. 운영자는 김형우(7829hw@gmail.com)·황현태(jack3618@knu.ac.kr)입니다. 로그 및 백업 보유 정책 등 미확정 사항을 채우기 전에는 완성된 정책으로 게시하지 않습니다.
+- **가입:** 회원가입 폼의 필수 항목 두 개(만 14세 이상, 이용약관·개인정보 처리방침 동의)를 체크해야 가입됩니다. 서버도 두 값과 안내 버전(`notice_version`, `/api/session`에서 받음)을 검사하며, 가입 즉시 랭킹과 다른 로그인 회원의 프로필 조회에 나타납니다.
+- **동의 전 계정:** 이 조건이 생기기 전에 가입한 계정은 동의할 때까지 랭킹, 주간 랭킹, 공개 프로필·사진에서 빠집니다. 로그인하면 닫을 수 없는 동의 창이 뜨고 **동의하고 계속**, **로그아웃**, **탈퇴** 중 하나를 고릅니다.
+- **공개 중단:** 계정을 유지한 채 공개만 끄는 설정은 없습니다. 원하지 않으면 회원 탈퇴합니다.
+- **기록:** 동의한 안내 버전과 시각을 `privacy_choices`에 남기고, 탈퇴 시 계정과 함께 삭제합니다. 관리자 계정은 동의 대상이 아니며 랭킹과 공개 프로필에 나오지 않습니다.
+
+[개인정보 처리방침](app/static/privacy.html)은 `/privacy`, [이용약관](app/static/terms.html)은 `/terms`에 로그인 없이 게시되며, 모든 화면 하단과 회원가입 폼에 링크가 있습니다. 운영자이자 개인정보 보호책임자는 김형우(7829hw@gmail.com)·황현태(jack3618@knu.ac.kr)입니다. 처리방침이나 약관을 바꿀 때에는 각 페이지의 버전·시행일·변경 이력을 갱신하고, 동의 내용이 바뀌면 `app/accounts.py`의 `PRIVACY_NOTICE_VERSION`도 올립니다.
+
+처리방침에 적은 운영 규칙:
+
+- **DB 백업:** `backups/`의 덤프는 장애 복구용이며 만든 지 30일이 지나면 삭제합니다. 백업을 복원하면 그사이 탈퇴한 회원을 다시 삭제합니다.
+- **로그:** 서비스별로 최대 약 30MB(10MB × 3개 파일)까지 순환 보관되고, 재배포하면 해당 컨테이너 로그가 함께 삭제됩니다.
+
+시세 공급자 연락처와 문의 초안은 [docs/PROVIDER_CONTACTS.md](docs/PROVIDER_CONTACTS.md)를 참고하세요. 처리방침과 약관을 게시했다고 해서 시세 재제공 허가가 생기지는 않습니다.

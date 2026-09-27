@@ -61,7 +61,11 @@
         <label for="registerConfirm">비밀번호 확인</label>
         <input id="registerConfirm" type="password" autocomplete="new-password" required maxlength="128" placeholder="비밀번호를 한 번 더 입력">
         <p id="registerError" class="order-error" role="alert"></p>
-        <p class="field-help">가입 시 프로필·포트폴리오는 비공개이며 랭킹에 참여하지 않습니다. 가입 후 내 프로필에서 공개 여부를 직접 선택할 수 있습니다.</p>
+        <div class="agreement">
+          <label class="agreement-option"><input id="registerOver14" type="checkbox" required> <span>[필수] 만 14세 이상입니다.</span></label>
+          <label class="agreement-option"><input id="registerAgree" type="checkbox" required> <span>[필수] <a href="/terms" target="_blank" rel="noopener">이용약관</a>과 <a href="/privacy" target="_blank" rel="noopener"><strong>개인정보 처리방침</strong></a>에 동의합니다.</span></label>
+          <p class="field-help">회원 간 수익률을 겨루는 서비스라서, 가입하면 다른 로그인 회원에게 아이디, 프로필(사진·소개), 가상 포트폴리오·잔액·손익, 수익률과 순위가 공개됩니다.</p>
+        </div>
         <button id="registerSubmit" class="full-width">회원가입</button>
         <div class="signup-row"><span>이미 계좌가 있나요?</span><a id="showLogin" href="#" class="text-button">로그인으로 돌아가기</a></div>
       </form>
@@ -204,11 +208,22 @@
   <dialog id="withdrawDialog" class="confirm-dialog" aria-labelledby="withdrawTitle">
     <form id="withdrawForm" method="dialog">
       <h2 id="withdrawTitle">정말 회원 탈퇴하시겠습니까?</h2>
-      <p>탈퇴 후에는 현재 계정으로 다시 로그인할 수 없습니다. 서비스 DB의 계정, 가상 자산·거래 기록, 프로필과 공개 설정 기록을 삭제합니다. 상대방 기록은 계정 연결을 해제합니다. 이 작업으로 운영 로그·백업까지 즉시 삭제되지는 않습니다.</p>
+      <p>탈퇴 후에는 현재 계정으로 다시 로그인할 수 없습니다. 서비스 DB의 계정, 가상 자산·거래 기록, 프로필과 동의 기록을 삭제합니다. 상대방 기록은 계정 연결을 해제합니다. 운영 로그와 백업에 남은 기록은 개인정보 처리방침의 보관 기간이 지나면 삭제됩니다.</p>
       <label for="withdrawPassword">비밀번호 확인</label>
       <input id="withdrawPassword" type="password" autocomplete="current-password" required maxlength="128">
       <p id="withdrawError" class="order-error" role="alert"></p>
       <div class="dialog-actions"><button type="button" id="withdrawCancel" class="secondary">취소</button><button id="withdrawConfirm" class="danger-button">회원 탈퇴</button></div>
+    </form>
+  </dialog>
+  <dialog id="consentDialog" class="confirm-dialog" aria-labelledby="consentTitle">
+    <form id="consentForm" method="dialog" novalidate>
+      <h2 id="consentTitle">서비스 이용 동의가 필요합니다</h2>
+      <p>{{BRAND_NAME}}는 회원 간 모의투자 수익률을 겨루는 서비스입니다. 계속 이용하려면 다른 로그인 회원에게 아이디, 프로필(사진·소개), 가상 포트폴리오·잔액·손익, 수익률과 순위가 공개되는 것에 동의해야 합니다. 동의하지 않으면 회원 탈퇴할 수 있습니다.</p>
+      <p><a href="/terms" target="_blank" rel="noopener">이용약관</a> · <a href="/privacy" target="_blank" rel="noopener"><strong>개인정보 처리방침</strong></a></p>
+      <label class="agreement-option"><input id="consentOver14" type="checkbox" required> <span>[필수] 만 14세 이상입니다.</span></label>
+      <label class="agreement-option"><input id="consentAgree" type="checkbox" required> <span>[필수] 이용약관과 개인정보 처리방침에 동의합니다.</span></label>
+      <p id="consentError" class="order-error" role="alert"></p>
+      <div class="dialog-actions"><button type="button" id="consentWithdraw" class="secondary">탈퇴</button><button type="button" id="consentLogout" class="secondary">로그아웃</button><button id="consentConfirm">동의하고 계속</button></div>
     </form>
   </dialog>
   <dialog id="photoDeleteDialog" class="confirm-dialog" aria-labelledby="photoDeleteTitle">
@@ -227,6 +242,6 @@
       <div class="dialog-actions"><button type="button" id="cropCancel" class="secondary">취소</button><button id="cropApply">적용</button></div>
     </form>
   </dialog>
-  <footer><span>{{BRAND_NAME}}</span><span>투자 연습을 위한 모의거래 서비스</span></footer>
+  <footer><span>{{BRAND_NAME}}</span><span class="footer-links"><a href="/privacy" class="policy-link">개인정보 처리방침</a><a href="/terms">이용약관</a></span><span>투자 연습을 위한 모의거래 서비스</span></footer>
 </body>
 </html>

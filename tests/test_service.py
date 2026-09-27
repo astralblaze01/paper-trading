@@ -52,20 +52,19 @@ def client():
 # Fake adapter needs a client close hook for application shutdown.
 FakeMarket.client = type('Client', (), {'close': lambda self: None})()
 
-def register(c, name='alice', public=True):
-    """Legacy public-account scenarios explicitly opt in; privacy tests use public=False."""
-    token = c.get('/api/session').json()['csrf']
+def agreement(session):
+    """The two required sign-up boxes, against the notice version the page was served with."""
+    return {'agree_terms': True, 'over_14': True, 'notice_version': session['notice_version']}
+
+def register(c, name='alice'):
+    """Create an account, then sign in: registration itself does not log in."""
+    session = c.get('/api/session').json()
+    token = session['csrf']
     credentials = {'username': name, 'password': 'a-secure-password-123'}
-    r = c.post('/api/register', headers={'x-csrf-token': token}, json=credentials | {'password_confirm': credentials['password']})
+    r = c.post('/api/register', headers={'x-csrf-token': token}, json=credentials | {'password_confirm': credentials['password']} | agreement(session))
     assert r.status_code == 200, r.text
     assert c.post('/api/login', headers={'x-csrf-token': token}, json=credentials).status_code == 200
-    token = c.get('/api/session').json()['csrf']
-    if public:
-        from app.accounts import PRIVACY_NOTICE_VERSION
-        response = c.post('/api/profile/privacy', headers={'x-csrf-token': token},
-                          json={'profile_public': True, 'ranking_public': True, 'notice_version': PRIVACY_NOTICE_VERSION})
-        assert response.status_code == 200, response.text
-    return token
+    return c.get('/api/session').json()['csrf']
 
 def order(**changes):
     return main.Order(**({'symbol': 'AAPL', 'side': 'buy', 'quantity': 1, 'request_id': uuid4()} | changes))
@@ -239,10 +238,10 @@ def test_ranking_ten_second_boundary_and_last_good_snapshot(client,monkeypatch):
     assert not client.get('/api/ranking').json()['rows']
 
 def test_registration_validation_and_separate_login(client):
-    token = client.get('/api/session').json()['csrf']
-    headers = {'x-csrf-token': token}
+    session = client.get('/api/session').json()
+    headers = {'x-csrf-token': session['csrf']}
     def signup(username, password, confirm=None):
-        return client.post('/api/register', headers=headers, json={'username': username, 'password': password, 'password_confirm': password if confirm is None else confirm})
+        return client.post('/api/register', headers=headers, json={'username': username, 'password': password, 'password_confirm': password if confirm is None else confirm} | agreement(session))
     assert signup('shortpass', '1234567').status_code == 422
     assert signup('', 'abcd1234').status_code == 422
     assert signup('emptypass', '').status_code == 422

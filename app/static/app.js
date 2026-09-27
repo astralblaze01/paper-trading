@@ -200,7 +200,7 @@ function table(target, headers, rows) {
 }
 async function boot() {
   window.disconnectQuoteStream?.();
-  const s = await api('session'); csrf = s.csrf;
+  const s = await api('session'); csrf = s.csrf; window.noticeVersion = s.notice_version;
   window.quoteSseEnabled=!!s.quote_sse_enabled;window.quoteMaxAge=s.quote_max_age;
   window.sessionUsername=s.username; window.isAdmin=!!s.is_admin; $('auth').hidden = !!s.username; $('dashboard').hidden = !s.username; $('logout').hidden = !s.username; $('adminNav').hidden = !s.is_admin;
   if(!s.username)showAuthView();
@@ -366,13 +366,15 @@ function registerProblem(){
   if(!password)return '비밀번호를 입력하세요.';
   if(password.length<8)return '비밀번호는 8자 이상이어야 합니다.';
   if(password!==confirm)return '비밀번호가 일치하지 않습니다.';
+  if(!$('registerOver14').checked)return '만 14세 이상만 가입할 수 있습니다.';
+  if(!$('registerAgree').checked)return '이용약관과 개인정보 처리방침에 동의해야 가입할 수 있습니다.';
   return '';
 }
 $('registerForm').addEventListener('submit',async e=>{
   e.preventDefault();const problem=registerProblem();$('registerError').textContent=problem;if(problem)return;
   $('registerSubmit').disabled=true;
   try{
-    const r=await api('register',{username:$('registerUsername').value.trim(),password:$('registerPassword').value,password_confirm:$('registerConfirm').value});
+    const r=await api('register',{username:$('registerUsername').value.trim(),password:$('registerPassword').value,password_confirm:$('registerConfirm').value,agree_terms:true,over_14:true,notice_version:window.noticeVersion});
     $('registerForm').reset();$('username').value=r.username;$('password').value='';
     location.hash='';showAuthView();$('password').focus();
     toast('회원가입이 완료되었습니다. 만든 계정으로 로그인하세요.','success');

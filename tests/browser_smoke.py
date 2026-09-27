@@ -13,13 +13,8 @@ with sync_playwright() as p:
     # profile, and must not depend on accounts left behind by earlier runs.
     peer='peer_'+str(int(time.time()))
     setup=p.request.new_context(base_url='http://browserweb:8000')
-    csrf=setup.get('/api/session').json()['csrf']
-    assert setup.post('/api/register',headers={'x-csrf-token':csrf},data={'username':peer,'password':'abcd1234','password_confirm':'abcd1234'}).ok
-    # Accounts start private; the peer shares its profile and joins the ranking.
-    assert setup.post('/api/login',headers={'x-csrf-token':csrf},data={'username':peer,'password':'abcd1234'}).ok
-    csrf=setup.get('/api/session').json()['csrf']
-    notice=setup.get('/api/profile').json()['privacy_notice_version']
-    assert setup.post('/api/profile/privacy',headers={'x-csrf-token':csrf},data={'profile_public':True,'ranking_public':True,'notice_version':notice}).ok
+    session=setup.get('/api/session').json()
+    assert setup.post('/api/register',headers={'x-csrf-token':session['csrf']},data={'username':peer,'password':'abcd1234','password_confirm':'abcd1234','agree_terms':True,'over_14':True,'notice_version':session['notice_version']}).ok
     setup.dispose()
     for width,height in [(1440,1000),(390,844)]:
         page=browser.new_page(viewport={'width':width,'height':height})
@@ -37,6 +32,13 @@ with sync_playwright() as p:
         page.locator('#registerSubmit').click()
         expect(page.locator('#registerError')).to_have_text('비밀번호가 일치하지 않습니다.')
         page.locator('#registerConfirm').fill('abcd1234')
+        # Both agreement boxes are required, one at a time.
+        page.locator('#registerSubmit').click()
+        expect(page.locator('#registerError')).to_have_text('만 14세 이상만 가입할 수 있습니다.')
+        page.locator('#registerOver14').check()
+        page.locator('#registerSubmit').click()
+        expect(page.locator('#registerError')).to_have_text('이용약관과 개인정보 처리방침에 동의해야 가입할 수 있습니다.')
+        page.locator('#registerAgree').check()
         page.locator('#registerSubmit').click()
         expect(page.locator('#authForm')).to_be_visible()
         expect(page.locator('#toasts')).to_contain_text('회원가입이 완료')
@@ -288,13 +290,6 @@ with sync_playwright() as p:
         expect(page.locator('#feeSummary .fee-total')).to_contain_text('총 수수료')
         expect(page.locator('#feeRates')).to_contain_text('토스증권 기준')
         # Profile line: tier emblem left of the rank, realized profit; the photo framed in the tier color.
-        # A new account is private and unranked until it opts in from its own profile.
-        expect(page.locator('#myProfile .profile-tier .tier-icon')).to_have_count(0)
-        privacy=page.locator('#myProfile .privacy-settings')
-        privacy.locator('[name=profile_public]').check()
-        privacy.locator('[name=ranking_public]').check()
-        privacy.get_by_role('button',name='공개 설정 저장').click()
-        expect(page.locator('#toasts')).to_contain_text('공개 설정을 저장했습니다.')
         # The tier arrives with the ranking, which values every fixture account first.
         expect(page.locator('#myProfile .profile-tier .tier-icon')).to_be_visible(timeout=20000)
         expect(page.locator('#myProfile')).to_contain_text('실현 손익 (매도 확정)')
@@ -490,6 +485,7 @@ with sync_playwright() as p:
     user.goto('http://browserweb:8000/')
     user.locator('#showSignup').click()
     user.locator('#registerUsername').fill(name+'_n'); user.locator('#registerPassword').fill('abcd1234'); user.locator('#registerConfirm').fill('abcd1234')
+    user.locator('#registerOver14').check(); user.locator('#registerAgree').check()
     user.locator('#registerSubmit').click()
     user.locator('#password').fill('abcd1234'); user.locator('#loginSubmit').click()
     expect(user.locator('#dashboard')).to_be_visible()
@@ -549,6 +545,7 @@ with sync_playwright() as p:
     page.goto('http://browserweb:8000/')
     page.locator('#showSignup').click()
     page.locator('#registerUsername').fill(name+'_x'); page.locator('#registerPassword').fill('abcd1234'); page.locator('#registerConfirm').fill('abcd1234')
+    page.locator('#registerOver14').check(); page.locator('#registerAgree').check()
     page.locator('#registerSubmit').click()
     page.locator('#password').fill('abcd1234'); page.locator('#loginSubmit').click()
     page.locator('.app-nav a[href="#portfolio"]').click()
@@ -585,7 +582,7 @@ with sync_playwright() as p:
         page.on('pageerror',lambda e:errors.append(str(e)))
         page.goto('http://browserweb:8000/')
         name=f'value_{width}_'+str(int(time.time()))
-        page.evaluate("""async name=>{const s=await api('session');csrf=s.csrf;await api('register',{username:name,password:'abcd1234',password_confirm:'abcd1234'});await api('login',{username:name,password:'abcd1234'});await boot();}""",name)
+        page.evaluate("""async name=>{const s=await api('session');csrf=s.csrf;await api('register',{username:name,password:'abcd1234',password_confirm:'abcd1234',agree_terms:true,over_14:true,notice_version:s.notice_version});await api('login',{username:name,password:'abcd1234'});await boot();}""",name)
         items=page.locator('#companyInfo .valuation-item')
         values=items.locator('strong')
         page.evaluate("openStock('AAPL')")
@@ -660,6 +657,7 @@ with sync_playwright() as p:
     page.goto('http://browserweb:8000/')
     page.locator('#showSignup').click()
     page.locator('#registerUsername').fill(name+'_many'); page.locator('#registerPassword').fill('abcd1234'); page.locator('#registerConfirm').fill('abcd1234')
+    page.locator('#registerOver14').check(); page.locator('#registerAgree').check()
     page.locator('#registerSubmit').click()
     page.locator('#password').fill('abcd1234'); page.locator('#loginSubmit').click()
     expect(page.locator('#dashboard')).to_be_visible()
@@ -692,7 +690,7 @@ with sync_playwright() as p:
     page.goto('http://browserweb:8000/')
     if page.request.get('http://browserweb:8000/api/session').json().get('quote_sse_enabled'):
         name='sse_'+str(int(time.time()))
-        page.evaluate("""async name=>{const s=await api('session');csrf=s.csrf;await api('register',{username:name,password:'abcd1234',password_confirm:'abcd1234'});await api('login',{username:name,password:'abcd1234'});await boot();}""",name)
+        page.evaluate("""async name=>{const s=await api('session');csrf=s.csrf;await api('register',{username:name,password:'abcd1234',password_confirm:'abcd1234',agree_terms:true,over_14:true,notice_version:s.notice_version});await api('login',{username:name,password:'abcd1234'});await boot();}""",name)
         requests=[]
         page.on('request',lambda r:requests.append((time.monotonic(),r.url)))
         page.evaluate("openStock('AAPL')")
@@ -741,7 +739,7 @@ with sync_playwright() as p:
         assert page.evaluate('quoteSource===null&&quoteRetry===null&&marketTimer===null')
     else:
         name='rollback_'+str(int(time.time()))
-        page.evaluate("""async name=>{const s=await api('session');csrf=s.csrf;await api('register',{username:name,password:'abcd1234',password_confirm:'abcd1234'});await api('login',{username:name,password:'abcd1234'});await boot();}""",name)
+        page.evaluate("""async name=>{const s=await api('session');csrf=s.csrf;await api('register',{username:name,password:'abcd1234',password_confirm:'abcd1234',agree_terms:true,over_14:true,notice_version:s.notice_version});await api('login',{username:name,password:'abcd1234'});await boot();}""",name)
         requests=[]
         page.on('request',lambda r:requests.append(r.url))
         page.evaluate("openStock('AAPL')")
@@ -765,7 +763,7 @@ with sync_playwright() as p:
     assert explore_calls==[],explore_calls   # signed out: the login-only API is never polled
     name='refresh_'+str(int(time.time()))
     with page.expect_response(lambda r:'/api/explore' in r.url):
-        page.evaluate("""async name=>{const s=await api('session');csrf=s.csrf;await api('register',{username:name,password:'abcd1234',password_confirm:'abcd1234'});await api('login',{username:name,password:'abcd1234'});await boot();}""",name)
+        page.evaluate("""async name=>{const s=await api('session');csrf=s.csrf;await api('register',{username:name,password:'abcd1234',password_confirm:'abcd1234',agree_terms:true,over_14:true,notice_version:s.notice_version});await api('login',{username:name,password:'abcd1234'});await boot();}""",name)
     expect(page.locator('[data-page="explore"]')).to_be_visible()
     def ticks(ms):
         before=len(explore_calls)

@@ -31,7 +31,7 @@ from .fx import FxService
 from .portfolio import portfolio as wallet_portfolio, initialize_equity, RETURN_BASIS, AccountGone
 from .weekly import report_list, tick
 from .limits import process as process_limit_orders
-from .accounts import membership_days, profile_of, profile_versions
+from .accounts import PRIVACY_NOTICE_VERSION, membership_days, profile_of, profile_versions, record_consent
 from .performance_snapshots import capture_daily_snapshots, period_range, series, SEOUL as SNAPSHOT_ZONE
 from .routes import event
 from .branding import BRAND_NAME, STORAGE_NAMESPACE
@@ -197,6 +197,15 @@ class Credentials(BaseModel):
 
 class Registration(Credentials):
     password_confirm: str = Field(max_length=128)
+    # Both boxes on the sign-up form are required; the server checks them too.
+    agree_terms: bool = Field(strict=True)
+    over_14: bool = Field(strict=True)
+    notice_version: str = Field(max_length=32)
+    @field_validator('agree_terms', 'over_14')
+    @classmethod
+    def required(cls, v):
+        if not v: raise ValueError('필수 항목에 동의해야 가입할 수 있습니다.')
+        return v
 
 class Order(BaseModel):
     model_config = ConfigDict(extra='forbid')
@@ -206,10 +215,19 @@ class Order(BaseModel):
     request_id: UUID
     use_max: bool = False
 
-@app.get('/')
-def index():
-    html = Path('app/static/index.html').read_text()
+def _page(name):
+    html = Path('app/static', name).read_text()
     return HTMLResponse(html.replace('{{BRAND_NAME}}', BRAND_NAME).replace('{{STORAGE_NAMESPACE}}', STORAGE_NAMESPACE), headers={'Cache-Control':'no-cache'})
+
+@app.get('/')
+def index(): return _page('index.html')
+
+# Readable without an account, linked from every page footer and the sign-up form.
+@app.get('/privacy')
+def privacy_policy(): return _page('privacy.html')
+
+@app.get('/terms')
+def terms(): return _page('terms.html')
 
 @app.get('/health')
 def health():
@@ -229,12 +247,15 @@ def session(request: Request):
                 'username': user.username if user else None,
                 'is_admin': bool(user and user.is_admin),
                 'market_configured': bool(market.key),
-                'providers': market.status() if hasattr(market, 'status') else {'us': bool(market.key), 'kr': False}}
+                'providers': market.status() if hasattr(market, 'status') else {'us': bool(market.key), 'kr': False},
+                'notice_version': PRIVACY_NOTICE_VERSION}
 
 @app.post('/api/register', dependencies=[Depends(csrf)])
 def register(data: Registration, request: Request):
     if not secrets.compare_digest(data.password.encode(), data.password_confirm.encode()):
         raise HTTPException(422, '비밀번호가 일치하지 않습니다.')
+    if data.notice_version != PRIVACY_NOTICE_VERSION:
+        raise HTTPException(409, '약관 안내가 변경되었습니다. 페이지를 새로고침하세요.')
     try:
         with Session.begin() as db:
             amount = initial_amount(db)
@@ -243,6 +264,7 @@ def register(data: Registration, request: Request):
             db.flush()
             uid = user.id
             wallets(db, user)
+            record_consent(db, user)
     except IntegrityError:
         raise HTTPException(409, '이미 사용 중인 사용자 이름입니다.')
     try: initialize_equity(uid, fx)

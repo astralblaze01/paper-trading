@@ -9,7 +9,7 @@ with sync_playwright() as p:
     page.goto('http://browserweb:8000/')
     username = 'restart_'+str(int(time.time()))
     page.evaluate("""async username=>{const s=await api('session');csrf=s.csrf;
-        await api('register',{username,password:'abcd1234',password_confirm:'abcd1234'});
+        await api('register',{username,password:'abcd1234',password_confirm:'abcd1234',agree_terms:true,over_14:true,notice_version:s.notice_version});
         await api('login',{username,password:'abcd1234'});await boot();openStock('MSFT');}""", username)
     expect(page.locator('#quoteConnection')).to_contain_text('연결됨')
     page.locator('#displayCurrency').select_option('USD')

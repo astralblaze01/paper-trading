@@ -67,6 +67,12 @@ with Session.begin() as db:
     admin=db.scalar(select(User).where(User.username=='browser_admin'))
     if admin is None:
         db.add(User(username='browser_admin',password_hash=main.hasher.hash('browser-fixture-password'),is_admin=True))
+    # An account from before the sign-up agreement; every start puts it back in that state.
+    for name in ('browser_legacy_1440','browser_legacy_390'):
+        legacy=db.scalar(select(User).where(User.username==name))
+        if legacy is None:
+            legacy=User(username=name,password_hash=main.hasher.hash('browser-fixture-password'));db.add(legacy)
+        legacy.profile_public=legacy.ranking_public=False
 # Test-only deterministic publisher; no upstream provider is ever called here.
 if os.getenv('QUOTE_SSE_ENABLED') == 'true':
     import asyncio
