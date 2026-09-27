@@ -492,6 +492,11 @@ footer { max-width: 1680px; margin: 0 auto; padding: 8px 32px 28px; display: fle
 .account-facts dd span { display: block; margin-top: 5px; font-size: var(--fs-xs); font-weight: 400; letter-spacing: 0; color: var(--muted); font-family: var(--font-sans); }
 .intro-note { font-size: var(--fs-xs); color: var(--muted); margin-top: 26px; }
 .login-panel { padding: 32px; }
+/* One 16px rhythm between fields: a field with help text below keeps the help's own spacing. */
+.login-panel > input { margin-bottom: 16px; }
+.login-panel > input:has(+ .field-help) { margin-bottom: 0; }
+.login-panel > .full-width { margin-top: 8px; }
+.login-panel > h2 + label { margin-top: 24px; }
 .login-panel h2 { font-size: var(--fs-xl); }
 .form-description { margin: 8px 0 28px; }
 .signup-row { display: flex; align-items: center; justify-content: center; gap: 13px; font-size: var(--fs-sm); color: var(--muted); border-top: 1px solid var(--border); margin-top: 22px; padding-top: 15px; }
