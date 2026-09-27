@@ -15,6 +15,11 @@ with sync_playwright() as p:
     setup=p.request.new_context(base_url='http://browserweb:8000')
     csrf=setup.get('/api/session').json()['csrf']
     assert setup.post('/api/register',headers={'x-csrf-token':csrf},data={'username':peer,'password':'abcd1234','password_confirm':'abcd1234'}).ok
+    # Accounts start private; the peer shares its profile and joins the ranking.
+    assert setup.post('/api/login',headers={'x-csrf-token':csrf},data={'username':peer,'password':'abcd1234'}).ok
+    csrf=setup.get('/api/session').json()['csrf']
+    notice=setup.get('/api/profile').json()['privacy_notice_version']
+    assert setup.post('/api/profile/privacy',headers={'x-csrf-token':csrf},data={'profile_public':True,'ranking_public':True,'notice_version':notice}).ok
     setup.dispose()
     for width,height in [(1440,1000),(390,844)]:
         page=browser.new_page(viewport={'width':width,'height':height})
@@ -283,6 +288,13 @@ with sync_playwright() as p:
         expect(page.locator('#feeSummary .fee-total')).to_contain_text('총 수수료')
         expect(page.locator('#feeRates')).to_contain_text('토스증권 기준')
         # Profile line: tier emblem left of the rank, realized profit; the photo framed in the tier color.
+        # A new account is private and unranked until it opts in from its own profile.
+        expect(page.locator('#myProfile .profile-tier .tier-icon')).to_have_count(0)
+        privacy=page.locator('#myProfile .privacy-settings')
+        privacy.locator('[name=profile_public]').check()
+        privacy.locator('[name=ranking_public]').check()
+        privacy.get_by_role('button',name='공개 설정 저장').click()
+        expect(page.locator('#toasts')).to_contain_text('공개 설정을 저장했습니다.')
         # The tier arrives with the ranking, which values every fixture account first.
         expect(page.locator('#myProfile .profile-tier .tier-icon')).to_be_visible(timeout=20000)
         expect(page.locator('#myProfile')).to_contain_text('실현 손익 (매도 확정)')

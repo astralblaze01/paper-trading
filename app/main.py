@@ -341,7 +341,7 @@ def _public_user(db, username):
 
     Usernames are stored lowercase (see Credentials), so any casing names the same account,
     as it does for login and /api/users/{username}/avatar."""
-    return db.scalar(select(User).where(User.username == username.lower(), User.active.is_(True), User.is_admin.is_(False)))
+    return db.scalar(select(User).where(User.username == username.lower(), User.active.is_(True), User.is_admin.is_(False), User.profile_public.is_(True)))
 
 # Explicit read-only projection. No internal IDs, credentials, admin memo,
 # transactions or order IDs.
@@ -472,8 +472,12 @@ def ranking(uid=Depends(current_user)):
     with _ranking_lock:
         cached = _ranking_cache.get(cache_key)
         with Session() as db:
-            eligible=list(db.execute(select(User.id,User.username).where(User.active.is_(True),User.is_admin.is_(False))))
+            eligible=list(db.execute(select(User.id,User.username).where(User.active.is_(True),User.is_admin.is_(False),User.ranking_public.is_(True))))
+            public_names=set(db.scalars(select(User.username).where(User.profile_public.is_(True))))
         if cached: _drop_ineligible(cached['payload'], {name for _,name in eligible})
+        if cached:
+            for row in cached['payload']['rows']:
+                if row['username'] not in public_names: row['image_version'] = 0
         # A closed holiday/weekend must not create a new ranking snapshot.  We
         # still return the last valid rows with their original as-of time.
         if cached and cached['payload'].get('updated_at') and state['open'] is False:
@@ -511,7 +515,7 @@ def ranking(uid=Depends(current_user)):
             before,_=previous_ranks(db,ids,now.astimezone(SEOUL).date())
         rows=[{'rank':i+1,'username':v['username'],'equity':v['equity'],'equity_usd':v['equity_usd'],
                'return_pct':v['return_pct'],'return_pct_usd':v['return_pct_usd'],'stale':v['stale'],'fx':v['fx'],
-               'image_version':versions.get(i_id,0),'tier':tier_for(i+1,len(ranked)),'previous_rank':before.get(i_id)}
+               'image_version':versions.get(i_id,0) if v['username'] in public_names else 0,'tier':tier_for(i+1,len(ranked)),'previous_rank':before.get(i_id)}
               for i,(i_id,v) in enumerate(ranked)]
         payload=_ranking_payload(rows, [], incomplete=False, updated_at=now.isoformat(), stale=any(v['stale'] for v in values))
         _ranking_cache[cache_key] = {'bucket': bucket, 'payload': payload}

@@ -103,6 +103,7 @@ def test_standings_share_ranks_on_equal_weekly_return():
 
 def test_report_list_reranks_visible_rows_by_return_string_and_keeps_stored_rows():
     member('operator', is_admin=True)
+    for name in ('a', 'b', 'c', 'd', 'e'): member(name, ranking_public=True)
     stored = [{'username': 'a', 'return_pct': '5', 'rank': 1}, {'username': 'operator', 'return_pct': '4', 'rank': 2},
               {'username': 'b', 'return_pct': '4', 'rank': 2}, {'username': 'c', 'return_pct': '4', 'rank': 2},
               {'username': 'd', 'return_pct': '4.0', 'rank': 5}, {'username': 'e', 'return_pct': '1', 'rank': 6}]

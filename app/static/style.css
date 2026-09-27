@@ -1076,3 +1076,10 @@ footer { max-width: 1680px; margin: 0 auto; padding: 8px 32px 28px; display: fle
 .crop-zoom label { margin: 0; flex-shrink: 0; }
 .crop-zoom input[type="range"] { height: auto; padding: 0; border: 0; accent-color: var(--accent); }
 .crop-zoom .crop-step { min-width: 40px; min-height: 36px; padding: 0; font-size: var(--fs-icon); line-height: 1; }
+
+.privacy-settings{margin-top:20px;padding-top:16px;border-top:1px solid var(--border);display:grid;gap:8px}
+.privacy-settings h3{margin:0;font-size:1rem}
+.privacy-option{display:flex;align-items:flex-start;gap:8px;cursor:pointer}
+.privacy-option input[type=checkbox]{width:18px;height:18px;min-height:18px;flex:0 0 18px;margin:2px 0 0}
+.privacy-settings .field-help{margin:0 0 8px;line-height:1.6}
+.privacy-settings button{justify-self:start}

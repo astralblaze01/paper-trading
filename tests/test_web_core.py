@@ -104,7 +104,7 @@ def test_request_id_cache_control_and_access_log(client, caplog):
     from PIL import Image
     png = io.BytesIO(); Image.new('RGB', (40, 30)).save(png, 'PNG')
     assert client.post('/api/profile/image', headers=headers | {'content-type': 'image/png'}, content=png.getvalue()).status_code == 200
-    assert client.get('/api/users/painter/avatar').headers['cache-control'] == 'private, max-age=86400'
+    assert client.get('/api/users/painter/avatar').headers['cache-control'] == 'no-store'
     caplog.clear()
     client.get('/api/session', headers={'x-request-id': 'trace-1'})
     rec, = [rec for rec in caplog.records if rec.name == 'request']

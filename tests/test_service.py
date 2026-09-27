@@ -52,21 +52,27 @@ def client():
 # Fake adapter needs a client close hook for application shutdown.
 FakeMarket.client = type('Client', (), {'close': lambda self: None})()
 
-def register(c, name='alice'):
-    """Create an account, then sign in: registration itself does not log in."""
+def register(c, name='alice', public=True):
+    """Legacy public-account scenarios explicitly opt in; privacy tests use public=False."""
     token = c.get('/api/session').json()['csrf']
     credentials = {'username': name, 'password': 'a-secure-password-123'}
     r = c.post('/api/register', headers={'x-csrf-token': token}, json=credentials | {'password_confirm': credentials['password']})
     assert r.status_code == 200, r.text
     assert c.post('/api/login', headers={'x-csrf-token': token}, json=credentials).status_code == 200
-    return c.get('/api/session').json()['csrf']
+    token = c.get('/api/session').json()['csrf']
+    if public:
+        from app.accounts import PRIVACY_NOTICE_VERSION
+        response = c.post('/api/profile/privacy', headers={'x-csrf-token': token},
+                          json={'profile_public': True, 'ranking_public': True, 'notice_version': PRIVACY_NOTICE_VERSION})
+        assert response.status_code == 200, response.text
+    return token
 
 def order(**changes):
     return main.Order(**({'symbol': 'AAPL', 'side': 'buy', 'quantity': 1, 'request_id': uuid4()} | changes))
 
 def seed():
     with Session.begin() as db:
-        u=User(username='test', password_hash='not-used')
+        u=User(username='test', password_hash='not-used', profile_public=True, ranking_public=True)
         db.add(u)
         db.flush()
         return u.id
@@ -486,12 +492,12 @@ def test_weekly_publication_returns_ties_and_idempotency(monkeypatch):
     monkeypatch.setenv('WEEKLY_DAY', '5'); monkeypatch.setenv('WEEKLY_HOUR', '9')
     uid = seed()
     with Session.begin() as db:
-        db.add(User(username='second', password_hash='unused'))
+        db.add(User(username='second', password_hash='unused', ranking_public=True))
     start = datetime(2026, 9, 23, 0, 0, tzinfo=timezone.utc)
     assert tick(FakeMarket(), start) == 'baseline'
     with Session.begin() as db:
         for user in db.scalars(select(User)): user.cash = 102000
-        db.add(User(username='newcomer', password_hash='unused'))
+        db.add(User(username='newcomer', password_hash='unused', ranking_public=True))
     due = next_run(start)
     assert tick(FakeMarket(), due) == 'published'
     assert tick(FakeMarket(), due + timedelta(seconds=1)) == 'waiting'

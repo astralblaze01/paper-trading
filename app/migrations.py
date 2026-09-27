@@ -153,6 +153,12 @@ def migrate(engine):
             db.execute(text('ALTER TABLE limit_orders ADD COLUMN IF NOT EXISTS filled_price NUMERIC(20,4)'))
             db.execute(text('INSERT INTO schema_migrations(version) VALUES (14)'))
 
+        if not db.scalar(text('SELECT 1 FROM schema_migrations WHERE version=15')):
+            # Existing accounts have never chosen public sharing: default them off too.
+            db.execute(text('ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_public BOOLEAN NOT NULL DEFAULT false'))
+            db.execute(text('ALTER TABLE users ADD COLUMN IF NOT EXISTS ranking_public BOOLEAN NOT NULL DEFAULT false'))
+            db.execute(text('INSERT INTO schema_migrations(version) VALUES (15)'))
+
 
 def backfill_trade_rates(db):
     """Give older fills the reference rate the app itself was using then.

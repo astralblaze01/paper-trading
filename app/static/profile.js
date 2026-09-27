@@ -1,7 +1,32 @@
 /* Profiles, the asset-allocation chart and account withdrawal. */
 const AVATAR_DEFAULT='/static/avatar-default.svg';
 const IMAGE_TYPES=['image/jpeg','image/png','image/webp'], IMAGE_MAX_BYTES=5*1024*1024;
-let myProfile=null, bioEditing=false, bioDraft='';
+let myProfile=null, bioEditing=false, bioDraft='', privacyDirty=false;
+
+function privacySettings(p){
+  const form=node('form',null,'privacy-settings'),legend=node('h3','다른 회원에게 공개');
+  form.append(legend,node('p','두 항목 모두 선택 사항입니다. 공개하지 않아도 모의거래를 이용할 수 있습니다.','field-help'));
+  const option=(name,title,description)=>{
+    const label=node('label',null,'privacy-option'),input=node('input');input.type='checkbox';input.name=name;input.checked=!!p[name];
+    input.addEventListener('change',()=>{privacyDirty=true;});
+    label.append(input,document.createTextNode(title));form.append(label,node('p',description,'field-help'));return input;
+  };
+  const profile=option('profile_public','프로필·포트폴리오 공개',
+    '다른 로그인 회원에게 아이디, 사진, 소개, 가입 기간, 보유 종목·수량, 가상 잔액·평가액, 손익과 과거 성과를 공개합니다.');
+  const ranking=option('ranking_public','랭킹 참여',
+    '다른 로그인 회원에게 아이디, 가상 평가액·손익·수익률과 순위를 현재 랭킹 및 과거·향후 주간 랭킹에 공개합니다. 사진·상세 포트폴리오는 위 공개 선택을 따릅니다.');
+  form.append(node('p','공개 목적은 회원 간 모의투자 기록 비교입니다. 체크를 해제하고 저장하면 이후 조회에서 비공개로 전환됩니다. 설정 변경 내역과 안내 버전·시각은 계정 삭제 시까지 보관합니다.','field-help'));
+  const save=node('button','공개 설정 저장');save.type='submit';form.append(save);
+  form.addEventListener('submit',async e=>{
+    e.preventDefault();save.disabled=true;
+    try{
+      const result=await api('profile/privacy',{profile_public:profile.checked,ranking_public:ranking.checked,notice_version:myProfile.privacy_notice_version});
+      myProfile={...myProfile,...result};privacyDirty=false;renderMyProfile();
+      toast('공개 설정을 저장했습니다.','success');await refreshRankingOnly();
+    }catch(err){toast(err.message,'error');save.disabled=false;}
+  });
+  return form;
+}
 
 window.avatar=function(username,version,size='large'){
   const img=document.createElement('img');img.className='avatar avatar-'+size;img.alt=size==='small'?'':username+' 프로필 사진';
@@ -76,6 +101,7 @@ window.renderProfileCard=function(target,p,editable){
   // Days since sign-up in Korea time, the sign-up day counting as day 1 (own and public profiles).
   if(p.member_days){const since=profileStat('가입 기간',`${p.member_days.toLocaleString()}일`);since.classList.add('member-days');if(p.member_since)since.title=new Date(p.member_since).toLocaleDateString('ko-KR',{timeZone:'Asia/Seoul'})+' 가입';stats.append(since);}
   info.append(stats);
+  if(editable&&!window.isAdmin)info.append(privacySettings(p));
   target.append(media,info);
 };
 
@@ -87,13 +113,13 @@ window.renderHeaderUser=function(){
   const label=document.createElement('span');label.className='header-user-name'+(tier?' tier-text-'+tier:'');label.textContent=name;
   box.replaceChildren(avatar(name,myProfile?.image_version,'small'),...(tier?[tierIcon(tier)]:[]),label);
 };
-window.loadMyProfile=async function(){myProfile=await api('profile');renderMyProfile();renderHeaderUser();};
+window.loadMyProfile=async function(){const profile=await api('profile');if(myProfile?.username!==profile.username)privacyDirty=false;myProfile=profile;renderMyProfile();renderHeaderUser();};
 // The ranking is computed once per 10-second window and shared; an account made inside the
 // current window is not in it yet. Ask again once the window has passed, so the tier and
 // rank appear without a reload.
 let ownRankingRetry=null;
 function awaitOwnRanking(){
-  if(ownRankingRetry||!rankingCache||rankingCache.incomplete||window.isAdmin||typeof rankRow!=='function')return;
+  if(ownRankingRetry||!myProfile?.ranking_public||!rankingCache||rankingCache.incomplete||window.isAdmin||typeof rankRow!=='function')return;
   if(rankRow(window.sessionUsername).rank!=null)return;
   ownRankingRetry=setTimeout(async()=>{try{await refreshRankingOnly();}catch{}finally{ownRankingRetry=null;}},11000);
 }
@@ -101,10 +127,11 @@ window.renderMyProfile=function(){
   const target=$('myProfile');if(!target||!myProfile||myProfile.username!==window.sessionUsername)return;
   // Keep an open bio editor untouched by periodic refreshes.
   if(bioEditing&&target.querySelector('#bioInput'))return;
+  if(privacyDirty&&target.querySelector('.privacy-settings'))return;
   const p=portfolioCache||{};
   renderHeaderUser();
   awaitOwnRanking();
-  renderProfileCard(target,{username:window.sessionUsername,bio:myProfile.bio,image_version:myProfile.image_version,equity_usd:p.equity_usd,return_pct:p.return_pct,return_pct_usd:p.return_pct_usd,realized_pnl:p.realized_pnl,fx:p.fx,...(typeof rankRow==='function'?rankRow(window.sessionUsername):{}),member_days:myProfile.member_days,member_since:myProfile.member_since},true);
+  renderProfileCard(target,{username:window.sessionUsername,bio:myProfile.bio,profile_public:myProfile.profile_public,ranking_public:myProfile.ranking_public,equity_usd:p.equity_usd,return_pct:p.return_pct,return_pct_usd:p.return_pct_usd,realized_pnl:p.realized_pnl,fx:p.fx,...(typeof rankRow==='function'?rankRow(window.sessionUsername):{}),image_version:myProfile.image_version,member_days:myProfile.member_days,member_since:myProfile.member_since},true);
 };
 
 async function uploadProfileImage(file){

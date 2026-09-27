@@ -61,6 +61,7 @@
         <label for="registerConfirm">비밀번호 확인</label>
         <input id="registerConfirm" type="password" autocomplete="new-password" required maxlength="128" placeholder="비밀번호를 한 번 더 입력">
         <p id="registerError" class="order-error" role="alert"></p>
+        <p class="field-help">가입 시 프로필·포트폴리오는 비공개이며 랭킹에 참여하지 않습니다. 가입 후 내 프로필에서 공개 여부를 직접 선택할 수 있습니다.</p>
         <button id="registerSubmit" class="full-width">회원가입</button>
         <div class="signup-row"><span>이미 계좌가 있나요?</span><a id="showLogin" href="#" class="text-button">로그인으로 돌아가기</a></div>
       </form>
@@ -203,7 +204,7 @@
   <dialog id="withdrawDialog" class="confirm-dialog" aria-labelledby="withdrawTitle">
     <form id="withdrawForm" method="dialog">
       <h2 id="withdrawTitle">정말 회원 탈퇴하시겠습니까?</h2>
-      <p>탈퇴 후에는 현재 계정으로 다시 로그인할 수 없습니다. 보유 종목과 현금, 거래 기록, 프로필이 모두 삭제됩니다.</p>
+      <p>탈퇴 후에는 현재 계정으로 다시 로그인할 수 없습니다. 서비스 DB의 계정, 가상 자산·거래 기록, 프로필과 공개 설정 기록을 삭제합니다. 상대방 기록은 계정 연결을 해제합니다. 이 작업으로 운영 로그·백업까지 즉시 삭제되지는 않습니다.</p>
       <label for="withdrawPassword">비밀번호 확인</label>
       <input id="withdrawPassword" type="password" autocomplete="current-password" required maxlength="128">
       <p id="withdrawError" class="order-error" role="alert"></p>

@@ -144,6 +144,8 @@ def test_ranking_orders_by_usd_equity_not_return(client):
     for name in ('grower', 'granted'):
         with Session.begin() as db:
             if not db.scalar(select(User).where(User.username == name)): db.add(User(username=name, password_hash='x'))
+            db.flush()
+            db.scalar(select(User).where(User.username == name)).ranking_public = True
     grower, granted = uid_of('grower'), uid_of('granted')
     portfolio(grower, FakeMarket(), main.fx); portfolio(granted, FakeMarket(), main.fx)
     # KRW held outside contributions raises grower's return (+10%) but not above granted's value.
@@ -170,7 +172,7 @@ def test_profile_bio_and_image_lifecycle(client):
     assert client.get('/api/profile').json()['image_version'] == 3
     served = client.get('/api/users/painter/avatar')
     assert served.status_code == 200 and served.headers['content-type'] == 'image/webp' and served.content[:4] == b'RIFF'
-    assert 'max-age' in served.headers['cache-control']
+    assert served.headers['cache-control'] == 'no-store'
     # Oversized images are resized on the server.
     client.post('/api/profile/image', headers=headers | {'content-type': 'image/png'}, content=image_bytes('PNG', (2000, 1000)))
     from PIL import Image

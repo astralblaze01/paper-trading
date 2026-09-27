@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from fastapi import Depends, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select, delete, update, or_, text
-from .db import (ACCOUNT_LOCK, Session, PerformanceSnapshot, User, Position, Wallet, Transaction, FxTransaction, LimitOrder, Watchlist, PopularityEvent,
+from .db import (ACCOUNT_LOCK, Session, PrivacyChoice, PerformanceSnapshot, User, Position, Wallet, Transaction, FxTransaction, LimitOrder, Watchlist, PopularityEvent,
                  SeasonArchive, WeeklyReport, AdminAudit, WalletTransfer, UserAdminNote, UserProfile, UserProfileImage, lock_user)
 from .weekly import drop_from_baseline
 
@@ -13,6 +13,7 @@ MAX_IMAGE_BYTES = 5 * 1024 * 1024
 IMAGE_TYPES = {'image/jpeg': 'JPEG', 'image/png': 'PNG', 'image/webp': 'WEBP'}
 AVATAR_SIZE = 512
 BIO_LENGTH = 160
+PRIVACY_NOTICE_VERSION = '2026-09-27-v1'
 
 
 def delete_account_data(db, user):
@@ -28,7 +29,7 @@ def delete_account_data(db, user):
     db.execute(update(WalletTransfer).where(WalletTransfer.sender_id == target).values(sender_id=None))
     db.execute(update(WalletTransfer).where(WalletTransfer.recipient_id == target).values(recipient_id=None))
     for model in (Position, Transaction, FxTransaction, LimitOrder, Watchlist, PopularityEvent, SeasonArchive, Wallet,
-                  UserAdminNote, UserProfileImage, UserProfile, PerformanceSnapshot):
+                  UserAdminNote, UserProfileImage, UserProfile, PerformanceSnapshot, PrivacyChoice):
         db.execute(delete(model).where(model.user_id == target))
     db.execute(delete(AdminAudit).where(or_(AdminAudit.actor_id == target, AdminAudit.target_id == target)))
     db.delete(user)
@@ -108,6 +109,12 @@ class WithdrawInput(BaseModel):
     model_config = ConfigDict(extra='forbid')
     password: str = Field(min_length=1, max_length=128)
 
+class PrivacyInput(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    profile_public: bool = Field(strict=True)
+    ranking_public: bool = Field(strict=True)
+    notice_version: str = Field(max_length=32)
+
 
 def install_accounts(app, ctx):
     user, csrf = ctx.current_user, ctx.csrf
@@ -117,7 +124,29 @@ def install_accounts(app, ctx):
         with Session() as db:
             me = db.get(User, uid)
             return {'username': me.username, **profile_of(db, uid), 'bio_max_length': BIO_LENGTH,
+                    'profile_public': me.profile_public, 'ranking_public': me.ranking_public,
+                    'privacy_notice_version': PRIVACY_NOTICE_VERSION,
                     'member_since': me.created_at, 'member_days': membership_days(me.created_at)}
+
+    @app.post('/api/profile/privacy', dependencies=[Depends(csrf)])
+    def save_privacy(data: PrivacyInput, uid=Depends(user)):
+        if data.notice_version != PRIVACY_NOTICE_VERSION:
+            raise HTTPException(409, '공개 설정 안내가 변경되었습니다. 페이지를 새로고침하세요.')
+        # Same order as ranking(): process lock, then database transaction.
+        with ctx._ranking_lock:
+            with Session.begin() as db:
+                me = lock_user(db, uid)
+                if me is None: raise HTTPException(401, '로그인이 필요합니다.')
+                if me.is_admin and (data.profile_public or data.ranking_public):
+                    raise HTTPException(403, '관리자 계정은 회원 공개에 참여할 수 없습니다.')
+                if (me.profile_public, me.ranking_public) != (data.profile_public, data.ranking_public):
+                    me.profile_public, me.ranking_public = data.profile_public, data.ranking_public
+                    db.add(PrivacyChoice(user_id=uid, profile_public=data.profile_public,
+                                         ranking_public=data.ranking_public, notice_version=PRIVACY_NOTICE_VERSION,
+                                         created_at=datetime.now(timezone.utc)))
+            ctx._ranking_cache.clear()
+        return {'profile_public': data.profile_public, 'ranking_public': data.ranking_public,
+                'privacy_notice_version': PRIVACY_NOTICE_VERSION}
 
     @app.post('/api/profile', dependencies=[Depends(csrf)])
     def save_profile(data: BioInput, uid=Depends(user)):
@@ -157,11 +186,12 @@ def install_accounts(app, ctx):
     @app.get('/api/users/{username}/avatar')
     def avatar(username: str, uid=Depends(user)):
         with Session() as db:
-            target = db.scalar(select(User.id).where(User.username == username.lower(), User.active.is_(True)))
+            target = db.scalar(select(User.id).where(User.username == username.lower(), User.active.is_(True),
+                              or_(User.id == uid, (User.profile_public.is_(True) & User.is_admin.is_(False)))))
             image = db.get(UserProfileImage, target) if target else None
             if not image: raise HTTPException(404, '프로필 이미지가 없습니다.')
-            # URLs carry ?v=<image_version>, so a changed image gets a new URL.
-            return Response(image.data, media_type='image/webp', headers={'Cache-Control': 'private, max-age=86400'})
+            # A private profile must not remain viewable through a browser cache.
+            return Response(image.data, media_type='image/webp', headers={'Cache-Control': 'no-store'})
 
     @app.post('/api/account/delete', dependencies=[Depends(csrf)])
     def withdraw(data: WithdrawInput, request: Request, uid=Depends(user)):

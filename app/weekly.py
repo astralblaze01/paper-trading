@@ -90,7 +90,7 @@ def tick(market, now=None, fx=None):
         snapshot=db.execute(select(User.id,User.username,func.coalesce(usd.balance,User.cash).label('cash'),func.coalesce(krw.balance,0).label('krw'),User.initial_usd,User.initial_krw,User.net_contributions_krw,Position.symbol,Position.quantity)
                             .outerjoin(Position,Position.user_id==User.id)
                             .outerjoin(usd,(usd.user_id==User.id)&(usd.currency=='USD'))
-                            .outerjoin(krw,(krw.user_id==User.id)&(krw.currency=='KRW')).where(User.active.is_(True),User.is_admin.is_(False))).all()
+                            .outerjoin(krw,(krw.user_id==User.id)&(krw.currency=='KRW')).where(User.active.is_(True),User.is_admin.is_(False),User.ranking_public.is_(True))).all()
         symbols = {r.symbol for r in snapshot if r.symbol}
         prices, metadata, missing = {}, {}, []
         for symbol in sorted(symbols):
@@ -154,9 +154,9 @@ def report_list(page=1):
         state = db.get(WeeklyState, 1)
         reports = list(db.scalars(select(WeeklyReport).order_by(WeeklyReport.period_end.desc()).offset((page - 1) * 10).limit(10)))
         day, hour = schedule()
-        admin_names=set(db.scalars(select(User.username).where(User.is_admin.is_(True))))
+        visible_names=set(db.scalars(select(User.username).where(User.active.is_(True),User.is_admin.is_(False),User.ranking_public.is_(True))))
         def visible_rows(rows):
-            filtered=[dict(row) for row in rows if row['username'] not in admin_names]
+            filtered=[dict(row) for row in rows if row['username'] in visible_names]
             assign_ranks(filtered)
             return filtered
         return {'enabled': os.getenv('WEEKLY_ENABLED', 'true').lower() == 'true',

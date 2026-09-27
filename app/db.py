@@ -21,6 +21,8 @@ class User(Base):
     cash: Mapped[Decimal] = mapped_column(Numeric(20, 4), default=Decimal('100000'))
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False, server_default='false')
     active: Mapped[bool] = mapped_column(Boolean, default=True, server_default='true')
+    profile_public: Mapped[bool] = mapped_column(Boolean, default=False, server_default='false')
+    ranking_public: Mapped[bool] = mapped_column(Boolean, default=False, server_default='false')
     initial_usd: Mapped[Decimal] = mapped_column(Numeric(24,4), default=Decimal(100000), server_default='100000')
     initial_krw: Mapped[Decimal | None] = mapped_column(Numeric(24,4), nullable=True)
     initial_fx_date: Mapped[str | None] = mapped_column(String(10), nullable=True)
@@ -228,6 +230,16 @@ class UserProfile(Base):
     image_version: Mapped[int] = mapped_column(Integer, default=0, server_default='0')
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+class PrivacyChoice(Base):
+    """User-initiated visibility changes; removed with the account."""
+    __tablename__ = 'privacy_choices'
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey('users.id', ondelete='CASCADE'), index=True)
+    profile_public: Mapped[bool] = mapped_column(Boolean)
+    ranking_public: Mapped[bool] = mapped_column(Boolean)
+    notice_version: Mapped[str] = mapped_column(String(32))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 class UserProfileImage(Base):
     """Re-encoded WebP bytes; the uploaded file and its name are never stored."""

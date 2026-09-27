@@ -15,7 +15,7 @@ def users(client):
     token=register(client,'operator')
     with Session.begin() as db:
         admin=db.scalar(select(User).where(User.username=='operator'));admin.is_admin=True
-        u=User(username='investor',password_hash='unused');db.add(u);db.flush();uid=u.id
+        u=User(username='investor',password_hash='unused',profile_public=True,ranking_public=True);db.add(u);db.flush();uid=u.id
     return {'x-csrf-token':token},uid
 
 def command(action='grant',**kwargs):
