@@ -432,6 +432,17 @@ def test_korean_names_find_us_listings_without_finnhub(monkeypatch):
     market.close()
 
 
+def test_index_names_find_tracking_etfs(monkeypatch):
+    market, _ = us_market(monkeypatch)
+    for query in ('s&p500', 'S&P 500', 'sp500', '에스앤피500'):
+        assert [r['symbol'] for r in market.search(query, 'us')][:4] == ['VOO', 'SPY', 'IVV', 'SPLG'], query
+    assert market.search('s&p500', 'us')[0]['name'] == 'Vanguard S&P 500 ETF'
+    assert [r['symbol'] for r in market.search('나스닥100', 'kr')] == ['KR:133690', 'KR:379810']  # market tab respected
+    assert [r['symbol'] for r in market.search('s&p500', 'all')][:6] == ['VOO', 'SPY', 'IVV', 'SPLG', 'KR:360750', 'KR:379800']
+    assert market.search('sp', 'us') == []  # too short to name an index
+    market.close()
+
+
 def test_english_code_and_korean_market_searches_unchanged(monkeypatch):
     market, finnhub = us_market(monkeypatch)
     assert [r['symbol'] for r in market.search('Tesla', 'us')] == ['TSLA']

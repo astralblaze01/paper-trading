@@ -37,6 +37,37 @@ ALIASES = {
     'GLD': ('금','골드'), 'IAU': ('금','골드'), 'GLDM': ('금','골드'),
 }
 
+# Index names people search by, and the funds that track them. Finnhub and the
+# KIS masters match listing names only, so 'S&P500' or '나스닥100' finds no ETF.
+INDEX_FUNDS = [
+    (('s&p500','sp500','snp500','에스앤피500','에스엔피500','스탠더드앤드푸어스'),
+     [('VOO','Vanguard S&P 500 ETF'),('SPY','SPDR S&P 500 ETF Trust'),('IVV','iShares Core S&P 500 ETF'),('SPLG','SPDR Portfolio S&P 500 ETF'),
+      ('KR:360750','TIGER 미국S&P500'),('KR:379800','KODEX 미국S&P500')]),
+    (('nasdaq100','nasdaq','나스닥100','나스닥'),
+     [('QQQ','Invesco QQQ Trust'),('QQQM','Invesco NASDAQ 100 ETF'),('KR:133690','TIGER 미국나스닥100'),('KR:379810','KODEX 미국나스닥100')]),
+    (('dowjones','dow','다우존스','다우'),
+     [('DIA','SPDR Dow Jones Industrial Average ETF')]),
+    (('russell2000','러셀2000'), [('IWM','iShares Russell 2000 ETF')]),
+    (('totalmarket','미국전체','미국전체시장'), [('VTI','Vanguard Total Stock Market ETF')]),
+    (('kospi200','코스피200','코스피'), [('KR:069500','KODEX 200'),('KR:102110','TIGER 200')]),
+]
+
+def _index_text(value):
+    # Keeps '&' so 'S&P 500' and 's&p500' meet; spaces and other punctuation go.
+    return re.sub(r'[^0-9a-z&가-힣]+','',value.casefold())
+
+def index_funds(query, category='all'):
+    """Funds tracking the index the query names, e.g. 'S&P 500' → VOO, SPY, ..."""
+    needle = _index_text(query)
+    if len(needle) < 2: return []
+    rows = []
+    for names, funds in INDEX_FUNDS:
+        if any(needle == _index_text(n) or (len(needle) >= 3 and _index_text(n).startswith(needle)) for n in names):
+            for symbol, name in funds:
+                row = instrument(symbol) | {'name': name}
+                if category == 'all' or row['category'] == category: rows.append(row)
+    return rows
+
 def _search_text(value):
     return re.sub(r'[\s._-]+','',value.casefold())
 
