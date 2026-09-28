@@ -135,7 +135,19 @@ $('exploreMarkets').addEventListener('click',e=>{const b=e.target.closest('[data
 $('exploreKinds').addEventListener('click',e=>{const b=e.target.closest('[data-kind]');if(!b)return;$('exploreKind').value=b.dataset.kind;explore();});
 handle('exploreMarket','change',()=>explore());handle('exploreKind','change',()=>explore());
 window.addEventListener('displaycurrencychange',()=>{displayFx=viewFx;stockTable($('exploreRows'),exploreRowsCache,explorePopular);renderDetailQuote();renderOrderPreview();drawChart();renderPublic();renderWatchlist();renderValuation();});
-handle('discoverySearch','submit',async()=>{exploreMode='search';++exploreVersion;const query=$('discoveryQuery').value;const rows=await api('search?'+new URLSearchParams({q:query,category:$('exploreMarket').value}));exploreRowsCache=rows;explorePopular=false;stockTable($('exploreRows'),rows);$('exploreNotice').textContent='검색 결과 · 등록 종목 목록이며 가격은 종목 상세에서 확인합니다.';if(rows.length===1)await api('popularity',{symbol:rows[0].symbol,kind:'search'});});
+// Search rows arrive without prices; fill the top ones in batches of the server's limit.
+const SEARCH_QUOTE_ROWS=10, SEARCH_QUOTE_BATCH=5;
+async function fillSearchQuotes(rows,version){
+  for(let i=0;i<Math.min(rows.length,SEARCH_QUOTE_ROWS);i+=SEARCH_QUOTE_BATCH){
+    const batch=rows.slice(i,Math.min(i+SEARCH_QUOTE_BATCH,SEARCH_QUOTE_ROWS));
+    let quotes;try{quotes=await api('search/quotes?'+new URLSearchParams({symbols:batch.map(r=>r.symbol).join(',')}));}catch{return;}
+    if(version!==exploreVersion)return;
+    const bySymbol=new Map(quotes.map(q=>[q.symbol,q]));
+    batch.forEach(r=>Object.assign(r,bySymbol.get(r.symbol)||{}));
+    stockTable($('exploreRows'),rows);
+  }
+}
+handle('discoverySearch','submit',async()=>{exploreMode='search';const version=++exploreVersion;const query=$('discoveryQuery').value;const rows=await api('search?'+new URLSearchParams({q:query,category:$('exploreMarket').value}));if(version!==exploreVersion)return;exploreRowsCache=rows;explorePopular=false;stockTable($('exploreRows'),rows);$('exploreNotice').textContent=`검색 결과 · 상위 ${SEARCH_QUOTE_ROWS}개 종목의 시세를 표시합니다. 나머지는 종목 상세에서 확인합니다.`;if(rows.length===1)api('popularity',{symbol:rows[0].symbol,kind:'search'}).catch(()=>{});loadDisplayFx().catch(()=>{});await fillSearchQuotes(rows,version);});
 // Keep REST_QUOTE_MS in step with the REST fallback's '30초 간격' status line.
 const MARKET_STATUS_MS=60000, REST_QUOTE_MS=30000;
 let quoteSource=null, quoteRetry=null, quoteWatch=null, marketTimer=null, restTimer=null;
@@ -568,7 +580,7 @@ function renderAdminUsers(){
 $('adminUserSort').addEventListener('change',()=>{adminUserPage=1;renderAdminUsers();});
 // Audit action codes as the admin reads them.
 const ADMIN_ACTIONS={grant:'지원금 지급',bulk_grant:'전체 지원금',rebase:'기준 재설정',clear:'계정 초기화',delete:'계정 삭제',account_delete:'계정 삭제',
-  account_status:'계정 정지/활성화',initial_amount:'초기 지급액 변경',season_reset:'시즌 초기화',notice_post:'공지 등록',notice_clear:'공지 내리기'};
+  account_status:'계정 정지/활성화',password_reset:'비밀번호 초기화',initial_amount:'초기 지급액 변경',season_reset:'시즌 초기화',notice_post:'공지 등록',notice_clear:'공지 내리기'};
 async function admin(){
  const r=await api('admin');adminUsers=r.users;
  renderAdminStatus(r);
@@ -590,13 +602,17 @@ async function searchAdminUsers(){
  if(!rows.length)target.append(node('p',q?'검색 결과가 없습니다. 아이디나 메모의 일부로 검색하세요.':'사용자가 없습니다.','field-help'));
 }
 $('adminTargetSearch').addEventListener('input',()=>{clearTimeout(adminSearchTimer);adminSearchTimer=setTimeout(()=>searchAdminUsers().catch(e=>toast(e.message,'error')),200);});
+let adminPasswordShownFor=null;
 function renderAdminSelected(){
- const u=adminSelected();$('adminSelected').hidden=!u;if(!u)return;
+ const u=adminSelected();$('adminSelected').hidden=!u;
+ // A temporary password is shown only next to the account it was issued for.
+ if(!u||adminPasswordShownFor!==u.id){$('adminPasswordResult').hidden=true;$('adminTempPassword').textContent='';}
+ adminPasswordShownFor=u?.id??null;if(!u)return;
  $('adminSelectedName').textContent=adminLabel(u);
  $('adminSelectedMeta').textContent=`${u.admin?'관리자':'일반'} · ${u.active?'활성':'정지'} · 현금 USD ${nativeMoney(u.wallets.USD,'USD')} · KRW ${nativeMoney(u.wallets.KRW,'KRW')}`;
  $('adminNote').value=u.note||'';
  const self=u.username===window.sessionUsername;
- document.querySelector('[data-admin-action="delete"]').disabled=self;
+ document.querySelector('[data-admin-action="delete"]').disabled=self;$('adminPasswordReset').disabled=self;
 }
 handle('adminNoteForm','submit',async()=>{const u=adminSelected();if(!u)return;const r=await api(`admin/users/${u.id}/note`,{note:$('adminNote').value});toast(r.note?`${u.username} 메모를 저장했습니다.`:`${u.username} 메모를 지웠습니다.`,'success');await admin();});
 async function runAdminAction(action,extra={}){
@@ -610,6 +626,16 @@ async function runAdminAction(action,extra={}){
   if(action==='delete')adminSelectedId=null;await admin();
  }catch(e){toast(e.message,'error',7000);throw e;}finally{buttons.forEach(b=>b.disabled=false);renderAdminSelected();}
 }
+$('adminPasswordReset').addEventListener('click',async()=>{
+ const u=adminSelected();if(!u)return;
+ if(!confirm(`${u.username}의 비밀번호를 초기화할까요?\n임시 비밀번호가 발급되고 이 사용자의 모든 기기가 로그아웃됩니다.`))return;
+ $('adminPasswordReset').disabled=true;
+ try{const r=await api(`admin/users/${u.id}/password`,{});$('adminTempPassword').textContent=r.temporary_password;$('adminPasswordResult').hidden=false;
+  toast(`${u.username}: 임시 비밀번호를 발급했습니다.`,'success');
+  const rows=await api('admin/audit');table($('adminAudit'),['시각','운영자','대상','작업','사유'],rows.map(r=>[new Date(r.created_at).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}),r.actor||'삭제된 계정',r.target||'삭제된 계정',ADMIN_ACTIONS[r.action]||r.action,r.reason]));
+ }catch(e){toast(e.message,'error',7000);}finally{$('adminPasswordReset').disabled=false;renderAdminSelected();}
+});
+$('adminTempCopy').addEventListener('click',async()=>{try{await navigator.clipboard.writeText($('adminTempPassword').textContent);toast('복사했습니다.','success');}catch{toast('복사하지 못했습니다. 직접 선택해 복사하세요.','error');}});
 handle('adminGrantForm','submit',()=>runAdminAction('grant',{currency:$('adminCurrency').value,amount:$('adminAmount').value}));
 document.querySelectorAll('[data-admin-action]').forEach(b=>b.addEventListener('click',()=>runAdminAction(b.dataset.adminAction).catch(e=>$('adminResult').textContent=e.message)));
 for(const [select,input] of [['adminCurrency','adminAmount'],['adminBulkCurrency','adminBulkAmount']])$(select).addEventListener('change',()=>{$(input).step=$(select).value==='KRW'?'1':'0.0001';$(input).min=$(input).step;});

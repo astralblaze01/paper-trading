@@ -180,6 +180,7 @@ async function api(path, body, retried=false) {
   try { data = await response.json(); } catch { throw Error(`요청 실패 (${response.status}). 잠시 후 다시 시도하세요.`); }
   if (!response.ok) {
     if(response.status===401)window.disconnectQuoteStream?.();
+    if(response.headers.get('X-Password-Change'))openPasswordDialog(true);
     if (typeof data.detail === 'string') throw Error(data.detail);
     if (Array.isArray(data.detail)) {
       const labels={recipient:'받는 사용자',amount:'금액',currency:'통화',username:'사용자 이름',password:'비밀번호',quantity:'수량',symbol:'종목'};
@@ -216,11 +217,40 @@ async function boot() {
   if (!s.providers.us) unavailable.push('미국 시세');
   if (!s.providers.kr) unavailable.push('한국 시세');
   if (unavailable.length) message(unavailable.join(' · ') + ' 서비스 연결이 필요합니다. 계좌 생성과 지원 종목 목록 조회는 이용할 수 있습니다.');
+  if (s.username && s.password_temporary) { openPasswordDialog(true); return; }
   if (s.username) {
     if(s.is_admin){if(location.hash!=='#admin')location.hash='admin';if(window.routePage)await routePage();}
     else {$('greeting').textContent = s.username + '님의 투자 현황'; await Promise.all([refresh(),refreshMarketSessions()]); if(window.renderRecentStocks)renderRecentStocks(); if(window.routePage) await routePage();}
   }
 }
+/* Password change. forced: signed in with an administrator's temporary password,
+   so nothing else works until a new one is set (the server refuses other calls). */
+function openPasswordDialog(forced=false){
+  const dialog=$('passwordDialog');dialog.dataset.forced=forced?'1':'';
+  if(dialog.open)return;
+  $('passwordForm').reset();$('passwordError').textContent='';
+  $('passwordTitle').textContent=forced?'새 비밀번호를 설정하세요':'비밀번호 변경';
+  $('passwordIntro').textContent=forced?'관리자가 발급한 임시 비밀번호로 로그인했습니다. 계속 이용하려면 새 비밀번호를 정하세요.':'변경하면 다른 기기에서는 로그아웃됩니다.';
+  $('passwordCurrentLabel').textContent=forced?'임시 비밀번호':'현재 비밀번호';
+  $('passwordCancel').hidden=forced;$('passwordLogout').hidden=!forced;
+  dialog.showModal();$('passwordCurrent').focus();
+}
+document.querySelectorAll('[data-password-open]').forEach(b=>b.addEventListener('click',()=>openPasswordDialog()));
+$('passwordDialog').addEventListener('cancel',e=>{if($('passwordDialog').dataset.forced)e.preventDefault();});
+$('passwordCancel').addEventListener('click',()=>$('passwordDialog').close());
+$('passwordLogout').addEventListener('click',()=>{$('passwordDialog').close();$('logout').click();});
+$('passwordForm').addEventListener('submit',async e=>{
+  e.preventDefault();
+  const current=$('passwordCurrent').value,next=$('passwordNew').value,confirm=$('passwordNewConfirm').value;
+  const problem=!current?'현재 비밀번호를 입력하세요.':next.length<8?'새 비밀번호는 8자 이상이어야 합니다.':next!==confirm?'새 비밀번호가 일치하지 않습니다.':next===current?'현재 비밀번호와 다른 비밀번호를 입력하세요.':'';
+  if(problem){$('passwordError').textContent=problem;return;}
+  const forced=!!$('passwordDialog').dataset.forced;$('passwordSubmit').disabled=true;
+  try{
+    await api('account/password',{current_password:current,new_password:next,new_password_confirm:confirm});
+    $('passwordDialog').close();toast('비밀번호를 변경했습니다.','success');
+    if(forced)await boot();
+  }catch(err){$('passwordError').textContent=err.message;}finally{$('passwordSubmit').disabled=false;}
+});
 // Market state comes from the server (open, tradable, price_mode); labels
 // are for display only. '열림' and '주문 가능' are separate facts.
 window.marketIsOpen=function(x){return x.open??['정규장','장전','장후','데이마켓','프리장','애프터장'].includes(x.label);};

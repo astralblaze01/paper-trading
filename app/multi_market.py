@@ -242,6 +242,8 @@ class MultiMarket:
                     listed.add(row['symbol'])
                     rows.append((instrument(row['symbol']) | {'name': row['name']}) if as_instrument else row)
 
+        from .instruments import index_funds
+        add_unlisted(index_funds(query, category))
         if category in ('all','kr'):
             from .kr_symbols import search_master
             add_unlisted(search_master(query))

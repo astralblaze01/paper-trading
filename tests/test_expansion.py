@@ -361,3 +361,16 @@ def test_fx_conversion_reduces_equity_and_explains_currency_effect():
     changed=portfolio(uid,FakeMarket(),HigherFX())
     assert changed['initial_fx_effect']==D(10000000)
     assert changed['pnl']==changed['initial_fx_effect']+changed['other_pnl']
+
+def test_search_quotes_fill_prices_for_search_rows(client, monkeypatch):
+    register(client)
+    def quote(symbol):
+        if symbol=='VIK': raise MarketError('유효한 가격이 없는 종목입니다.')
+        return {'symbol':symbol,'price':D('12.5'),'change_pct':D('1.2'),'volume':300,'turnover':D('3750'),'timestamp':int(time.time()),'stale':False}
+    monkeypatch.setattr(main.market,'quote',quote)
+    rows=client.get('/api/search/quotes?symbols=AAPL,VIK,AAPL').json()
+    assert [r['symbol'] for r in rows]==['AAPL','VIK']  # duplicates asked once
+    assert rows[0]['price']==12.5 and rows[0]['volume']==300 and rows[0]['watchlisted'] is False
+    assert rows[1]['price'] is None and 'data_status' not in rows[1]  # diagnostics stay admin-only
+    assert client.get('/api/search/quotes?symbols=A,B,C,D,E,F').status_code==422
+    assert client.get('/api/search/quotes?symbols=bad!').status_code==422

@@ -104,6 +104,7 @@
   <form id="adminGrantForm" class="admin-action"><h4>지원금 지급</h4><p class="field-help">선택한 통화 지갑에 지원금을 더합니다. 수익률에는 반영되지 않습니다.</p><div class="admin-grant-fields"><select id="adminCurrency" aria-label="통화"><option value="USD">USD</option><option value="KRW">KRW</option></select><input id="adminAmount" type="number" min="0.0001" step="0.0001" max="1000000000" required aria-label="지원금"></div><button>지원금 지급</button></form>
   <div class="admin-action"><h4>수익률 기준 재설정</h4><p class="field-help">보유 주식과 USD·KRW 현금은 그대로 두고, 현재 평가금액을 수익률 0% 기준점으로 삼습니다.</p><button type="button" class="secondary" data-admin-action="rebase">기준 재설정</button></div>
   <div class="admin-action caution"><h4>회원가입 직후 상태로 초기화</h4><p class="field-help">보유 종목·거래·환전·주문·관심종목을 지우고 초기 지급액으로 되돌립니다. 계정은 유지됩니다.</p><button type="button" class="caution-button" data-admin-action="clear">계정 초기화</button></div>
+  <div class="admin-action caution"><h4>비밀번호 초기화</h4><p class="field-help">임시 비밀번호를 발급하고 이 사용자의 모든 기기를 로그아웃합니다. 사용자는 임시 비밀번호로 로그인한 뒤 새 비밀번호를 정해야 합니다.</p><button type="button" id="adminPasswordReset" class="caution-button">비밀번호 초기화</button><div id="adminPasswordResult" class="admin-password-result" hidden><code id="adminTempPassword"></code><button type="button" id="adminTempCopy" class="secondary">복사</button><p class="field-help">이 화면을 벗어나면 다시 볼 수 없습니다. 본인 확인 후 직접 전달하세요.</p></div></div>
   <div class="admin-action danger"><h4>계정 영구 삭제</h4><p class="field-help">계정과 자산·프로필·메모를 삭제합니다. 복구할 수 없습니다.</p><button type="button" class="danger-button" data-admin-action="delete">계정 삭제</button></div>
  </div>
 </div>
@@ -119,7 +120,7 @@
 <label for="noticeBody">내용</label><textarea id="noticeBody" maxlength="500" rows="3" required placeholder="사용자에게 보여줄 안내 내용"></textarea><span id="noticeCount" class="field-help"></span>
 <p id="noticeError" class="order-error" role="alert"></p><button id="noticePost">공지 등록</button></form></section>
             <section class="panel" aria-labelledby="adminMarketTitle"><div class="section-heading"><h2 id="adminMarketTitle">시장 · 시세</h2></div><div id="adminMarket" class="admin-market"></div><div id="adminSnapshots" class="admin-snapshots"></div></section>
-            <section class="panel" aria-labelledby="adminSettingsTitle"><div class="section-heading"><h2 id="adminSettingsTitle">설정</h2></div><dl id="adminFees" class="admin-fees"></dl><form id="initialForm" class="admin-setting"><label for="initialAmount">새 계좌 초기 지급 (USD)</label><div class="symbol-row"><input id="initialAmount" type="number" min="1" max="1000000000" step="0.0001" required><button>저장</button></div></form><form id="adminBulkForm" class="admin-setting admin-bulk"><label for="adminBulkAmount">모든 일반 사용자에게 지원금</label><div class="admin-grant-fields"><select id="adminBulkCurrency" aria-label="통화"><option value="USD">USD</option><option value="KRW">KRW</option></select><input id="adminBulkAmount" type="number" min="0.0001" step="0.0001" max="1000000000" required aria-label="지원금"></div><button>전체 지급</button></form></section>
+            <section class="panel" aria-labelledby="adminSettingsTitle"><div class="section-heading"><h2 id="adminSettingsTitle">설정</h2><button type="button" class="secondary" data-password-open>내 비밀번호 변경</button></div><dl id="adminFees" class="admin-fees"></dl><form id="initialForm" class="admin-setting"><label for="initialAmount">새 계좌 초기 지급 (USD)</label><div class="symbol-row"><input id="initialAmount" type="number" min="1" max="1000000000" step="0.0001" required><button>저장</button></div></form><form id="adminBulkForm" class="admin-setting admin-bulk"><label for="adminBulkAmount">모든 일반 사용자에게 지원금</label><div class="admin-grant-fields"><select id="adminBulkCurrency" aria-label="통화"><option value="USD">USD</option><option value="KRW">KRW</option></select><input id="adminBulkAmount" type="number" min="0.0001" step="0.0001" max="1000000000" required aria-label="지원금"></div><button>전체 지급</button></form></section>
           </aside>
         </div>
       </section>
@@ -136,7 +137,7 @@
           </div>
         </div>
         <div class="portfolio-account">
-          <section class="panel account-panel"><h2>계정 설정</h2><p class="field-help">탈퇴하면 계정과 모든 기록이 삭제되고 되돌릴 수 없습니다.</p><button id="withdrawOpen" type="button" class="danger-outline">회원 탈퇴</button></section>
+          <section class="panel account-panel"><h2>계정 설정</h2><p class="field-help">비밀번호를 바꾸면 다른 기기에서는 로그아웃됩니다. 탈퇴하면 계정과 모든 기록이 삭제되고 되돌릴 수 없습니다.</p><div class="dialog-actions"><button type="button" class="secondary" data-password-open>비밀번호 변경</button><button id="withdrawOpen" type="button" class="danger-outline">회원 탈퇴</button></div></section>
         </div>
       </div>
         <div data-page="detail" class="detail-grid trade-desk">
@@ -213,6 +214,20 @@
       <input id="withdrawPassword" type="password" autocomplete="current-password" required maxlength="128">
       <p id="withdrawError" class="order-error" role="alert"></p>
       <div class="dialog-actions"><button type="button" id="withdrawCancel" class="secondary">취소</button><button id="withdrawConfirm" class="danger-button">회원 탈퇴</button></div>
+    </form>
+  </dialog>
+  <dialog id="passwordDialog" class="confirm-dialog" aria-labelledby="passwordTitle">
+    <form id="passwordForm" method="dialog" novalidate>
+      <h2 id="passwordTitle">비밀번호 변경</h2>
+      <p id="passwordIntro">변경하면 다른 기기에서는 로그아웃됩니다.</p>
+      <label for="passwordCurrent" id="passwordCurrentLabel">현재 비밀번호</label>
+      <input id="passwordCurrent" type="password" autocomplete="current-password" required maxlength="128">
+      <label for="passwordNew">새 비밀번호</label>
+      <input id="passwordNew" type="password" autocomplete="new-password" required minlength="8" maxlength="128" placeholder="8자 이상">
+      <label for="passwordNewConfirm">새 비밀번호 확인</label>
+      <input id="passwordNewConfirm" type="password" autocomplete="new-password" required maxlength="128" placeholder="새 비밀번호를 한 번 더 입력">
+      <p id="passwordError" class="order-error" role="alert"></p>
+      <div class="dialog-actions"><button type="button" id="passwordCancel" class="secondary">취소</button><button type="button" id="passwordLogout" class="secondary" hidden>로그아웃</button><button id="passwordSubmit">변경</button></div>
     </form>
   </dialog>
   <dialog id="consentDialog" class="confirm-dialog" aria-labelledby="consentTitle">

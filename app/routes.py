@@ -13,7 +13,7 @@ from .market import MarketError
 from .fx import preview, exchange
 from .money import MAX_ORDER_QUANTITY, wallets, rounded
 from .trading import preview_order
-from .admin_ops import admin_overview, set_initial_amount, set_account_active, season_reset, list_archives
+from .admin_ops import admin_overview, set_initial_amount, set_account_active, season_reset, list_archives, reset_password
 from .branding import BRAND_NAME
 
 class Strict(BaseModel):
@@ -44,6 +44,16 @@ def event(uid,symbol,kind):
         db.execute(insert(PopularityEvent).values(user_id=uid,symbol=symbol,kind=kind,bucket=int(time.time())//3600,created_at=datetime.now(timezone.utc)).on_conflict_do_nothing())
 
 
+def quote_fields(q):
+    """The list-row columns (현재가, 등락률, 거래량, 거래대금) of one quote."""
+    return {'price':q.get('native_price',q['price']), 'change_pct':q.get('change_pct'),
+            'volume':q.get('volume'), 'turnover':q.get('turnover'), 'data_time':datetime.fromtimestamp(q['timestamp'],timezone.utc).isoformat(),
+            'data_status':q.get('data_status','공급자 시세')+(' · 오래된 시세' if q.get('stale') else '')}
+
+# Search results carry no prices; the list asks for the first few rows' quotes
+# in small batches so one search never fans out into dozens of provider calls.
+SEARCH_QUOTE_LIMIT=5
+
 def curated_market_rows(market, asset, kind, unavailable=None):
     """Actual quotes from a small disclosed catalog, never a claimed full-market ranking."""
     rows=[]; failures=[]
@@ -51,10 +61,7 @@ def curated_market_rows(market, asset, kind, unavailable=None):
         if category!=asset: continue
         row=instrument(symbol) | {'market':market_of(symbol)}
         try:
-            q=market.quote(symbol)
-            row |= {'price':q.get('native_price',q['price']), 'change_pct':q.get('change_pct'),
-                    'volume':q.get('volume'), 'turnover':q.get('turnover'), 'data_time':datetime.fromtimestamp(q['timestamp'],timezone.utc).isoformat(),
-                    'data_status':q.get('data_status','공급자 시세')+(' · 오래된 시세' if q.get('stale') else '')}
+            row |= quote_fields(market.quote(symbol))
         except MarketError as exc:
             failures.append(str(exc))
             row |= {'price':None,'change_pct':None,'volume':None,'turnover':None,'data_time':None,'data_status':str(exc)}
@@ -182,10 +189,7 @@ def install(app,ctx):
                 if info['category']!=asset: continue
                 row=info|{'score':score,'market':market}
                 try:
-                    q=ctx.market.quote(symbol)
-                    row|={'price':q.get('native_price',q['price']),'change_pct':q.get('change_pct'),
-                          'volume':q.get('volume'),'turnover':q.get('turnover'),'data_time':datetime.fromtimestamp(q['timestamp'],timezone.utc).isoformat(),
-                          'data_status':q.get('data_status','공급자 시세')+(' · 오래된 시세' if q.get('stale') else '')}
+                    row|=quote_fields(ctx.market.quote(symbol))
                 except MarketError as exc:
                     row['data_status']=str(exc)
                 rows.append(row)
@@ -203,6 +207,19 @@ def install(app,ctx):
             result['notice']=f"현재 공급자 제공 {len(result['rows'])}개 · 최대 100개 표시. " + result.get('notice','')
             return market_result(result,uid)
         except MarketError as exc: return market_result(curated_market_rows(ctx.market,asset,kind,exc),uid)
+    @app.get('/api/search/quotes')
+    def search_quotes(symbols:str=Query('',max_length=200),uid=Depends(user)):
+        """Quotes for rows of a search result, which lists instruments without prices."""
+        wanted=list(dict.fromkeys(s for s in symbols.split(',') if s))
+        if len(wanted)>SEARCH_QUOTE_LIMIT: raise HTTPException(422,f'한 번에 최대 {SEARCH_QUOTE_LIMIT}개 종목입니다.')
+        if not all(valid_symbol(s) for s in wanted): raise HTTPException(422,'잘못된 종목 코드입니다.')
+        rows=[]
+        for symbol in wanted:
+            row={'symbol':symbol}
+            try: row|=quote_fields(ctx.market.quote(symbol))
+            except MarketError as exc: row|={'price':None,'change_pct':None,'volume':None,'turnover':None,'data_time':None,'data_status':str(exc)}
+            rows.append(row)
+        return market_result({'rows':rows},uid)['rows']
     @app.post('/api/popularity',dependencies=[Depends(csrf)])
     def track(data:EventInput,uid=Depends(user)):
         event(uid,data.symbol,data.kind); return {'ok':True}
@@ -239,6 +256,10 @@ def install(app,ctx):
         if target==uid and not data.active: raise HTTPException(409,'자기 계정을 정지할 수 없습니다.')
         set_account_active(uid,target,data.active)
         return {'ok':True}
+    @app.post('/api/admin/users/{target}/password',dependencies=[Depends(csrf)])
+    def admin_reset_password(target:int,uid=Depends(admin)):
+        if target==uid: raise HTTPException(409,'자기 비밀번호는 계정 설정에서 변경하세요.')
+        return reset_password(uid,target,ctx.hasher)
     @app.post('/api/admin/users/{target}/reset',dependencies=[Depends(csrf)])
     def reset(target:int,data:ResetInput,uid=Depends(admin)):
         season_reset(uid,target,data.label,ctx.fx.current_rate('USD','KRW'))

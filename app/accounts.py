@@ -112,6 +112,12 @@ class WithdrawInput(BaseModel):
     model_config = ConfigDict(extra='forbid')
     password: str = Field(min_length=1, max_length=128)
 
+class PasswordChangeInput(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    current_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=8, max_length=128)
+    new_password_confirm: str = Field(max_length=128)
+
 class ConsentInput(BaseModel):
     model_config = ConfigDict(extra='forbid')
     notice_version: str = Field(max_length=32)
@@ -195,6 +201,28 @@ def install_accounts(app, ctx):
             if not image: raise HTTPException(404, '프로필 이미지가 없습니다.')
             # A private profile must not remain viewable through a browser cache.
             return Response(image.data, media_type='image/webp', headers={'Cache-Control': 'no-store'})
+
+    @app.post('/api/account/password', dependencies=[Depends(csrf)])
+    def change_password(data: PasswordChangeInput, request: Request):
+        """Replace the password, also the temporary one an administrator issued."""
+        import secrets
+        from argon2.exceptions import VerificationError, InvalidHashError
+        uid, _ = ctx.signed_in_user(request)
+        if not secrets.compare_digest(data.new_password.encode(), data.new_password_confirm.encode()):
+            raise HTTPException(422, '새 비밀번호가 일치하지 않습니다.')
+        if data.new_password == data.current_password:
+            raise HTTPException(422, '현재 비밀번호와 다른 비밀번호를 입력하세요.')
+        with Session.begin() as db:
+            me = lock_user(db, uid)
+            try: ctx.hasher.verify(me.password_hash, data.current_password)
+            except (VerificationError, InvalidHashError): raise HTTPException(401, '현재 비밀번호가 올바르지 않습니다.')
+            me.password_hash = ctx.hasher.hash(data.new_password)
+            me.password_temporary = False
+            me.session_version += 1
+            version = me.session_version
+        # Other devices are signed out; this one stays signed in.
+        request.session.update(sv=version)
+        return {'ok': True}
 
     @app.post('/api/account/delete', dependencies=[Depends(csrf)])
     def withdraw(data: WithdrawInput, request: Request, uid=Depends(user)):

@@ -374,7 +374,7 @@ def test_closed_market_message_for_statuses_and_labels():
 
 # 세션 · 거래내역 · 공개 조회 ------------------------------------------------
 
-SESSION_KEYS = ['quote_sse_enabled', 'active', 'quote_max_age', 'csrf', 'username', 'is_admin', 'market_configured', 'providers', 'notice_version']
+SESSION_KEYS = ['quote_sse_enabled', 'active', 'quote_max_age', 'csrf', 'username', 'is_admin', 'password_temporary', 'market_configured', 'providers', 'notice_version']
 
 
 def test_session_payload(client, monkeypatch):
@@ -384,7 +384,7 @@ def test_session_payload(client, monkeypatch):
     assert list(s) == SESSION_KEYS
     assert {k: v for k, v in s.items() if k != 'csrf'} == {
         'quote_sse_enabled': main.quote_sse_enabled(), 'active': False, 'quote_max_age': {'US': 1800, 'KR': 900},
-        'username': None, 'is_admin': False, 'market_configured': True, 'providers': {'us': True, 'kr': True},
+        'username': None, 'is_admin': False, 'password_temporary': False, 'market_configured': True, 'providers': {'us': True, 'kr': True},
         'notice_version': PRIVACY_NOTICE_VERSION}
     assert s['csrf'] and client.get('/api/session').json()['csrf'] == s['csrf']
     monkeypatch.setenv('US_MAX_QUOTE_AGE', '77')

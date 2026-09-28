@@ -49,3 +49,48 @@ def test_archives_list_newest_first_with_fixed_keys(client):
     assert rows[0]['user_id'] == uid and rows[0]['data']['actor'] == admin_id
     # JSONB stores the snapshot, so its key order is Postgres's, not the code's.
     assert set(rows[1]['data']) == {'wallets', 'positions', 'initial_krw', 'actor'}
+
+
+def test_admin_password_reset_signs_out_and_forces_a_new_password(client):
+    from fastapi.testclient import TestClient
+    from app import main
+    from app.db import AdminAudit
+    def login(c, password):
+        token = c.get('/api/session').json()['csrf']
+        r = c.post('/api/login', headers={'x-csrf-token': token}, json={'username': 'forgetful', 'password': password})
+        return r, c.get('/api/session').json()['csrf']  # signing in issues a new token
+    with TestClient(main.app, base_url='https://testserver') as phone, TestClient(main.app, base_url='https://testserver') as laptop:
+        register(phone, 'forgetful')  # signs in with 'a-secure-password-123'
+        assert phone.get('/api/portfolio').status_code == 200
+        headers, admin_id = admin(client)
+        target = client.get('/api/admin').json()['users']
+        uid = next(u['id'] for u in target if u['username'] == 'forgetful')
+        assert client.post(f'/api/admin/users/{admin_id}/password', headers=headers).status_code == 409  # not their own
+        r = client.post(f'/api/admin/users/{uid}/password', headers=headers)
+        assert r.status_code == 200
+        temporary = r.json()['temporary_password']
+        assert len(temporary) == 12 and r.json()['username'] == 'forgetful'
+        with Session() as db:
+            audit = db.scalar(select(AdminAudit).where(AdminAudit.action == 'password_reset'))
+            assert audit.target_id == uid and temporary not in str(audit.data)
+        # The session from before the reset is signed out; the old password no longer works.
+        assert phone.get('/api/portfolio').status_code == 401
+        assert login(phone, 'a-secure-password-123')[0].status_code == 401
+        r, token = login(phone, temporary)
+        assert r.status_code == 200 and r.json()['password_temporary'] is True
+        assert phone.get('/api/session').json()['password_temporary'] is True
+        blocked = phone.get('/api/portfolio')
+        assert blocked.status_code == 403 and blocked.headers['X-Password-Change'] == '1'
+        assert login(laptop, temporary)[0].status_code == 200
+        change = lambda body: phone.post('/api/account/password', headers={'x-csrf-token': token}, json=body)
+        assert change({'current_password': 'wrong-password', 'new_password': 'brand-new-pass-1', 'new_password_confirm': 'brand-new-pass-1'}).status_code == 401
+        assert change({'current_password': temporary, 'new_password': 'brand-new-pass-1', 'new_password_confirm': 'different-pass-1'}).status_code == 422
+        assert change({'current_password': temporary, 'new_password': 'brand-new-pass-1', 'new_password_confirm': 'brand-new-pass-1'}).status_code == 200
+        # This device carries on; the other one is signed out.
+        assert phone.get('/api/portfolio').status_code == 200
+        assert phone.get('/api/session').json()['password_temporary'] is False
+        assert laptop.get('/api/portfolio').status_code == 401
+        assert login(laptop, temporary)[0].status_code == 401
+        assert login(laptop, 'brand-new-pass-1')[0].status_code == 200
+    member_token = register(client, 'plainuser2')
+    assert client.post(f'/api/admin/users/{uid}/password', headers={'x-csrf-token': member_token}).status_code == 403

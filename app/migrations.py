@@ -159,6 +159,12 @@ def migrate(engine):
             db.execute(text('ALTER TABLE users ADD COLUMN IF NOT EXISTS ranking_public BOOLEAN NOT NULL DEFAULT false'))
             db.execute(text('INSERT INTO schema_migrations(version) VALUES (15)'))
 
+        if not db.scalar(text('SELECT 1 FROM schema_migrations WHERE version=16')):
+            # Administrator password reset: temporary passwords and signing out old sessions.
+            db.execute(text('ALTER TABLE users ADD COLUMN IF NOT EXISTS session_version INTEGER NOT NULL DEFAULT 0'))
+            db.execute(text('ALTER TABLE users ADD COLUMN IF NOT EXISTS password_temporary BOOLEAN NOT NULL DEFAULT false'))
+            db.execute(text('INSERT INTO schema_migrations(version) VALUES (16)'))
+
 
 def backfill_trade_rates(db):
     """Give older fills the reference rate the app itself was using then.
