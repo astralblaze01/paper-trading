@@ -1,5 +1,7 @@
 import os
 import re
+import hashlib
+from functools import lru_cache
 import secrets
 import logging
 import time
@@ -227,8 +229,21 @@ class Order(BaseModel):
     request_id: UUID
     use_max: bool = False
 
+STATIC_REF = re.compile(r'(/static/([\w./-]+))\?v=[\w-]+')
+
+@lru_cache(maxsize=64)
+def _asset_version(name, mtime_ns):
+    return hashlib.sha256(Path('app/static', name).read_bytes()).hexdigest()[:12]
+
+def _versioned(match):
+    # The ?v= in the HTML is only a placeholder: the URL follows the file's content, so a
+    # deploy that changes a script also changes its URL and no browser keeps the old copy.
+    path = Path('app/static', match[2])
+    if not path.is_file(): return match[0]
+    return f'{match[1]}?v={_asset_version(match[2], path.stat().st_mtime_ns)}'
+
 def _page(name):
-    html = Path('app/static', name).read_text()
+    html = STATIC_REF.sub(_versioned, Path('app/static', name).read_text())
     return HTMLResponse(html.replace('{{BRAND_NAME}}', BRAND_NAME).replace('{{STORAGE_NAMESPACE}}', STORAGE_NAMESPACE), headers={'Cache-Control':'no-cache'})
 
 @app.get('/')

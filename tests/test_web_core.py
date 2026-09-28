@@ -673,3 +673,16 @@ def test_scripts_do_not_write_style_attributes_into_markup():
     import pathlib, re
     for js in pathlib.Path('app/static').glob('*.js'):
         assert not re.search(r'<[a-z][^>`]*\sstyle="', js.read_text()), f'{js} builds markup with a style attribute'
+
+
+def test_pages_version_static_assets_by_their_content(client):
+    """A changed script must get a new URL, or browsers keep running the cached old one."""
+    import hashlib as _hashlib
+    from pathlib import Path
+    for path in ('/', '/privacy', '/terms'):
+        html = client.get(path).text
+        refs = re.findall(r'/static/([\w./-]+)\?v=([\w-]+)', html)
+        assert refs, path
+        for name, version in refs:
+            expected = _hashlib.sha256(Path('app/static', name).read_bytes()).hexdigest()[:12]
+            assert version == expected, (path, name, version)
