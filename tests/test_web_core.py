@@ -686,3 +686,11 @@ def test_pages_version_static_assets_by_their_content(client):
         for name, version in refs:
             expected = _hashlib.sha256(Path('app/static', name).read_bytes()).hexdigest()[:12]
             assert version == expected, (path, name, version)
+
+
+def test_login_page_says_how_to_recover_a_forgotten_password(client):
+    """No e-mail is collected, so the login form names the operators to ask."""
+    html = client.get('/').text
+    login_form = html[html.index('id="authForm"'):html.index('id="registerForm"')]
+    assert '비밀번호를 잊으셨나요?' in login_form
+    assert 'mailto:7829hw@gmail.com' in login_form and 'mailto:jack3618@knu.ac.kr' in login_form

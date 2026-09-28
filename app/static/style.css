@@ -1113,3 +1113,10 @@ footer { max-width: 1680px; margin: 0 auto; padding: 8px 32px 28px; display: fle
 .admin-password-result { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
 .admin-password-result code { font-family: var(--font-num); font-size: var(--fs-lg); padding: 6px 10px; border-radius: 8px; background: var(--surface-2); user-select: all; }
 .admin-action .admin-password-result > p { flex: 0 0 100%; margin: 0; }
+
+/* Forgotten password: no e-mail on file, so the way back is asking an operator. */
+.login-help { margin-top: 14px; font-size: var(--fs-sm); color: var(--muted); }
+.login-help summary { cursor: pointer; text-align: center; color: var(--accent); }
+.login-help p { margin: 10px 0 0; line-height: 1.6; }
+.login-help ul { margin: 6px 0 0; padding-left: 18px; line-height: 1.7; }
+.login-help a { color: var(--accent); overflow-wrap: anywhere; }
