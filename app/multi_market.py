@@ -6,7 +6,7 @@ from datetime import datetime, timezone, date
 from decimal import Decimal, InvalidOperation
 from threading import RLock
 import httpx
-from .market import Finnhub, MarketError
+from .market import Finnhub, MarketError, QuotePending
 from .instruments import discover, instrument, valid_symbol, market_of
 from .redis_cache import price_key, redis_cache
 from .quote_data import normalize_quote
@@ -206,6 +206,9 @@ class ReferenceFX:
             self.next_refresh_at = time.time() + ttl
             return self.cached
 
+# The market-worker retries a failed symbol after max(30, 2 × QUOTE_TTL) seconds.
+RECENT_FAILURE_SECONDS = 30
+
 class MultiMarket:
     def __init__(self):
         self.us = Finnhub()
@@ -267,23 +270,60 @@ class MultiMarket:
             add_unlisted((row for row in self.us.search(query) if valid_symbol(row['symbol'])), as_instrument=True)
         return rows[:30]
 
+    @staticmethod
+    def _from_worker_cache():
+        return os.getenv('MARKET_CACHE_MODE','direct').lower() == 'worker' and os.getenv('MARKET_WORKER_MODE','false').lower() != 'true'
+
+    def _cached_quote(self, symbol, cached):
+        if cached is None:
+            raise QuotePending('시세 수집기가 가격을 준비 중입니다. 잠시 후 다시 시도하세요.')
+        try:
+            q = self.assess(symbol, normalize_quote(symbol, cached))
+            status = redis_cache.get_json(f'market:collection:{symbol}') or {}
+            return q | {'refresh_failed': status.get('state') == 'failed'}
+        except (ValueError, TypeError, KeyError) as exc:
+            raise MarketError('유효한 서버 시세가 없습니다.') from exc
+
     def quote(self, symbol):
-        if os.getenv('MARKET_CACHE_MODE','direct').lower() == 'worker' and os.getenv('MARKET_WORKER_MODE','false').lower() != 'true':
-            cached = redis_cache.get_json(price_key(symbol))
-            redis_cache.request_quote(symbol, force=cached is None)
-            deadline = time.monotonic() + (3 if cached is None else 0)
-            while cached is None and time.monotonic() < deadline:
-                time.sleep(.1)
-                cached = redis_cache.get_json(price_key(symbol))
-            if cached is None:
-                raise MarketError('시세 수집기가 가격을 준비 중입니다. 잠시 후 다시 시도하세요.')
-            try:
-                q = self.assess(symbol, normalize_quote(symbol, cached))
-                status = redis_cache.get_json(f'market:collection:{symbol}') or {}
-                return q | {'refresh_failed': status.get('state') == 'failed'}
-            except (ValueError, TypeError, KeyError) as exc:
-                raise MarketError('유효한 서버 시세가 없습니다.') from exc
+        if self._from_worker_cache():
+            result = self.quotes([symbol])[symbol]
+            if isinstance(result, Exception): raise result
+            return result
         return self.assess(symbol, self.quote_direct(symbol))
+
+    def quotes(self, symbols, wait=3):
+        """Quotes for several symbols: {symbol: quote or the MarketError it raised}.
+
+        From the worker cache, every miss is queued for the collector at once and
+        they share one wait, rather than waiting `wait` seconds for each in turn."""
+        if not self._from_worker_cache():
+            out = {}
+            for symbol in symbols:
+                try: out[symbol] = self.assess(symbol, self.quote_direct(symbol))
+                except MarketError as exc: out[symbol] = exc
+            return out
+        cached = {symbol: redis_cache.get_json(price_key(symbol)) for symbol in symbols}
+        for symbol in symbols:
+            redis_cache.request_quote(symbol, force=cached[symbol] is None)
+        def failed(symbol):
+            # The collector just tried and failed; it waits before trying again, so
+            # waiting here (or the page asking again) cannot bring a price sooner.
+            status = redis_cache.get_json(f'market:collection:{symbol}') or {}
+            return status.get('state') == 'failed' and time.time() - float(status.get('checked_at') or 0) < RECENT_FAILURE_SECONDS
+        given_up = {symbol for symbol in symbols if cached[symbol] is None and failed(symbol)}
+        deadline = time.monotonic() + wait
+        while any(v is None and s not in given_up for s, v in cached.items()) and time.monotonic() < deadline:
+            time.sleep(.1)
+            for symbol in [s for s, v in cached.items() if v is None and s not in given_up]:
+                cached[symbol] = redis_cache.get_json(price_key(symbol))
+        out = {}
+        for symbol in symbols:
+            if cached[symbol] is None and symbol in given_up:
+                out[symbol] = MarketError('이 종목의 시세를 지금 가져오지 못했습니다. 잠시 후 다시 시도하세요.')
+                continue
+            try: out[symbol] = self._cached_quote(symbol, cached[symbol])
+            except MarketError as exc: out[symbol] = exc
+        return out
 
     def stream_status(self):
         # One Redis read per second per process, however many quotes are assessed.

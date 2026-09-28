@@ -9,7 +9,7 @@ from sqlalchemy import select, func, delete
 from sqlalchemy.dialects.postgresql import insert
 from .db import Session, User, FxTransaction, Watchlist, PopularityEvent, LimitOrder, lock_user
 from .instruments import SYMBOL_PATTERN, valid_symbol, instrument, CATALOG, market_of
-from .market import MarketError
+from .market import MarketError, QuotePending
 from .fx import preview, exchange
 from .money import MAX_ORDER_QUANTITY, wallets, rounded
 from .trading import preview_order
@@ -50,6 +50,16 @@ def quote_fields(q):
             'volume':q.get('volume'), 'turnover':q.get('turnover'), 'data_time':datetime.fromtimestamp(q['timestamp'],timezone.utc).isoformat(),
             'data_status':q.get('data_status','공급자 시세')+(' · 오래된 시세' if q.get('stale') else '')}
 
+def quotes_for(market, symbols):
+    """{symbol: quote or MarketError}. From the worker cache all misses share one wait
+    (MultiMarket.quotes) instead of up to 3 s each, one symbol after another."""
+    if hasattr(market,'quotes'): return market.quotes(list(symbols))
+    out={}
+    for symbol in symbols:
+        try: out[symbol]=market.quote(symbol)
+        except MarketError as exc: out[symbol]=exc
+    return out
+
 # Search results carry no prices; the list asks for the first few rows' quotes
 # in small batches so one search never fans out into dozens of provider calls.
 SEARCH_QUOTE_LIMIT=5
@@ -57,14 +67,15 @@ SEARCH_QUOTE_LIMIT=5
 def curated_market_rows(market, asset, kind, unavailable=None):
     """Actual quotes from a small disclosed catalog, never a claimed full-market ranking."""
     rows=[]; failures=[]
-    for symbol, _, category, _ in CATALOG:
-        if category!=asset: continue
+    symbols=[symbol for symbol, _, category, _ in CATALOG if category==asset]
+    quotes=quotes_for(market,symbols)
+    for symbol in symbols:
         row=instrument(symbol) | {'market':market_of(symbol)}
-        try:
-            row |= quote_fields(market.quote(symbol))
-        except MarketError as exc:
-            failures.append(str(exc))
-            row |= {'price':None,'change_pct':None,'volume':None,'turnover':None,'data_time':None,'data_status':str(exc)}
+        q=quotes[symbol]
+        if isinstance(q,MarketError):
+            failures.append(str(q))
+            row |= {'price':None,'change_pct':None,'volume':None,'turnover':None,'data_time':None,'data_status':str(q)}
+        else: row |= quote_fields(q)
         rows.append(row)
     sort_key={'volume':'turnover','shares':'volume'}.get(kind,'change_pct')
     def score(row):
@@ -187,13 +198,13 @@ def install(app,ctx):
             for symbol, score in counts:
                 info=instrument(symbol)
                 if info['category']!=asset: continue
-                row=info|{'score':score,'market':market}
-                try:
-                    row|=quote_fields(ctx.market.quote(symbol))
-                except MarketError as exc:
-                    row['data_status']=str(exc)
-                rows.append(row)
+                rows.append(info|{'score':score,'market':market})
                 if len(rows)==100: break
+            quotes=quotes_for(ctx.market,[row['symbol'] for row in rows])
+            for row in rows:
+                q=quotes[row['symbol']]
+                if isinstance(q,MarketError): row['data_status']=str(q)
+                else: row|=quote_fields(q)
             return market_result({'rows':rows, 'scope':f'{BRAND_NAME} 인기 · 최근 {hours}시간','notice':f'현재 집계 {len(rows)}개 · 사용자·종목·행동별 시간당 1회만 집계합니다.'},uid)
         if asset in ('kr_bond','us_bond','gold'):
             return market_result(curated_market_rows(ctx.market,asset,kind),uid)
@@ -213,11 +224,15 @@ def install(app,ctx):
         wanted=list(dict.fromkeys(s for s in symbols.split(',') if s))
         if len(wanted)>SEARCH_QUOTE_LIMIT: raise HTTPException(422,f'한 번에 최대 {SEARCH_QUOTE_LIMIT}개 종목입니다.')
         if not all(valid_symbol(s) for s in wanted): raise HTTPException(422,'잘못된 종목 코드입니다.')
+        results=quotes_for(ctx.market,wanted)
         rows=[]
         for symbol in wanted:
-            row={'symbol':symbol}
-            try: row|=quote_fields(ctx.market.quote(symbol))
-            except MarketError as exc: row|={'price':None,'change_pct':None,'volume':None,'turnover':None,'data_time':None,'data_status':str(exc)}
+            row={'symbol':symbol};q=results[symbol]
+            if isinstance(q,MarketError):
+                row|={'price':None,'change_pct':None,'volume':None,'turnover':None,'data_time':None,'data_status':str(q)}
+                # Asked of the collector but not stored yet: the page asks again shortly.
+                if isinstance(q,QuotePending): row['pending']=True
+            else: row|=quote_fields(q)
             rows.append(row)
         return market_result({'rows':rows},uid)['rows']
     @app.post('/api/popularity',dependencies=[Depends(csrf)])

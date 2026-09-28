@@ -374,3 +374,63 @@ def test_search_quotes_fill_prices_for_search_rows(client, monkeypatch):
     assert rows[1]['price'] is None and 'data_status' not in rows[1]  # diagnostics stay admin-only
     assert client.get('/api/search/quotes?symbols=A,B,C,D,E,F').status_code==422
     assert client.get('/api/search/quotes?symbols=bad!').status_code==422
+
+
+def test_worker_cache_batch_shares_one_wait_and_marks_misses_pending(monkeypatch):
+    """Five uncached search rows used to wait 3 s each in turn (15 s); now all are queued
+    for the collector at once and share one wait."""
+    import app.multi_market as mm
+    from app.market import QuotePending
+    monkeypatch.setenv('MARKET_CACHE_MODE', 'worker')
+    monkeypatch.delenv('MARKET_WORKER_MODE', raising=False)
+    clock, requested, store = [0.0], [], {}
+    monkeypatch.setattr(mm.time, 'monotonic', lambda: clock[0])
+    def sleep(seconds):
+        clock[0] += seconds
+        if clock[0] >= 1: store.setdefault('market:price:AAA', {'fake': 1})  # the collector delivers AAA after 1 s
+    monkeypatch.setattr(mm.time, 'sleep', sleep)
+    monkeypatch.setattr(mm.redis_cache, 'get_json', lambda key: store.get(key))
+    monkeypatch.setattr(mm.redis_cache, 'request_quote', lambda symbol, force=False: requested.append((symbol, force, clock[0])))
+    market = mm.MultiMarket.__new__(mm.MultiMarket)
+    monkeypatch.setattr(market, '_cached_quote', lambda symbol, cached: (_ for _ in ()).throw(QuotePending('준비 중')) if cached is None else {'symbol': symbol})
+    symbols = ['AAA', 'BBB', 'CCC', 'DDD', 'EEE']
+    out = market.quotes(symbols)
+    assert [(s, f, t) for s, f, t in requested] == [(s, True, 0.0) for s in symbols]  # all queued before any waiting
+    assert clock[0] <= 3.05                                                           # one shared wait, not 5 × 3 s
+    assert out['AAA'] == {'symbol': 'AAA'}
+    assert all(isinstance(out[s], QuotePending) for s in symbols[1:])
+
+
+def test_search_quotes_mark_collector_misses_pending(client, monkeypatch):
+    from app.market import QuotePending
+    register(client)
+    def quotes(symbols):
+        return {s: QuotePending('시세 수집기가 가격을 준비 중입니다.') if s == 'VIK' else
+                {'symbol': s, 'price': D('12.5'), 'change_pct': D('1'), 'volume': 1, 'turnover': D('1'), 'timestamp': int(time.time()), 'stale': False}
+                for s in symbols}
+    monkeypatch.setattr(main.market, 'quotes', quotes, raising=False)
+    rows = client.get('/api/search/quotes?symbols=AAPL,VIK').json()
+    assert rows[0]['price'] == 12.5 and 'pending' not in rows[0]
+    assert rows[1]['price'] is None and rows[1]['pending'] is True
+
+
+def test_worker_cache_batch_reports_a_recent_collection_failure_at_once(monkeypatch):
+    """A symbol the collector just failed to fetch is not 'pending': waiting for it (and the page
+    asking again) cannot help until the collector's retry, so it is reported as unavailable."""
+    import app.multi_market as mm
+    from app.market import MarketError, QuotePending
+    monkeypatch.setenv('MARKET_CACHE_MODE', 'worker')
+    monkeypatch.delenv('MARKET_WORKER_MODE', raising=False)
+    clock = [0.0]
+    monkeypatch.setattr(mm.time, 'monotonic', lambda: clock[0])
+    monkeypatch.setattr(mm.time, 'sleep', lambda s: clock.__setitem__(0, clock[0] + s))
+    store = {'market:price:AAA': {'fake': 1},
+             'market:collection:BAD': {'state': 'failed', 'checked_at': time.time() - 5, 'error': 'MarketError'}}
+    monkeypatch.setattr(mm.redis_cache, 'get_json', lambda key: store.get(key))
+    monkeypatch.setattr(mm.redis_cache, 'request_quote', lambda symbol, force=False: None)
+    market = mm.MultiMarket.__new__(mm.MultiMarket)
+    monkeypatch.setattr(market, '_cached_quote', lambda symbol, cached: (_ for _ in ()).throw(QuotePending('준비 중')) if cached is None else {'symbol': symbol})
+    out = market.quotes(['AAA', 'BAD'])
+    assert clock[0] == 0.0                     # nothing left worth waiting for
+    assert out['AAA'] == {'symbol': 'AAA'}
+    assert isinstance(out['BAD'], MarketError) and not isinstance(out['BAD'], QuotePending)

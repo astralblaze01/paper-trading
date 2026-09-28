@@ -137,14 +137,20 @@ handle('exploreMarket','change',()=>explore());handle('exploreKind','change',()=
 window.addEventListener('displaycurrencychange',()=>{displayFx=viewFx;stockTable($('exploreRows'),exploreRowsCache,explorePopular);renderDetailQuote();renderOrderPreview();drawChart();renderPublic();renderWatchlist();renderValuation();});
 // Search rows arrive without prices; fill the top ones in batches of the server's limit.
 const SEARCH_QUOTE_ROWS=10, SEARCH_QUOTE_BATCH=5;
+// A price the collector has not fetched yet comes back pending; those rows are asked
+// again a few times (the collector takes a new symbol before its routine refreshes).
+const SEARCH_QUOTE_RETRIES=4, SEARCH_QUOTE_RETRY_MS=1500;
 async function fillSearchQuotes(rows,version){
-  for(let i=0;i<Math.min(rows.length,SEARCH_QUOTE_ROWS);i+=SEARCH_QUOTE_BATCH){
-    const batch=rows.slice(i,Math.min(i+SEARCH_QUOTE_BATCH,SEARCH_QUOTE_ROWS));
-    let quotes;try{quotes=await api('search/quotes?'+new URLSearchParams({symbols:batch.map(r=>r.symbol).join(',')}));}catch{return;}
+  let wanted=rows.slice(0,SEARCH_QUOTE_ROWS);
+  for(let attempt=0;wanted.length&&attempt<=SEARCH_QUOTE_RETRIES;attempt++){
+    if(attempt){await new Promise(r=>setTimeout(r,SEARCH_QUOTE_RETRY_MS));if(version!==exploreVersion)return;}
+    const batches=[];for(let i=0;i<wanted.length;i+=SEARCH_QUOTE_BATCH)batches.push(wanted.slice(i,i+SEARCH_QUOTE_BATCH));
+    const results=await Promise.all(batches.map(batch=>api('search/quotes?'+new URLSearchParams({symbols:batch.map(r=>r.symbol).join(',')})).catch(()=>[])));
     if(version!==exploreVersion)return;
-    const bySymbol=new Map(quotes.map(q=>[q.symbol,q]));
-    batch.forEach(r=>Object.assign(r,bySymbol.get(r.symbol)||{}));
+    const bySymbol=new Map(results.flat().map(q=>[q.symbol,q]));
+    wanted.forEach(r=>{const q=bySymbol.get(r.symbol);if(q&&!q.pending)Object.assign(r,q);});
     stockTable($('exploreRows'),rows);
+    wanted=wanted.filter(r=>bySymbol.get(r.symbol)?.pending);
   }
 }
 handle('discoverySearch','submit',async()=>{exploreMode='search';const version=++exploreVersion;const query=$('discoveryQuery').value;const rows=await api('search?'+new URLSearchParams({q:query,category:$('exploreMarket').value}));if(version!==exploreVersion)return;exploreRowsCache=rows;explorePopular=false;stockTable($('exploreRows'),rows);$('exploreNotice').textContent=`검색 결과 · 상위 ${SEARCH_QUOTE_ROWS}개 종목의 시세를 표시합니다. 나머지는 종목 상세에서 확인합니다.`;if(rows.length===1)api('popularity',{symbol:rows[0].symbol,kind:'search'}).catch(()=>{});loadDisplayFx().catch(()=>{});await fillSearchQuotes(rows,version);});
