@@ -42,6 +42,18 @@ def rest_health(name, now=None, window=300):
     return bool(value.get('ok')) and (now or time.time()) - float(value.get('at') or 0) <= window, value
 
 
+def known_us_exchange(symbol):
+    """The primary exchange if already known (remembered or in the KIS master); never probes."""
+    known = redis_cache.get_json(f'market:us-exchange:{symbol}')
+    if known in PRIMARY:
+        return known
+    from .us_symbols import _rows
+    for row in _rows():
+        if row.get('symbol') == symbol and row.get('exchange') in PRIMARY:
+            return row['exchange']
+    return None
+
+
 class USQuotes:
     def __init__(self, finnhub, kis):
         self.finnhub, self.kis = finnhub, kis

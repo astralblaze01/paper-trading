@@ -3,11 +3,12 @@ from decimal import Decimal
 import os
 import time
 import httpx
-from .market import MarketError
+from .market import MarketError, ProviderAccessDenied
 from .cache import TTLCache
 from .instruments import valid_symbol
 from .us_session import NEW_YORK
 from .kr_session import SEOUL
+from .us_quotes import known_us_exchange
 
 # Explore rankings are shared by every viewer for this long (keep in step with
 # EXPLORE_REFRESH_MS in static/portal.js). Korea is one KIS call per list; the
@@ -50,13 +51,20 @@ def _kr_daily_bar(b):
     stamp=datetime.strptime(b['stck_bsop_date'],'%Y%m%d').replace(tzinfo=SEOUL)
     return dict(time=int(stamp.timestamp()),open=b['stck_oprc'],high=b['stck_hgpr'],low=b['stck_lwpr'],close=b['stck_clpr'],volume=b.get('acml_vol',0))
 
+# Once Finnhub refuses candles (the plan does not include them), charts go straight to
+# KIS for this long instead of paying a refused call first.
+FINNHUB_CANDLES_DENIED_SECONDS=6*3600
+
 class USProvider:
-    def __init__(self, adapter, kis=None): self.adapter=adapter; self.kis=kis; self.cache=TTLCache()
+    def __init__(self, adapter, kis=None): self.adapter=adapter; self.kis=kis; self.cache=TTLCache(); self.finnhub_candles_denied_until=0
     def search(self,q): return self.adapter.search(q)
     def quote(self,s): return self.adapter.quote(s)
     def candles(self,s,period):
         validate(s,period)
         def load():
+            kis=self.kis and self.kis.configured
+            if kis and time.monotonic()<self.finnhub_candles_denied_until:
+                return self._kis_candles(s,period)
             try:
                 days,res=RANGES[period]; now=int(time.time())
                 data=self.adapter.get('/stock/candle',{'symbol':s,'resolution':res,'from':max(0,now-days*86400),'to':now},60 if period=='1D' else 900)
@@ -64,7 +72,9 @@ class USProvider:
                 rows=[dict(time=t,open=data['o'][i],high=data['h'][i],low=data['l'][i],close=data['c'][i],volume=data['v'][i]) for i,t in enumerate(data['t'])]
                 return candle_result(s,period,res,rows,'Finnhub')
             except (KeyError,IndexError,TypeError,MarketError) as exc:
-                if self.kis and self.kis.configured:
+                if isinstance(exc,ProviderAccessDenied):
+                    self.finnhub_candles_denied_until=time.monotonic()+FINNHUB_CANDLES_DENIED_SECONDS
+                if kis:
                     return self._kis_candles(s,period)
                 if isinstance(exc,MarketError): raise
                 raise MarketError('차트 응답 형식 오류 또는 이용 권한 부족입니다.') from exc
@@ -73,7 +83,9 @@ class USProvider:
     def _kis_candles(self,s,period):
         # KIS quotation APIs are read-only. The exchange is selected from actual
         # responses, never from a guessed price, and the result is marked as KIS.
-        for exchange in ('NAS','NYS','AMS'):
+        # A known exchange is asked first: overseas calls are 1.1 s apart.
+        known=known_us_exchange(s)
+        for exchange in ([known] if known else [])+[e for e in ('NAS','NYS','AMS') if e!=known]:
             try:
                 result=self._kis_minute_chart(s,exchange) if period=='1D' else self._kis_daily_chart(s,period,exchange)
                 if result: return result

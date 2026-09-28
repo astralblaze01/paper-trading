@@ -10,6 +10,12 @@ from . import quote_policy
 
 class MarketError(Exception): pass
 
+class ProviderAccessDenied(MarketError):
+    """The provider refused the key for this data (HTTP 401/403): a plan limit, not a passing failure."""
+
+class QuotePending(MarketError):
+    """The collector has been asked for this price and has not stored it yet."""
+
 class Finnhub:
     def __init__(self):
         self.key = os.getenv('FINNHUB_API_KEY', '')
@@ -40,7 +46,7 @@ class Finnhub:
                         self.cooldown = time.monotonic() + 60
                         raise MarketError('시세 공급자 요청 한도 초과. 잠시 후 다시 시도하세요.')
                     if response.status_code in (401,403):
-                        raise MarketError('Finnhub API 키 또는 해당 데이터 이용 권한이 필요합니다. 무료 요금제는 과거 차트를 제공하지 않을 수 있습니다.')
+                        raise ProviderAccessDenied('Finnhub API 키 또는 해당 데이터 이용 권한이 필요합니다. 무료 요금제는 과거 차트를 제공하지 않을 수 있습니다.')
                     response.raise_for_status()
                     result = response.json()
                     if isinstance(result, dict) and result.get('error'):

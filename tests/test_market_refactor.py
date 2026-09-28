@@ -911,3 +911,49 @@ def test_fx_outage_skips_korean_prints_without_ending_the_stream(monkeypatch, ca
     # Only the provider outage is isolated; a programming error still surfaces.
     with pytest.raises(RuntimeError):
         asyncio.run(stream.handle(None, korean))
+
+
+def test_us_charts_stop_asking_finnhub_once_it_refuses_access(monkeypatch):
+    """Our Finnhub plan has no candles: each chart paid a refused call (0.3-0.5 s, and a
+    slot of the per-minute limit quotes share) before KIS. After a refusal, go to KIS."""
+    from app.market import ProviderAccessDenied
+    from app.providers import USProvider
+    now = yesterday_at(NEW_YORK, 12)
+    freeze_providers_clock(monkeypatch, now)
+    today = now.date()
+
+    class Counting:
+        def __init__(self, error): self.error, self.calls = error, 0
+        def get(self, *args):
+            self.calls += 1
+            raise self.error
+
+    answer = always({'output2': [us_bar(today - timedelta(days=n)) for n in range(3)], '_tr_cont': ''})
+    denied = Counting(ProviderAccessDenied('Finnhub candle 403'))
+    provider = USProvider(denied, ChartKIS(answer))
+    for symbol in ('AAPL', 'MSFT', 'NVDA'):
+        assert provider.candles(symbol, '1Y')['source'] == 'KIS 미국 과거 시세'
+    assert denied.calls == 1
+    # A passing failure (timeout, 5xx) says nothing about the plan: Finnhub is asked again.
+    flaky = Counting(MarketError('시세 공급자 연결 또는 응답 오류입니다.'))
+    provider = USProvider(flaky, ChartKIS(answer))
+    for symbol in ('AAPL', 'MSFT'):
+        provider.candles(symbol, '1Y')
+    assert flaky.calls == 2
+
+
+def test_us_chart_asks_the_known_exchange_first(monkeypatch):
+    """KIS overseas calls are 1.1 s apart; a NYSE stock paid a NASDAQ miss first."""
+    import app.providers as providers
+    from app.providers import USProvider
+    now = yesterday_at(NEW_YORK, 12)
+    freeze_providers_clock(monkeypatch, now)
+    today = now.date()
+    monkeypatch.setattr(providers, 'known_us_exchange', lambda symbol: 'NYS' if symbol == 'ORCL' else None)
+    bars = {'output2': [us_bar(today - timedelta(days=n)) for n in range(3)], '_tr_cont': ''}
+    kis = ChartKIS(lambda path, params, c: bars if params['EXCD'] == 'NYS' else {'output2': []})
+    USProvider(DeniedFinnhub(), kis).candles('ORCL', '1Y')
+    assert [c['params']['EXCD'] for c in kis.calls] == ['NYS']
+    kis = ChartKIS(lambda path, params, c: bars if params['EXCD'] == 'NYS' else {'output2': []})
+    USProvider(DeniedFinnhub(), kis).candles('XYZ', '1Y')      # unknown: probed in the usual order
+    assert [c['params']['EXCD'] for c in kis.calls] == ['NAS', 'NYS']
