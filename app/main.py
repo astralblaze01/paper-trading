@@ -133,7 +133,7 @@ def _request_id(request):
     return supplied if re.fullmatch(r'[A-Za-z0-9._-]{1,80}', supplied) else secrets.token_hex(12)
 
 def _rate_limit_category(method, path):
-    if path in ('/api/login', '/api/register', '/api/account/delete'): return 'auth'
+    if path in ('/api/login', '/api/register', '/api/account/delete', '/api/account/password'): return 'auth'
     if path.startswith('/api/profile'): return 'profile'
     # Only executions spend the 'trade' budget; previews and reads (the
     # portfolio refresh lists limit orders) must not starve real orders.
@@ -179,13 +179,25 @@ def csrf(request: Request):
         # was still in flight during logout or withdrawal can put the old session back.
         raise HTTPException(403, '세션이 만료되었습니다. 페이지를 새로고침하세요.', headers={'X-CSRF-Stale': '1'})
 
-def current_user(request: Request):
+TEMPORARY_PASSWORD = '임시 비밀번호로 로그인했습니다. 새 비밀번호를 설정하세요.'
+
+def signed_in_user(request: Request):
+    """The signed-in account, even one that must still replace a temporary password."""
     uid = request.session.get('uid')
     with Session() as db:
         user = db.get(User, uid) if uid else None
+        # A password change raises session_version; sessions from before it are signed out.
+        if user and request.session.get('sv', 0) != user.session_version:
+            request.session.clear()
+            user = None
         if not user: raise HTTPException(401, '로그인이 필요합니다.')
         if not user.active: raise HTTPException(403, '정지된 계정입니다.')
-        return user.id
+        return user.id, user.password_temporary
+
+def current_user(request: Request):
+    uid, temporary = signed_in_user(request)
+    if temporary: raise HTTPException(403, TEMPORARY_PASSWORD, headers={'X-Password-Change': '1'})
+    return uid
 
 class Credentials(BaseModel):
     model_config = ConfigDict(extra='forbid')
@@ -240,12 +252,14 @@ def session(request: Request):
     if 'csrf' not in request.session: request.session['csrf'] = secrets.token_urlsafe(32)
     with Session() as db:
         user = db.get(User, request.session['uid']) if request.session.get('uid') else None
+        if user and request.session.get('sv', 0) != user.session_version: user = None
         return {'quote_sse_enabled': quote_sse_enabled(),
                 'active': bool(user and user.active),
                 'quote_max_age': {'US': quote_max_age('US'), 'KR': quote_max_age('KR')},
                 'csrf': request.session['csrf'],
                 'username': user.username if user else None,
                 'is_admin': bool(user and user.is_admin),
+                'password_temporary': bool(user and user.password_temporary),
                 'market_configured': bool(market.key),
                 'providers': market.status() if hasattr(market, 'status') else {'us': bool(market.key), 'kr': False},
                 'notice_version': PRIVACY_NOTICE_VERSION}
@@ -281,8 +295,8 @@ def login(data: Credentials, request: Request):
         if not user: raise HTTPException(401, '사용자 이름 또는 비밀번호가 올바르지 않습니다.')
         if not user.active: raise HTTPException(403, '정지된 계정입니다.')
         request.session.clear()
-        request.session.update(uid=user.id, csrf=secrets.token_urlsafe(32))
-    return {'ok': True}
+        request.session.update(uid=user.id, sv=user.session_version, csrf=secrets.token_urlsafe(32))
+    return {'ok': True, 'password_temporary': user.password_temporary}
 
 @app.post('/api/logout', dependencies=[Depends(csrf)])
 def logout(request: Request):

@@ -33,6 +33,10 @@ class User(Base):
     baseline_note: Mapped[str] = mapped_column(String(40), default='registration', server_default='registration')
     # Sign-up time. Accounts older than this column carry an estimate (migration 9).
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=True)
+    # Raised on every password change; a session signed in under an older value is signed out.
+    session_version: Mapped[int] = mapped_column(Integer, default=0, server_default='0')
+    # Set by an administrator's reset: the account can do nothing but choose a new password.
+    password_temporary: Mapped[bool] = mapped_column(Boolean, default=False, server_default='false')
     __table_args__ = (CheckConstraint('cash >= 0'),)
 
 def lock_user(db, user_id):

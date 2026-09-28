@@ -118,6 +118,24 @@ def set_account_active(actor,target,active):
         add_audit(db,actor,target,'account_status','계정 상태 변경',{'before':u.active,'after':active})
         u.active=active
 
+def reset_password(actor,target,hasher):
+    """Give the account a one-time temporary password and sign out its sessions.
+
+    The password is returned once for the administrator to pass on; only its
+    hash is stored, and the audit log records that a reset happened, not the value."""
+    import secrets
+    # No 0/O/1/l/I, so it can be read out or copied by hand.
+    alphabet='abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+    password=''.join(secrets.choice(alphabet) for _ in range(12))
+    with Session.begin() as db:
+        u=lock_user(db,target)
+        if not u: raise HTTPException(404,'사용자가 없습니다.')
+        u.password_hash=hasher.hash(password)
+        u.password_temporary=True
+        u.session_version+=1
+        add_audit(db,actor,target,'password_reset','비밀번호 초기화',{'temporary':True})
+        return {'username':u.username,'temporary_password':password}
+
 def season_reset(actor,target,label,q):
     """Archive the season and restart the account from the initial funding at rate quote q."""
     with Session.begin() as db:

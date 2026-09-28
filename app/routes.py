@@ -13,7 +13,7 @@ from .market import MarketError
 from .fx import preview, exchange
 from .money import MAX_ORDER_QUANTITY, wallets, rounded
 from .trading import preview_order
-from .admin_ops import admin_overview, set_initial_amount, set_account_active, season_reset, list_archives
+from .admin_ops import admin_overview, set_initial_amount, set_account_active, season_reset, list_archives, reset_password
 from .branding import BRAND_NAME
 
 class Strict(BaseModel):
@@ -256,6 +256,10 @@ def install(app,ctx):
         if target==uid and not data.active: raise HTTPException(409,'자기 계정을 정지할 수 없습니다.')
         set_account_active(uid,target,data.active)
         return {'ok':True}
+    @app.post('/api/admin/users/{target}/password',dependencies=[Depends(csrf)])
+    def admin_reset_password(target:int,uid=Depends(admin)):
+        if target==uid: raise HTTPException(409,'자기 비밀번호는 계정 설정에서 변경하세요.')
+        return reset_password(uid,target,ctx.hasher)
     @app.post('/api/admin/users/{target}/reset',dependencies=[Depends(csrf)])
     def reset(target:int,data:ResetInput,uid=Depends(admin)):
         season_reset(uid,target,data.label,ctx.fx.current_rate('USD','KRW'))

@@ -580,7 +580,7 @@ function renderAdminUsers(){
 $('adminUserSort').addEventListener('change',()=>{adminUserPage=1;renderAdminUsers();});
 // Audit action codes as the admin reads them.
 const ADMIN_ACTIONS={grant:'지원금 지급',bulk_grant:'전체 지원금',rebase:'기준 재설정',clear:'계정 초기화',delete:'계정 삭제',account_delete:'계정 삭제',
-  account_status:'계정 정지/활성화',initial_amount:'초기 지급액 변경',season_reset:'시즌 초기화',notice_post:'공지 등록',notice_clear:'공지 내리기'};
+  account_status:'계정 정지/활성화',password_reset:'비밀번호 초기화',initial_amount:'초기 지급액 변경',season_reset:'시즌 초기화',notice_post:'공지 등록',notice_clear:'공지 내리기'};
 async function admin(){
  const r=await api('admin');adminUsers=r.users;
  renderAdminStatus(r);
@@ -602,13 +602,17 @@ async function searchAdminUsers(){
  if(!rows.length)target.append(node('p',q?'검색 결과가 없습니다. 아이디나 메모의 일부로 검색하세요.':'사용자가 없습니다.','field-help'));
 }
 $('adminTargetSearch').addEventListener('input',()=>{clearTimeout(adminSearchTimer);adminSearchTimer=setTimeout(()=>searchAdminUsers().catch(e=>toast(e.message,'error')),200);});
+let adminPasswordShownFor=null;
 function renderAdminSelected(){
- const u=adminSelected();$('adminSelected').hidden=!u;if(!u)return;
+ const u=adminSelected();$('adminSelected').hidden=!u;
+ // A temporary password is shown only next to the account it was issued for.
+ if(!u||adminPasswordShownFor!==u.id){$('adminPasswordResult').hidden=true;$('adminTempPassword').textContent='';}
+ adminPasswordShownFor=u?.id??null;if(!u)return;
  $('adminSelectedName').textContent=adminLabel(u);
  $('adminSelectedMeta').textContent=`${u.admin?'관리자':'일반'} · ${u.active?'활성':'정지'} · 현금 USD ${nativeMoney(u.wallets.USD,'USD')} · KRW ${nativeMoney(u.wallets.KRW,'KRW')}`;
  $('adminNote').value=u.note||'';
  const self=u.username===window.sessionUsername;
- document.querySelector('[data-admin-action="delete"]').disabled=self;
+ document.querySelector('[data-admin-action="delete"]').disabled=self;$('adminPasswordReset').disabled=self;
 }
 handle('adminNoteForm','submit',async()=>{const u=adminSelected();if(!u)return;const r=await api(`admin/users/${u.id}/note`,{note:$('adminNote').value});toast(r.note?`${u.username} 메모를 저장했습니다.`:`${u.username} 메모를 지웠습니다.`,'success');await admin();});
 async function runAdminAction(action,extra={}){
@@ -622,6 +626,16 @@ async function runAdminAction(action,extra={}){
   if(action==='delete')adminSelectedId=null;await admin();
  }catch(e){toast(e.message,'error',7000);throw e;}finally{buttons.forEach(b=>b.disabled=false);renderAdminSelected();}
 }
+$('adminPasswordReset').addEventListener('click',async()=>{
+ const u=adminSelected();if(!u)return;
+ if(!confirm(`${u.username}의 비밀번호를 초기화할까요?\n임시 비밀번호가 발급되고 이 사용자의 모든 기기가 로그아웃됩니다.`))return;
+ $('adminPasswordReset').disabled=true;
+ try{const r=await api(`admin/users/${u.id}/password`,{});$('adminTempPassword').textContent=r.temporary_password;$('adminPasswordResult').hidden=false;
+  toast(`${u.username}: 임시 비밀번호를 발급했습니다.`,'success');
+  const rows=await api('admin/audit');table($('adminAudit'),['시각','운영자','대상','작업','사유'],rows.map(r=>[new Date(r.created_at).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}),r.actor||'삭제된 계정',r.target||'삭제된 계정',ADMIN_ACTIONS[r.action]||r.action,r.reason]));
+ }catch(e){toast(e.message,'error',7000);}finally{$('adminPasswordReset').disabled=false;renderAdminSelected();}
+});
+$('adminTempCopy').addEventListener('click',async()=>{try{await navigator.clipboard.writeText($('adminTempPassword').textContent);toast('복사했습니다.','success');}catch{toast('복사하지 못했습니다. 직접 선택해 복사하세요.','error');}});
 handle('adminGrantForm','submit',()=>runAdminAction('grant',{currency:$('adminCurrency').value,amount:$('adminAmount').value}));
 document.querySelectorAll('[data-admin-action]').forEach(b=>b.addEventListener('click',()=>runAdminAction(b.dataset.adminAction).catch(e=>$('adminResult').textContent=e.message)));
 for(const [select,input] of [['adminCurrency','adminAmount'],['adminBulkCurrency','adminBulkAmount']])$(select).addEventListener('change',()=>{$(input).step=$(select).value==='KRW'?'1':'0.0001';$(input).min=$(input).step;});
