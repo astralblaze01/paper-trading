@@ -44,6 +44,16 @@ def event(uid,symbol,kind):
         db.execute(insert(PopularityEvent).values(user_id=uid,symbol=symbol,kind=kind,bucket=int(time.time())//3600,created_at=datetime.now(timezone.utc)).on_conflict_do_nothing())
 
 
+def quote_fields(q):
+    """The list-row columns (현재가, 등락률, 거래량, 거래대금) of one quote."""
+    return {'price':q.get('native_price',q['price']), 'change_pct':q.get('change_pct'),
+            'volume':q.get('volume'), 'turnover':q.get('turnover'), 'data_time':datetime.fromtimestamp(q['timestamp'],timezone.utc).isoformat(),
+            'data_status':q.get('data_status','공급자 시세')+(' · 오래된 시세' if q.get('stale') else '')}
+
+# Search results carry no prices; the list asks for the first few rows' quotes
+# in small batches so one search never fans out into dozens of provider calls.
+SEARCH_QUOTE_LIMIT=5
+
 def curated_market_rows(market, asset, kind, unavailable=None):
     """Actual quotes from a small disclosed catalog, never a claimed full-market ranking."""
     rows=[]; failures=[]
@@ -51,10 +61,7 @@ def curated_market_rows(market, asset, kind, unavailable=None):
         if category!=asset: continue
         row=instrument(symbol) | {'market':market_of(symbol)}
         try:
-            q=market.quote(symbol)
-            row |= {'price':q.get('native_price',q['price']), 'change_pct':q.get('change_pct'),
-                    'volume':q.get('volume'), 'turnover':q.get('turnover'), 'data_time':datetime.fromtimestamp(q['timestamp'],timezone.utc).isoformat(),
-                    'data_status':q.get('data_status','공급자 시세')+(' · 오래된 시세' if q.get('stale') else '')}
+            row |= quote_fields(market.quote(symbol))
         except MarketError as exc:
             failures.append(str(exc))
             row |= {'price':None,'change_pct':None,'volume':None,'turnover':None,'data_time':None,'data_status':str(exc)}
@@ -182,10 +189,7 @@ def install(app,ctx):
                 if info['category']!=asset: continue
                 row=info|{'score':score,'market':market}
                 try:
-                    q=ctx.market.quote(symbol)
-                    row|={'price':q.get('native_price',q['price']),'change_pct':q.get('change_pct'),
-                          'volume':q.get('volume'),'turnover':q.get('turnover'),'data_time':datetime.fromtimestamp(q['timestamp'],timezone.utc).isoformat(),
-                          'data_status':q.get('data_status','공급자 시세')+(' · 오래된 시세' if q.get('stale') else '')}
+                    row|=quote_fields(ctx.market.quote(symbol))
                 except MarketError as exc:
                     row['data_status']=str(exc)
                 rows.append(row)
@@ -203,6 +207,19 @@ def install(app,ctx):
             result['notice']=f"현재 공급자 제공 {len(result['rows'])}개 · 최대 100개 표시. " + result.get('notice','')
             return market_result(result,uid)
         except MarketError as exc: return market_result(curated_market_rows(ctx.market,asset,kind,exc),uid)
+    @app.get('/api/search/quotes')
+    def search_quotes(symbols:str=Query('',max_length=200),uid=Depends(user)):
+        """Quotes for rows of a search result, which lists instruments without prices."""
+        wanted=list(dict.fromkeys(s for s in symbols.split(',') if s))
+        if len(wanted)>SEARCH_QUOTE_LIMIT: raise HTTPException(422,f'한 번에 최대 {SEARCH_QUOTE_LIMIT}개 종목입니다.')
+        if not all(valid_symbol(s) for s in wanted): raise HTTPException(422,'잘못된 종목 코드입니다.')
+        rows=[]
+        for symbol in wanted:
+            row={'symbol':symbol}
+            try: row|=quote_fields(ctx.market.quote(symbol))
+            except MarketError as exc: row|={'price':None,'change_pct':None,'volume':None,'turnover':None,'data_time':None,'data_status':str(exc)}
+            rows.append(row)
+        return market_result({'rows':rows},uid)['rows']
     @app.post('/api/popularity',dependencies=[Depends(csrf)])
     def track(data:EventInput,uid=Depends(user)):
         event(uid,data.symbol,data.kind); return {'ok':True}

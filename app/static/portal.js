@@ -135,7 +135,19 @@ $('exploreMarkets').addEventListener('click',e=>{const b=e.target.closest('[data
 $('exploreKinds').addEventListener('click',e=>{const b=e.target.closest('[data-kind]');if(!b)return;$('exploreKind').value=b.dataset.kind;explore();});
 handle('exploreMarket','change',()=>explore());handle('exploreKind','change',()=>explore());
 window.addEventListener('displaycurrencychange',()=>{displayFx=viewFx;stockTable($('exploreRows'),exploreRowsCache,explorePopular);renderDetailQuote();renderOrderPreview();drawChart();renderPublic();renderWatchlist();renderValuation();});
-handle('discoverySearch','submit',async()=>{exploreMode='search';++exploreVersion;const query=$('discoveryQuery').value;const rows=await api('search?'+new URLSearchParams({q:query,category:$('exploreMarket').value}));exploreRowsCache=rows;explorePopular=false;stockTable($('exploreRows'),rows);$('exploreNotice').textContent='검색 결과 · 등록 종목 목록이며 가격은 종목 상세에서 확인합니다.';if(rows.length===1)await api('popularity',{symbol:rows[0].symbol,kind:'search'});});
+// Search rows arrive without prices; fill the top ones in batches of the server's limit.
+const SEARCH_QUOTE_ROWS=10, SEARCH_QUOTE_BATCH=5;
+async function fillSearchQuotes(rows,version){
+  for(let i=0;i<Math.min(rows.length,SEARCH_QUOTE_ROWS);i+=SEARCH_QUOTE_BATCH){
+    const batch=rows.slice(i,Math.min(i+SEARCH_QUOTE_BATCH,SEARCH_QUOTE_ROWS));
+    let quotes;try{quotes=await api('search/quotes?'+new URLSearchParams({symbols:batch.map(r=>r.symbol).join(',')}));}catch{return;}
+    if(version!==exploreVersion)return;
+    const bySymbol=new Map(quotes.map(q=>[q.symbol,q]));
+    batch.forEach(r=>Object.assign(r,bySymbol.get(r.symbol)||{}));
+    stockTable($('exploreRows'),rows);
+  }
+}
+handle('discoverySearch','submit',async()=>{exploreMode='search';const version=++exploreVersion;const query=$('discoveryQuery').value;const rows=await api('search?'+new URLSearchParams({q:query,category:$('exploreMarket').value}));if(version!==exploreVersion)return;exploreRowsCache=rows;explorePopular=false;stockTable($('exploreRows'),rows);$('exploreNotice').textContent=`검색 결과 · 상위 ${SEARCH_QUOTE_ROWS}개 종목의 시세를 표시합니다. 나머지는 종목 상세에서 확인합니다.`;if(rows.length===1)api('popularity',{symbol:rows[0].symbol,kind:'search'}).catch(()=>{});loadDisplayFx().catch(()=>{});await fillSearchQuotes(rows,version);});
 // Keep REST_QUOTE_MS in step with the REST fallback's '30초 간격' status line.
 const MARKET_STATUS_MS=60000, REST_QUOTE_MS=30000;
 let quoteSource=null, quoteRetry=null, quoteWatch=null, marketTimer=null, restTimer=null;
