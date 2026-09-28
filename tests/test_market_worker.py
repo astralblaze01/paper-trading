@@ -69,3 +69,31 @@ def test_an_empty_korean_master_keeps_the_old_one_and_is_retried_after_an_hour(m
     assert seen == [KNOWN, KNOWN] and len(store.values[kr.MASTER_KEY]) == 3
     assert [r.getMessage() for r in caplog.records if r.getMessage().startswith('Korean symbol master')] == [
         'Korean symbol master refresh failed', 'Korean symbol master refreshed (3 symbols)']
+
+
+def test_a_symbol_opened_mid_pass_is_collected_next_not_after_the_pass(monkeypatch, tmp_path):
+    """Provider calls are slow (KIS overseas: one per 1.1 s), so a pass over many kept-fresh
+    symbols takes tens of seconds. A symbol someone just opened must not wait for it."""
+    clock, collected, urgent = [1000.0], [], []
+    def collect(market, symbol, ttl):
+        collected.append(symbol)
+        clock[0] += 1.1
+        if symbol == 'AAA': urgent.append('NEW')  # someone opens NEW while AAA is being fetched
+        return {'timestamp': 0}, 'stored'
+    def next_refresh(timeout=1):
+        if collected: raise Stop  # one pass is enough
+        return None
+    monkeypatch.setenv('MARKET_WORKER_MODE', '')
+    monkeypatch.setattr(mw.time, 'monotonic', lambda: clock[0])
+    monkeypatch.setattr(mw, 'HEARTBEAT', tmp_path / 'heartbeat')
+    session = SimpleNamespace(session=lambda: 'regular')
+    monkeypatch.setattr(mw, 'MultiMarket', lambda: SimpleNamespace(close=lambda: None, providers={'US': session, 'KR': session}))
+    monkeypatch.setattr(mw, 'refresh_master', lambda: 1)
+    monkeypatch.setattr(mw, 'refresh_us_master', lambda: 1)
+    monkeypatch.setattr(mw, 'collect_quote', collect)
+    monkeypatch.setattr(mw.redis_cache, 'next_refresh', next_refresh)
+    monkeypatch.setattr(mw.redis_cache, 'pop_refresh', lambda: urgent.pop(0) if urgent else None, raising=False)
+    monkeypatch.setattr(mw.redis_cache, 'requested_symbols', lambda: ['AAA', 'BBB', 'CCC', 'DDD'])
+    with pytest.raises(Stop):
+        mw.main()
+    assert collected[:2] == ['AAA', 'NEW'], collected

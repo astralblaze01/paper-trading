@@ -67,7 +67,13 @@ def main():
             urgent = redis_cache.next_refresh(timeout=1)
             symbols = ([urgent] if urgent else []) + redis_cache.requested_symbols()
             now = time.monotonic()
-            for symbol in sorted(dict.fromkeys(symbols), key=lambda s: (refreshed.get(s, 0), attempted.get(s, 0))):
+            pending = sorted(dict.fromkeys(symbols), key=lambda s: (refreshed.get(s, 0), attempted.get(s, 0)))
+            while True:
+                # A pass can take tens of seconds (KIS overseas allows one call per 1.1 s), so a
+                # symbol someone just opened is taken before each kept-fresh one, not after the pass.
+                symbol = redis_cache.pop_refresh() or (pending.pop(0) if pending else None)
+                if symbol is None:
+                    break
                 if not symbol or not valid_symbol(symbol):
                     continue
                 if now < retry_after.get(symbol, 0):

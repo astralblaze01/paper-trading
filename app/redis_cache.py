@@ -252,6 +252,15 @@ class RedisCache:
         except RedisError:
             return []
 
+    def pop_refresh(self):
+        """The next queued symbol without waiting, or None."""
+        if not self.client:
+            return None
+        try:
+            return self.client.rpop(REFRESH_QUEUE_KEY)
+        except RedisError:
+            return None
+
     def next_refresh(self, timeout=1):
         if not self.client:
             return None
