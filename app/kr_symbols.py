@@ -1,4 +1,5 @@
 import io
+import time
 import zipfile
 
 import httpx
@@ -10,6 +11,8 @@ MASTER_URLS = (
     ('kosdaq', 'https://new.real.download.dws.co.kr/common/master/kosdaq_code.mst.zip'),
 )
 MASTER_KEY = 'market:symbols:kr'
+NAMES_TTL = 600  # seconds a process keeps its code → name map before reading the master again
+_names = (None, 0.0, {})  # (store it was read from, when, {symbol: name})
 
 
 def parse_master(content, exchange):
@@ -50,3 +53,16 @@ def search_master(query,limit=30):
             result.append(row)
             if len(result)>=limit:break
     return result
+
+
+def name_of(symbol):
+    """The master's name for a Korean listing, or None when the master lacks it.
+
+    instrument() calls this on every quote, so the master is read into a map at
+    most once per NAMES_TTL per process instead of on each call."""
+    global _names
+    store, loaded, names = _names
+    if store is not redis_cache or time.monotonic() - loaded > NAMES_TTL:
+        names = {row['symbol']: row['name'] for row in redis_cache.get_json(MASTER_KEY) or []}
+        _names = (redis_cache, time.monotonic(), names)
+    return names.get(symbol)

@@ -75,3 +75,17 @@ def test_an_empty_first_download_stores_nothing_and_a_later_one_recovers(monkeyp
     assert store.values == {} and kr.search_master('삼성') == []   # still "no master yet"
     serve(monkeypatch, GOOD, store)
     assert kr.refresh_master() == 3 and kr.search_master('삼성')[0]['symbol'] == 'KR:005930'
+
+
+def test_a_listed_stock_outside_the_catalog_is_named_from_the_master(monkeypatch):
+    # The portfolio, watchlist and popular lists name holdings through instrument(),
+    # which used to fall back to the bare code ('KR:396300') for anything uncatalogued.
+    from app.instruments import instrument
+    store = Store([{'symbol': 'KR:396300', 'name': 'HT로보틱스', 'category': 'kr', 'currency': 'KRW', 'exchange': 'kosdaq'}])
+    monkeypatch.setattr(kr, 'redis_cache', store)
+    assert instrument('KR:396300') == {'symbol': 'KR:396300', 'name': 'HT로보틱스', 'category': 'kr', 'currency': 'KRW'}
+    # Catalogued names win; a code the master lacks, or a missing master, keeps the code.
+    assert instrument('KR:005930')['name'] == '삼성전자'
+    assert instrument('KR:999999')['name'] == 'KR:999999'
+    monkeypatch.setattr(kr, 'redis_cache', Store())
+    assert instrument('KR:396300')['name'] == 'KR:396300'

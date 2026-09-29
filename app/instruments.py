@@ -83,7 +83,11 @@ def instrument(symbol):
     for code, name, category, currency in CATALOG:
         if code == symbol:
             return dict(symbol=code, name=name, category=category, currency=currency)
-    return dict(symbol=symbol, name=symbol, category='kr' if symbol.startswith('KR:') else 'us', currency=currency_of(symbol))
+    name = None
+    if symbol.startswith('KR:'):
+        from .kr_symbols import name_of  # imported here: kr_symbols → redis_cache → quote_data → instruments
+        name = name_of(symbol)
+    return dict(symbol=symbol, name=name or symbol, category='kr' if symbol.startswith('KR:') else 'us', currency=currency_of(symbol))
 
 def discover(query='', category='all'):
     query = _search_text(query.strip())
