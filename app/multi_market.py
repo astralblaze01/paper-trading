@@ -263,8 +263,8 @@ class MultiMarket:
         from .us_symbols import has_hangul, search_master as search_us_master
         if has_hangul(query):
             # Finnhub only matches English names; Korean names of US listings
-            # come from the KIS overseas master.
-            add_unlisted(search_us_master(query), as_instrument=True)
+            # come from the KIS overseas master. The rows show the English name.
+            add_unlisted(({'symbol': r['symbol'], 'name': r.get('english') or r['name']} for r in search_us_master(query)), as_instrument=True)
             return rows[:30]
         if self.us.key:
             add_unlisted((row for row in self.us.search(query) if valid_symbol(row['symbol'])), as_instrument=True)

@@ -83,10 +83,13 @@ def instrument(symbol):
     for code, name, category, currency in CATALOG:
         if code == symbol:
             return dict(symbol=code, name=name, category=category, currency=currency)
-    name = None
+    # Imported here: both masters import redis_cache → quote_data → instruments.
+    # Korean listings are named in Korean, US listings in English.
     if symbol.startswith('KR:'):
-        from .kr_symbols import name_of  # imported here: kr_symbols → redis_cache → quote_data → instruments
-        name = name_of(symbol)
+        from .kr_symbols import name_of
+    else:
+        from .us_symbols import name_of
+    name = name_of(symbol)
     return dict(symbol=symbol, name=name or symbol, category='kr' if symbol.startswith('KR:') else 'us', currency=currency_of(symbol))
 
 def discover(query='', category='all'):

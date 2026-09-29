@@ -5,7 +5,7 @@ import time
 import httpx
 from .market import MarketError, ProviderAccessDenied
 from .cache import TTLCache
-from .instruments import valid_symbol
+from .instruments import instrument, valid_symbol
 from .us_session import NEW_YORK
 from .kr_session import SEOUL
 from .us_quotes import known_us_exchange
@@ -152,7 +152,7 @@ class USProvider:
                 try:
                     estimated=(Decimal(str(row['price']))*Decimal(str(row['volume']))).quantize(Decimal('.01'))
                 except (ArithmeticError,ValueError): estimated=None
-                rows.append({'symbol':row['ticker'],'name':row['ticker'],'price':row['price'],'change_pct':row['change_percentage'].rstrip('%'),'volume':row['volume'],'turnover':estimated,'turnover_estimated':True,'market':'US','currency':'USD','data_time':data.get('last_updated'),'data_status':'공급자 순위 스냅샷 · 실시간 아님'})
+                rows.append({'symbol':row['ticker'],'name':instrument(row['ticker'])['name'],'price':row['price'],'change_pct':row['change_percentage'].rstrip('%'),'volume':row['volume'],'turnover':estimated,'turnover_estimated':True,'market':'US','currency':'USD','data_time':data.get('last_updated'),'data_status':'공급자 순위 스냅샷 · 실시간 아님'})
         if direction=='volume': rows.sort(key=lambda r:Decimal(str(r['turnover'] or 0)) if r['turnover'] is not None else Decimal(0),reverse=True)
         if direction=='shares': rows.sort(key=lambda r:Decimal(str(r['volume'] or 0)),reverse=True)
         return {'rows':rows,'source':'Alpha Vantage','data_time':data.get('last_updated'),'scope':'미국 거래량 상위 후보 · 거래대금 추정 정렬' if direction=='volume' else '미국 거래량 상위' if direction=='shares' else '미국 시장 · 공급자 순위','notice':'미국 거래대금은 스냅샷 가격×누적 거래량 추정치입니다. 전체 시장 거래대금 상위 순위는 아닙니다.' if direction=='volume' else '요금제별 갱신 주기/데이터 권한이 적용됩니다.'}
@@ -173,7 +173,7 @@ class USProvider:
                         change=Decimal(str(raw.get('rate') or 0))
                         if not all(v.is_finite() for v in (price,volume,turnover,change)) or price<=0 or volume<0 or turnover<0: continue
                     except (KeyError,TypeError,ValueError,ArithmeticError): continue
-                    rows.append({'symbol':symbol,'name':raw.get('name') or raw.get('ename') or symbol,'price':price,
+                    rows.append({'symbol':symbol,'name':raw.get('ename') or raw.get('name') or symbol,'price':price,
                                  'change_pct':change,'volume':volume,'turnover':turnover,'market':'US','currency':'USD',
                                  'data_time':stamp,'data_status':f'KIS {exchange} 당일 {label} 순위 · {US_RANK_SECONDS}초 확인'})
             # A security can occasionally appear in more than one exchange result.

@@ -422,7 +422,7 @@ def test_korean_names_find_us_listings_without_finnhub(monkeypatch):
     market, finnhub = us_market(monkeypatch)
     rows = market.search('테슬라', 'us')
     assert [r['symbol'] for r in rows] == ['TSLA', 'TSLL']  # exact name first, ETF after
-    assert rows[0] | {} == {'symbol': 'TSLA', 'name': '테슬라', 'category': 'us', 'currency': 'USD'}
+    assert rows[0] | {} == {'symbol': 'TSLA', 'name': 'TESLA INC', 'category': 'us', 'currency': 'USD'}  # US stocks are named in English
     assert [r['symbol'] for r in market.search('리토 에코', 'us')] == ['RETO']
     assert [r['symbol'] for r in market.search('리토에코솔루션스', 'us')] == ['RETO']  # spaces ignored
     assert [r['symbol'] for r in market.search('팔란티어', 'all')] == ['PLTR']
@@ -430,6 +430,34 @@ def test_korean_names_find_us_listings_without_finnhub(monkeypatch):
     assert [r['symbol'] for r in market.search('애플', 'us')] == ['AAPL']
     assert finnhub == []  # Korean queries never reach Finnhub, which cannot match them
     market.close()
+
+
+
+def test_us_listings_are_named_in_english_never_by_bare_ticker(monkeypatch):
+    # The portfolio, watchlist and lists used the bare ticker ('MU') for any US stock
+    # outside the catalog; they now use the KIS master's English name.
+    from app.instruments import instrument
+    market, _ = us_market(monkeypatch)
+    assert instrument('TSLA') == {'symbol': 'TSLA', 'name': 'TESLA INC', 'category': 'us', 'currency': 'USD'}
+    assert instrument('AAPL')['name'] == 'Apple'  # the catalog name still wins
+    assert instrument('ZZZZ')['name'] == 'ZZZZ'  # nothing knows it: the ticker is the last resort
+    market.close()
+
+
+def test_us_ranking_rows_are_named_in_english(monkeypatch):
+    from app.providers import USProvider
+    us_market(monkeypatch)[0].close()
+    provider = USProvider(type('FinnhubStub', (), {})())
+    monkeypatch.setattr(provider, '_leaders', lambda: {'top_gainers': [
+        {'ticker': t, 'price': '10', 'change_percentage': '1%', 'volume': '5'} for t in ('TSLA', 'ZZZZ')]})
+    assert [r['name'] for r in provider._alpha_movers('up')['rows']] == ['TESLA INC', 'ZZZZ']
+    class Adapter:
+        configured = True
+        def get(self, path, tr_id, params, ttl):
+            rows = [{'symb': 'NVDA', 'name': '엔비디아', 'ename': 'NVIDIA CORP', 'last': '225', 'rate': '2.5', 'tvol': '20', 'tamt': '4500'}]
+            return {'output2': rows if params['EXCD'] == 'NAS' else []}
+    provider = USProvider(type('FinnhubStub', (), {})(), Adapter())
+    assert [r['name'] for r in provider.volume_leaders()['rows']] == ['NVIDIA CORP']
 
 
 def test_index_names_find_tracking_etfs(monkeypatch):
