@@ -56,6 +56,9 @@ with sync_playwright() as p:
         expect(page.locator('#fxRate')).to_contain_text('1 USD')
         expect(page.locator('#fxAmountUnit')).to_have_text('USD')
         expect(page.locator('#fxAvailable')).to_contain_text('100,000')
+        # With no amount the estimate is hidden; the submit button must still sit clear of the share buttons.
+        gap=page.evaluate("document.querySelector('#fxForm .fx-submit').getBoundingClientRect().top-document.querySelector('#fxForm .order-quick').getBoundingClientRect().bottom")
+        assert gap>=12, gap
         page.locator('#fxAmount').fill('1000')
         # The estimate follows the typed amount; there is no separate preview button.
         expect(page.locator('#fxPreview')).to_have_count(0)

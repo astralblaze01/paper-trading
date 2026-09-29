@@ -725,6 +725,8 @@ footer { max-width: 1680px; margin: 0 auto; padding: 8px 32px 28px; display: fle
 .order-quick button:hover { background: var(--surface-2); }
 .order-estimate { margin: 18px 0 18px; padding-top: 14px; border-top: 1px dashed var(--border-strong); }
 .order-estimate:empty { display: none; }
+/* The hidden estimate normally spaces the quick buttons from the submit button. */
+.order-estimate:empty + .full-width { margin-top: 18px; }
 .cost-row { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; font-size: var(--fs-sm); color: var(--muted); }
 .cost-row strong { font-family: var(--font-num); font-weight: 500; color: var(--ink); }
 .cost-row:last-of-type { border-top: 1px solid var(--border); margin-top: 4px; padding-top: 10px; }
