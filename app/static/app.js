@@ -121,8 +121,10 @@ function renderRanking(){if(!rankingCache)return;
   }
   const person=x=>{const box=document.createElement('span');box.className='rank-user';if(x.tier)box.dataset.tier=x.tier;if(window.avatar)box.append(avatar(x.username,x.image_version,'small'));if(x.tier&&window.tierIcon)box.append(tierIcon(x.tier));const link=userLink(x.username);if(x.tier)link.classList.add('tier-text-'+x.tier);box.append(link);return box;};
   // Ranked by USD value; shown in the selected display currency at the snapshot's rate.
+  // Phones hide the 변화 column; the same change shows under the badge instead.
+  const rankCell=x=>{const box=document.createElement('span'),stacked=change(x);box.className='rank-cell';stacked.classList.replace('rank-change','rank-change-stacked');box.append(rankBadge(x.rank),stacked);return box;};
   const change=x=>{const c=window.rankChange?rankChange(x.rank,x.previous_rank):document.createElement('span');if(!c.textContent){c.textContent='–';c.classList.add('same');}return c;};
-  table($('ranking'),['순위','변화','사용자','총 자산 ('+viewCurrency('USD')+')','수익률 ('+basisLabel()+')'],rankingCache.rows.map(x=>[rankBadge(x.rank),change(x),person(x),equityTone(viewMoney(x.equity_usd,'USD',x.fx||viewFx),accountReturn(x),.01),signedPct(accountReturn(x))]));
+  table($('ranking'),['순위','변화','사용자','총 자산 ('+viewCurrency('USD')+')','수익률 ('+basisLabel()+')'],rankingCache.rows.map(x=>[rankCell(x),change(x),person(x),equityTone(viewMoney(x.equity_usd,'USD',x.fx||viewFx),accountReturn(x),.01),signedPct(accountReturn(x))]));
   $('ranking').querySelectorAll('tbody tr').forEach((tr,i)=>{const rank=rankingCache.rows[i].rank;if(rank<=3)tr.classList.add('top-rank','top-rank-'+rank);});
   if(window.renderMyProfile)renderMyProfile();
   window.renderHeaderUser?.();

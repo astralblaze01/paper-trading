@@ -330,11 +330,19 @@ with sync_playwright() as p:
         expect(page.locator('#ranking tbody tr').first).not_to_have_css('background-image','none')
         # The daily arrow: rendered from the row's morning place.
         page.evaluate("rankingCache={...rankingCache,rows:rankingCache.rows.map((r,i)=>i===0?{...r,previous_rank:3}:i===1?{...r,previous_rank:1}:r)};renderRanking()")
-        expect(page.locator('#ranking tbody tr').first.locator('.rank-arrow.up')).to_have_text('▲')
+        expect(page.locator('#ranking tbody tr').first.locator('.rank-change .rank-arrow.up')).to_have_text('▲')
         expect(page.locator('#ranking tbody tr').first.locator('.rank-change')).to_have_text('▲2')
-        expect(page.locator('#ranking tbody tr').nth(1).locator('.rank-arrow.down')).to_have_css('color','rgb(196, 47, 58)')
+        expect(page.locator('#ranking tbody tr').nth(1).locator('.rank-change .rank-arrow.down')).to_have_css('color','rgb(196, 47, 58)')
         expect(page.locator('#ranking tbody tr .rank-medal svg')).to_have_count(min(3,page.locator('#ranking tbody tr').count()))
         expect(page.locator('#ranking tbody tr').first.locator('.rank-medal')).to_have_attribute('aria-label','1위')
+        # Phones: the change moves under the badge, and no figure runs past its cell into the next one.
+        stacked=page.locator('#ranking tbody tr').first.locator('.rank-change-stacked')
+        if width<600:
+            expect(stacked).to_be_visible();expect(stacked).to_have_text('▲2')
+            expect(page.locator('#ranking th').nth(1)).to_be_hidden()
+        else:
+            expect(stacked).to_be_hidden();expect(page.locator('#ranking th').nth(1)).to_be_visible()
+        assert page.evaluate("[...document.querySelectorAll('#ranking tbody td:nth-child(n+4) > span')].every(s=>s.getBoundingClientRect().right<=s.parentElement.getBoundingClientRect().right+0.5)"), 'ranking figure overflows its cell'
         # Every account in the fixture is even or down, so the total is default ink or blue, never red.
         expect(page.locator('#ranking td:nth-child(4) .gain')).to_have_count(0)
         expect(page.locator('#marketSessions .session-dot').first).to_be_visible()

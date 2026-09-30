@@ -893,21 +893,28 @@ footer { max-width: 1680px; margin: 0 auto; padding: 8px 32px 28px; display: fle
 /* Daily rank change: arrow colored (up green, down red), number in plain ink. */
 .rank-change { display: inline-flex; align-items: center; gap: 2px; margin-left: 8px; font-size: var(--fs-sm); font-weight: 700; color: var(--ink-emph); font-family: var(--font-num); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .rank-change:empty { display: none; }
+.rank-cell { display: inline-flex; flex-direction: column; align-items: center; gap: 2px; }
+.rank-change-stacked { display: none; align-items: center; gap: 1px; font-size: var(--fs-2xs); font-weight: 700; color: var(--ink-emph); font-family: var(--font-num); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rank-change-stacked.same { color: var(--faint); font-weight: 600; }
 .rank-change.same { color: var(--faint); font-weight: 600; }
 .rank-arrow { font-size: var(--fs-2xs); }
 .rank-arrow.up { color: var(--up); }
 .rank-arrow.down { color: var(--gain); }
 @media (max-width: 600px) {
-  #ranking table { table-layout: fixed; }
+  /* Figures keep their full width and never wrap; the user column takes what is left. */
   #ranking td, #ranking th { padding: 14px 4px; white-space: normal; font-size: var(--fs-sm); }
-  #ranking th:first-child { width: 38px; }
+  #ranking td:nth-child(n+4) { white-space: nowrap; }
+  #ranking th:first-child { width: 36px; }
+  #ranking td:nth-child(2), #ranking th:nth-child(2) { display: none; }
+  #ranking td:nth-child(3), #ranking th:nth-child(3) { min-width: 0; width: 100%; }
+  #ranking .rank-change-stacked { display: flex; }
   #ranking .rank-badge { width: 26px; height: 26px; font-size: var(--fs-sm); }
   #ranking .rank-badge.rank-medal { width: 32px; height: 37px; }
-  #ranking th:nth-child(2) { width: 38px; }
-  #ranking th:nth-child(3) { width: 34%; }
-  #ranking th:last-child { width: 23%; }
   #ranking .avatar-small { width: 26px; height: 26px; }
   .rank-user { gap: 6px; }
+}
+@media (max-width: 360px) {
+  #ranking .rank-user .avatar-small { display: none; }
 }
 /* Weekly report: ranks 1–4 of the period's return, up front. */
 .weekly-report { border-top: 1px solid var(--border); padding-top: 18px; margin-top: 18px; }
