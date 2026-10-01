@@ -288,6 +288,20 @@ def test_kr_volume_provider_requests_share_volume_ranking():
     assert calls == ['0'] and [r['symbol'] for r in rows] == ['KR:000660', 'KR:005930']
 
 
+
+def test_kr_gainers_and_losers_rank_against_the_previous_close():
+    # KIS 등락률 순위 (20170): price class 0 ranks the rise from the day's low (or the fall
+    # from its high), which left real gainers out and put rising stocks under 급하락.
+    from app.providers import KRProvider
+    calls = []
+    class Adapter:
+        def get(self, path, tr, params, ttl):
+            calls.append((params['FID_RANK_SORT_CLS_CODE'], params['FID_PRC_CLS_CODE']))
+            return {'output': []}
+    provider = KRProvider(Adapter())
+    provider.movers('up'); provider.movers('down')
+    assert calls == [('0', '1'), ('1', '1')]
+
 def test_dividend_yield_statuses():
     from app.company import dividend_info
     class US:

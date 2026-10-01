@@ -315,7 +315,9 @@ class KRProvider:
                 params=common|{'FID_COND_SCR_DIV_CODE':'20171','FID_BLNG_CLS_CODE':'3' if direction=='volume' else '0','FID_INPUT_DATE_1':''}
             else:
                 path='/uapi/domestic-stock/v1/ranking/fluctuation'; tr='FHPST01700000'
-                params=common|{'FID_COND_SCR_DIV_CODE':'20170','FID_RANK_SORT_CLS_CODE':'0' if direction=='up' else '1','FID_INPUT_CNT_1':'0','FID_PRC_CLS_CODE':'0','FID_RSFL_RATE1':'','FID_RSFL_RATE2':''}
+                # KIS 20170: sort 0 상승률, 1 하락률; price class 1 measures against the previous
+                # close (전일 종가대비). Class 0 would rank from the day's low or high instead.
+                params=common|{'FID_COND_SCR_DIV_CODE':'20170','FID_RANK_SORT_CLS_CODE':'0' if direction=='up' else '1','FID_INPUT_CNT_1':'0','FID_PRC_CLS_CODE':'1','FID_RSFL_RATE1':'','FID_RSFL_RATE2':''}
             data=self.adapter.get(path,tr,params,KR_RANK_SECONDS)
             rows=[]; stamp=datetime.now(timezone.utc).isoformat()
             for r in data.get('output',[]):
