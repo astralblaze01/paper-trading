@@ -129,3 +129,16 @@ def test_schedule_is_read_a_few_listings_per_pass_and_waits_out_request_limits(c
     assert dividends.run(None, start)['synced'] == 0 and len(asked) == 5        # round done
     later = datetime(2026, 10, 1, 6, 1, tzinfo=timezone.utc)                 # SYNC_HOURS later: a new round
     assert dividends.run(None, later)['synced'] == 3 and asked[5:] == ['AAPL', 'KR:005930', 'MSFT']
+
+
+def test_us_schedule_asks_with_the_listing_exchange(monkeypatch):
+    # Under NASDAQ's code KIS gave NYSE-listed KO someone else's rights, and Arca ETFs none.
+    exchanges = {'AAPL': 'NAS', 'KO': 'NYS', 'SCHD': 'AMS'}
+    monkeypatch.setattr('app.us_symbols.exchange_of', exchanges.get)
+    asked = []
+    class KIS:
+        def get(self, path, tr, params, ttl):
+            if path.endswith('period-rights'): asked.append((params['PDNO'], params['PRDT_TYPE_CD']))
+            return {'output': [], 'output1': []}
+    for symbol in ('AAPL', 'KO', 'SCHD', 'ZZZZ'): dividends.schedule(symbol, KIS(), date(2026, 10, 1))
+    assert asked == [('AAPL', '512'), ('KO', '513'), ('SCHD', '529'), ('ZZZZ', '512')]

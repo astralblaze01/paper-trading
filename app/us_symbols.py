@@ -44,6 +44,13 @@ def name_of(symbol):
     return _names[1].get(symbol) or POPULAR.get(symbol)
 
 
+def exchange_of(symbol):
+    """'NAS', 'NYS' or 'AMS' from the KIS master, or None when the master lacks the listing."""
+    for row in _rows():
+        if row['symbol'] == symbol: return row.get('exchange')
+    return None
+
+
 def _search_text(value):
     return re.sub(r'[\s._()·-]+', '', value.casefold())
 

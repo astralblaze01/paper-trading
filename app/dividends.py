@@ -36,6 +36,7 @@ SYNC_KEY, CURSOR_KEY, ROUND_DONE = 'DIVIDENDS_SYNCED_AT', 'DIVIDENDS_CURSOR', '~
 SYNC_BATCH = 3   # listings per scheduler pass (one a minute): 2 KIS calls each for US listings
 LOOKBACK_DAYS, LOOKAHEAD_DAYS = 150, 120   # Korean year-end dividends are paid about four months later.
 RECENT_TRADE_DAYS = 60
+PRODUCT_TYPES = {'NAS': '512', 'NYS': '513', 'AMS': '529'}   # KIS overseas product type by exchange
 
 
 def _weekdays_before(day, count):
@@ -86,9 +87,13 @@ def schedule(symbol, kis, today, lookback=LOOKBACK_DAYS):
                 events.append({'record_date': record, 'pay_date': _day(r.get('divi_pay_dt'), '%Y/%m/%d'),
                                'per_share': per_share, 'currency': 'KRW', 'source': 'KIS 예탁원 배당'})
         return events
+    # The product type must name the listing's exchange: with another one KIS answers
+    # with a different security's rights, or none (NYSE KO under NASDAQ's code).
+    from .us_symbols import exchange_of
+    product = PRODUCT_TYPES.get(exchange_of(symbol), '512')
     rights = kis.get('/uapi/overseas-price/v1/quotations/period-rights', 'CTRGT011R',
                      {'RGHT_TYPE_CD': '03', 'INQR_DVSN_CD': '02', 'INQR_STRT_DT': start.strftime('%Y%m%d'),
-                      'INQR_END_DT': end.strftime('%Y%m%d'), 'PDNO': symbol, 'PRDT_TYPE_CD': '512',
+                      'INQR_END_DT': end.strftime('%Y%m%d'), 'PDNO': symbol, 'PRDT_TYPE_CD': product,
                       'CTX_AREA_NK50': '', 'CTX_AREA_FK50': ''}, 21600).get('output') or []
     pays = kis.get('/uapi/overseas-price/v1/quotations/rights-by-ice', 'HHDFS78330900',
                    {'NCOD': 'US', 'SYMB': symbol, 'ST_YMD': start.strftime('%Y%m%d'), 'ED_YMD': end.strftime('%Y%m%d')},
