@@ -162,7 +162,7 @@ def test_company_endpoint_sends_percent_and_multiples_as_numbers(client, monkeyp
     monkeypatch.setattr(main.market, 'us', US({'marketCapitalization': 3200000, 'peTTM': 28.4, 'pbQuarterly': 7.2, 'roeTTM': 31.5, 'psTTM': 8.6}), raising=False)
     body = client.get('/api/company/MSFT').json()
     assert {k: float(body['valuation'][k]) for k in EMPTY} == {'market_cap': 3.2e12, 'per': 28.4, 'pbr': 7.2, 'roe': 31.5, 'psr': 8.6}
-    assert body['valuation']['currency'] == 'USD' and body['name'] == 'Microsoft'
+    assert body['valuation']['currency'] == 'USD' and body['name'] == '마이크로소프트'
 
 
 def test_the_kis_client_allows_only_the_financial_ratio_finance_path():

@@ -173,7 +173,8 @@ class USProvider:
                         change=Decimal(str(raw.get('rate') or 0))
                         if not all(v.is_finite() for v in (price,volume,turnover,change)) or price<=0 or volume<0 or turnover<0: continue
                     except (KeyError,TypeError,ValueError,ArithmeticError): continue
-                    rows.append({'symbol':symbol,'name':raw.get('ename') or raw.get('name') or symbol,'price':price,
+                    known=instrument(symbol)['name']
+                    rows.append({'symbol':symbol,'name':known if known!=symbol else raw.get('name') or raw.get('ename') or symbol,'price':price,
                                  'change_pct':change,'volume':volume,'turnover':turnover,'market':'US','currency':'USD',
                                  'data_time':stamp,'data_status':f'KIS {exchange} 당일 {label} 순위 · {US_RANK_SECONDS}초 확인'})
             # A security can occasionally appear in more than one exchange result.

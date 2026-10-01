@@ -243,7 +243,12 @@ class MultiMarket:
             for row in candidates:
                 if row['symbol'] not in listed:
                     listed.add(row['symbol'])
-                    rows.append((instrument(row['symbol']) | {'name': row['name']}) if as_instrument else row)
+                    if as_instrument:
+                        # The Korean name wins; the provider's name only fills in an unknown listing.
+                        item = instrument(row['symbol'])
+                        if item['name'] == row['symbol'] and row.get('name'): item['name'] = row['name']
+                        row = item
+                    rows.append(row)
 
         from .instruments import index_funds
         add_unlisted(index_funds(query, category))
@@ -263,8 +268,8 @@ class MultiMarket:
         from .us_symbols import has_hangul, search_master as search_us_master
         if has_hangul(query):
             # Finnhub only matches English names; Korean names of US listings
-            # come from the KIS overseas master. The rows show the English name.
-            add_unlisted(({'symbol': r['symbol'], 'name': r.get('english') or r['name']} for r in search_us_master(query)), as_instrument=True)
+            # come from the KIS overseas master.
+            add_unlisted(({'symbol': r['symbol'], 'name': r['name']} for r in search_us_master(query)), as_instrument=True)
             return rows[:30]
         if self.us.key:
             add_unlisted((row for row in self.us.search(query) if valid_symbol(row['symbol'])), as_instrument=True)

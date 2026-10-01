@@ -86,7 +86,7 @@ with sync_playwright() as p:
         page.locator('[data-asset="us_bond"]').click()
         expect(page.locator('#exploreRows')).to_contain_text('미국 국채 20년')
         page.locator('[data-asset="gold"]').click()
-        expect(page.locator('#exploreRows')).to_contain_text('SPDR Gold Shares')
+        expect(page.locator('#exploreRows')).to_contain_text('SPDR 금 ETF')
         expect(page.locator('#exploreRows')).to_contain_text('ACE KRX금현물')
         expect(page.locator('#exploreRows td.gain').first).to_have_css('color','rgb(196, 47, 58)')
         expect(page.locator('#exploreRows td.loss').first).to_have_css('color','rgb(31, 95, 209)')
@@ -101,9 +101,9 @@ with sync_playwright() as p:
         page.locator('[data-asset="us"]').click()
         expect(page.locator('[data-asset="us"]')).to_have_attribute('aria-pressed','true')
         expect(page.locator('#exploreNotice')).to_contain_text('순위가 아닙니다')
-        expect(page.locator('#exploreRows')).to_contain_text('Apple')
+        expect(page.locator('#exploreRows')).to_contain_text('애플')
         page.locator('[data-kind="up"]').click()
-        expect(page.locator('#exploreRows')).to_contain_text('Apple')
+        expect(page.locator('#exploreRows')).to_contain_text('애플')
         assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth+1')
         if width<600: expect(page.locator('#exploreRows .volume-cell').last).to_be_visible()
         page.screenshot(path=f'/artifacts/explore-{width}.png',full_page=True)
@@ -142,7 +142,7 @@ with sync_playwright() as p:
         expect(page.locator('#qtyMax')).to_have_text(re.compile(r'^최대 [\d,]+주$'))
         page.locator('#submitOrder').click()
         expect(page.locator('#toasts')).to_contain_text('매수 주문이 체결되었습니다.')
-        expect(page.locator('#toasts')).to_contain_text('Apple 2주')
+        expect(page.locator('#toasts')).to_contain_text('애플 2주')
         expect(page.locator('#toasts .toast').last).to_be_in_viewport()
         expect(page.locator('#orderEstimate')).to_contain_text('보유 주식2주')
         page.locator('.side-toggle [data-side="sell"]').click()
@@ -189,7 +189,7 @@ with sync_playwright() as p:
         if width>=1300:
             side_box=page.locator('.desk-side').bounding_box()
             assert side_box['x']<chart_box['x']<order_box['x'], (side_box,chart_box,order_box)
-            expect(page.locator('#tradeWatchRows .trade-watch-row[aria-current="true"]')).to_contain_text('Apple')
+            expect(page.locator('#tradeWatchRows .trade-watch-row[aria-current="true"]')).to_contain_text('애플')
             expect(page.locator('#tradeWallets')).to_contain_text('USD 지갑')
         elif width>=900: assert chart_box['x']<order_box['x'], (chart_box,order_box)
         else:
@@ -197,7 +197,7 @@ with sync_playwright() as p:
             expect(page.locator('.mobile-trade-bar')).to_be_visible()
         page.screenshot(path=f'/artifacts/detail-{width}.png',full_page=True)
         page.evaluate("location.hash='#watchlist'")
-        expect(page.locator('#watchRows .watch-name')).to_contain_text('Apple')
+        expect(page.locator('#watchRows .watch-name')).to_contain_text('애플')
         expect(page.locator('#watchRows .watch-price')).to_contain_text('100,000원')
         expect(page.locator('#watchRows .watch-change .gain').first).to_have_css('color','rgb(196, 47, 58)')
         page.screenshot(path=f'/artifacts/watchlist-{width}.png',full_page=True)
@@ -215,7 +215,7 @@ with sync_playwright() as p:
         expect(page.locator('#myProfile .avatar')).to_have_attribute('src','/static/avatar-default.svg')
         expect(page.locator('#allocation .allocation-segment')).to_have_count(2)
         expect(page.locator('#allocation .allocation-legend')).to_contain_text('현금')
-        expect(page.locator('#allocation .allocation-legend')).to_contain_text('Apple')
+        expect(page.locator('#allocation .allocation-legend')).to_contain_text('애플')
         # My profile (bio, tier, rank) comes first, above the summary strip; the allocation is a donut.
         assert page.evaluate("[...document.querySelector('.portfolio-desk').children].filter(e=>e.id==='myProfile'||e.classList.contains('portfolio-strip')).map(e=>e.id||'strip')")==['myProfile','strip']
         expect(page.locator('#allocation svg circle.allocation-segment')).to_have_count(2)
@@ -309,7 +309,7 @@ with sync_playwright() as p:
         page.wait_for_function("(t=>t&&!t.includes('조회 중'))(document.getElementById('myPerformanceNotice').textContent)")
         page.screenshot(path=f'/artifacts/portfolio-{width}.png',full_page=True)
         page.locator('#positions .portfolio-stock-link').click()
-        expect(page.locator('#detailTitle')).to_contain_text('Apple')
+        expect(page.locator('#detailTitle')).to_contain_text('애플')
         page.locator('.app-nav a[href="#ranking"]').click()
         expect(page.locator('#rankingStatus')).to_contain_text('10초 단위')
         with page.expect_response(lambda r:r.url.endswith('/api/ranking'),timeout=15000):
@@ -417,7 +417,7 @@ with sync_playwright() as p:
         if width>=900:
             page.keyboard.press('Control+K'); expect(page.locator('#headerQuery')).to_be_focused()
             page.locator('#headerQuery').fill('AAPL'); expect(page.locator('#headerResults .header-result').first).to_be_visible()
-            page.keyboard.press('Enter'); expect(page.locator('#detailTitle')).to_contain_text('Apple')
+            page.keyboard.press('Enter'); expect(page.locator('#detailTitle')).to_contain_text('애플')
         # Theme: 딥 틸 by default, 다크 아레나 from the header switch, kept after a reload.
         assert page.evaluate("getComputedStyle(document.documentElement).backgroundColor")=='rgb(243, 244, 243)'
         expect(page.locator('.brand-logo-light')).to_be_visible(); expect(page.locator('.brand-logo-dark')).to_be_hidden()
@@ -649,7 +649,7 @@ with sync_playwright() as p:
         expect(values).to_have_text(['정보 없음']*5)
         expect(page.locator('#companyInfo .valuation')).to_contain_text('투자 지표를 불러오지 못했습니다')
         page.route('**/api/company/IAU',lambda route:route.fulfill(status=503,json={'detail':'기업 정보 점검 중입니다.'}))
-        for symbol,label in [('MSFT','Microsoft'),('IAU','iShares Gold Trust')]:
+        for symbol,label in [('MSFT','마이크로소프트'),('IAU','아이셰어즈 금 트러스트')]:
             page.evaluate('s=>openStock(s)',symbol)
             if symbol=='IAU':
                 expect(page.locator('#companyInfo')).to_have_text('기업 정보 점검 중입니다.')
@@ -693,7 +693,7 @@ with sync_playwright() as p:
     expect(page.locator('#allocation .allocation-legend li')).to_have_count(9)
     expect(page.locator('#allocation .allocation-legend li.pending')).to_have_count(0)
     legend=page.locator('#allocation .allocation-legend').inner_text()
-    assert all(n in legend for n in ['Microsoft','IAU','현금']), legend
+    assert all(n in legend for n in ['마이크로소프트','IAU','현금']), legend
     page.screenshot(path='/artifacts/allocation-many-1280.png',full_page=True)
     page.close()
     # SSE runs only when the fixture enables it; legacy browser suite remains usable.
@@ -729,7 +729,7 @@ with sync_playwright() as p:
             import json
             json.dump({'samples_ms':latencies,'p95_ms':p95,'scope':'isolated Docker Redis → FastAPI → Chromium DOM; includes injection HTTP round trip'},report)
         page.evaluate("openStock('MSFT');openStock('NVDA')")
-        expect(page.locator('#detailTitle')).to_contain_text('NVIDIA')
+        expect(page.locator('#detailTitle')).to_contain_text('엔비디아')
         expect(page.locator('#detailPrice strong')).to_have_text('$100.00')
         page.request.post('http://browserweb:8000/internal/test-quote/AAPL?price=777')
         page.wait_for_timeout(300)

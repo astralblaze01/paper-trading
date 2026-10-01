@@ -436,7 +436,7 @@ def test_korean_names_find_us_listings_without_finnhub(monkeypatch):
     market, finnhub = us_market(monkeypatch)
     rows = market.search('테슬라', 'us')
     assert [r['symbol'] for r in rows] == ['TSLA', 'TSLL']  # exact name first, ETF after
-    assert rows[0] | {} == {'symbol': 'TSLA', 'name': 'TESLA INC', 'category': 'us', 'currency': 'USD'}  # US stocks are named in English
+    assert rows[0] | {} == {'symbol': 'TSLA', 'name': '테슬라', 'category': 'us', 'currency': 'USD'}  # US stocks are named in Korean
     assert [r['symbol'] for r in market.search('리토 에코', 'us')] == ['RETO']
     assert [r['symbol'] for r in market.search('리토에코솔루션스', 'us')] == ['RETO']  # spaces ignored
     assert [r['symbol'] for r in market.search('팔란티어', 'all')] == ['PLTR']
@@ -447,38 +447,40 @@ def test_korean_names_find_us_listings_without_finnhub(monkeypatch):
 
 
 
-def test_us_listings_are_named_in_english_never_by_bare_ticker(monkeypatch):
+def test_us_listings_are_named_in_korean_never_by_bare_ticker(monkeypatch):
     # The portfolio, watchlist and lists used the bare ticker ('MU') for any US stock
-    # outside the catalog; they now use the KIS master's English name.
+    # outside the catalog; they use the KIS master's Korean name.
     from app.instruments import instrument
     market, _ = us_market(monkeypatch)
-    assert instrument('TSLA') == {'symbol': 'TSLA', 'name': 'TESLA INC', 'category': 'us', 'currency': 'USD'}
-    assert instrument('AAPL')['name'] == 'Apple'  # the catalog name still wins
+    assert instrument('TSLA') == {'symbol': 'TSLA', 'name': '테슬라', 'category': 'us', 'currency': 'USD'}
+    assert instrument('AAPL')['name'] == '애플'  # the catalog name still wins
+    assert instrument('VOO')['name'] == '뱅가드 S&P 500 ETF'  # a popular ETF has a written name, master or not
     assert instrument('ZZZZ')['name'] == 'ZZZZ'  # nothing knows it: the ticker is the last resort
     market.close()
 
 
-def test_us_ranking_rows_are_named_in_english(monkeypatch):
+def test_us_ranking_rows_are_named_in_korean(monkeypatch):
     from app.providers import USProvider
     us_market(monkeypatch)[0].close()
     provider = USProvider(type('FinnhubStub', (), {})())
     monkeypatch.setattr(provider, '_leaders', lambda: {'top_gainers': [
         {'ticker': t, 'price': '10', 'change_percentage': '1%', 'volume': '5'} for t in ('TSLA', 'ZZZZ')]})
-    assert [r['name'] for r in provider._alpha_movers('up')['rows']] == ['TESLA INC', 'ZZZZ']
+    assert [r['name'] for r in provider._alpha_movers('up')['rows']] == ['테슬라', 'ZZZZ']
     class Adapter:
         configured = True
         def get(self, path, tr_id, params, ttl):
-            rows = [{'symb': 'NVDA', 'name': '엔비디아', 'ename': 'NVIDIA CORP', 'last': '225', 'rate': '2.5', 'tvol': '20', 'tamt': '4500'}]
+            rows = [{'symb': 'NVDA', 'name': '엔비디아 KIS', 'ename': 'NVIDIA CORP', 'last': '225', 'rate': '2.5', 'tvol': '20', 'tamt': '4500'},
+                    {'symb': 'ZZZZ', 'name': '모르는 회사', 'ename': 'ZZZZ INC', 'last': '5', 'rate': '1', 'tvol': '2', 'tamt': '10'}]
             return {'output2': rows if params['EXCD'] == 'NAS' else []}
     provider = USProvider(type('FinnhubStub', (), {})(), Adapter())
-    assert [r['name'] for r in provider.volume_leaders()['rows']] == ['NVIDIA CORP']
+    assert sorted(r['name'] for r in provider.volume_leaders()['rows']) == ['모르는 회사', '엔비디아']  # our name, else KIS's Korean one
 
 
 def test_index_names_find_tracking_etfs(monkeypatch):
     market, _ = us_market(monkeypatch)
     for query in ('s&p500', 'S&P 500', 'sp500', '에스앤피500'):
         assert [r['symbol'] for r in market.search(query, 'us')][:4] == ['VOO', 'SPY', 'IVV', 'SPLG'], query
-    assert market.search('s&p500', 'us')[0]['name'] == 'Vanguard S&P 500 ETF'
+    assert market.search('s&p500', 'us')[0]['name'] == '뱅가드 S&P 500 ETF'
     assert [r['symbol'] for r in market.search('나스닥100', 'kr')] == ['KR:133690', 'KR:379810']  # market tab respected
     assert [r['symbol'] for r in market.search('s&p500', 'all')][:6] == ['VOO', 'SPY', 'IVV', 'SPLG', 'KR:360750', 'KR:379800']
     assert market.search('sp', 'us') == []  # too short to name an index
@@ -488,7 +490,7 @@ def test_index_names_find_tracking_etfs(monkeypatch):
 def test_english_code_and_korean_market_searches_unchanged(monkeypatch):
     market, finnhub = us_market(monkeypatch)
     assert [r['symbol'] for r in market.search('Tesla', 'us')] == ['TSLA']
-    assert market.search('Tesla', 'us')[0]['name'] == 'TESLA INC'
+    assert market.search('Tesla', 'us')[0]['name'] == '테슬라'  # found in English, shown in Korean
     assert [r['symbol'] for r in market.search('TSLA', 'us')] == ['TSLA']
     assert finnhub == ['Tesla', 'Tesla', 'TSLA']
     # Korean-market search does not add US listings.
@@ -509,3 +511,17 @@ def test_membership_days_count_signup_day_as_one_in_korea_time():
     assert membership_days(utc(2026, 9, 1, 3, 0), now) == 25
     assert membership_days(utc(2026, 9, 26, 0, 0), now) == 1    # clock skew never shows 0
     assert membership_days(None, now) is None
+
+
+def test_us_etf_names_are_rendered_in_korean():
+    from app.us_names import etf_name, korean_name
+    assert etf_name('SS SPDR PORTFOLIO LONG TERM TREASURY') == 'SPDR 포트폴리오 장기 국채 ETF'
+    assert etf_name('VANGUARD TOTAL BOND MARKET') == '뱅가드 토탈 채권시장 ETF'
+    assert etf_name('ALPS INTERMEDIATE MUNICIPAL BOND') == '알프스 중기 지방채 ETF'
+    assert etf_name('PROSHARES RUSSELL 2000 2X') == '프로셰어즈 러셀 2000 2배 ETF'
+    assert etf_name('FT VEST GROWTH 100 BUFFER - MAR') == 'FT베스트 성장 100 버퍼 - 3월 ETF'
+    assert etf_name('ISHARES MSCI EAFE') == '아이셰어즈 MSCI EAFE ETF'  # index names stay
+    # Order: written name, the master's Korean name, an ETF rendering, the master's name.
+    assert korean_name({'symbol': 'QQQ', 'name': 'INVESCO QQQ TRUST', 'etf': True}) == '인베스코 QQQ ETF'
+    assert korean_name({'symbol': 'TSLL', 'name': '디렉시온 테슬라 2배', 'etf': True}) == '디렉시온 테슬라 2배'
+    assert korean_name({'symbol': 'AMD', 'name': 'AMD', 'etf': False}) == 'AMD'

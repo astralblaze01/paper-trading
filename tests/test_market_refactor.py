@@ -560,9 +560,9 @@ def test_search_merges_sources_in_order_without_duplicates(monkeypatch):
         catalog = [r['symbol'] for r in discover('KR', 'all')]
         assert [r['symbol'] for r in market.search('KR', 'all')] == (catalog + [f'KR:{300000 + n}' for n in range(30)])[:30]
         assert [r['symbol'] for r in market.search('테슬라', 'all')] == [f'KR:{200000 + n}' for n in range(30)]
-        # Found by the Korean name, shown by the English one.
-        assert market.search('테슬라', 'us') == [{'symbol': 'TSLA', 'name': 'TESLA INC', 'category': 'us', 'currency': 'USD'},
-                                                {'symbol': 'TSLL', 'name': 'TSLA BULL 2X', 'category': 'us', 'currency': 'USD'}]
+        # Found and shown by the Korean name.
+        assert market.search('테슬라', 'us') == [{'symbol': 'TSLA', 'name': '테슬라', 'category': 'us', 'currency': 'USD'},
+                                                {'symbol': 'TSLL', 'name': '디렉시온 테슬라 2배 ETF', 'category': 'us', 'currency': 'USD'}]
         # A 6-digit code found in the master needs no quote; an unknown one asks KIS for the name.
         monkeypatch.setattr(market.kr, 'quote', lambda symbol: quoted.append(symbol) or {'name': '새종목'})
         assert market.search('100007', 'kr') == [kr_row('100007', '삼성테스트7')]
@@ -579,7 +579,7 @@ def test_search_merges_sources_in_order_without_duplicates(monkeypatch):
         assert [r['symbol'] for r in market.search('Micro', 'us')] == ['MSFT'] and finnhub == []
         market.us.key = 'test'
         found = market.search('Micro', 'us')
-        assert found[:2] == [{'symbol': 'MSFT', 'name': 'Microsoft', 'category': 'us', 'currency': 'USD'},
+        assert found[:2] == [{'symbol': 'MSFT', 'name': '마이크로소프트', 'category': 'us', 'currency': 'USD'},
                              {'symbol': 'MU', 'name': 'MICRON', 'category': 'us', 'currency': 'USD'}]
         assert [r['symbol'] for r in found[2:]] == [f'MC{n}' for n in range(28)] and finnhub == ['Micro']
         assert market.search('Micro', 'kr') == [] and finnhub == ['Micro']

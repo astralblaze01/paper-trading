@@ -20,7 +20,7 @@ MASTER_URLS = (
 MASTER_KEY = 'market:symbols:us'
 HANGUL = re.compile('[가-힣ㄱ-ㅎㅏ-ㅣ]')
 _loaded = (0.0, [])  # ~13k rows; parsed once per process for five minutes.
-_names = (None, {})  # (the _rows() list it was built from, {symbol: English name})
+_names = (None, {})  # (the _rows() list it was built from, {symbol: Korean display name})
 
 
 def _rows():
@@ -32,15 +32,16 @@ def _rows():
 
 
 def name_of(symbol):
-    """The master's English name for a US listing, or None when the master lacks it.
+    """The Korean display name of a US listing (see us_names), or None when unknown.
 
     instrument() calls this on every quote; the map is rebuilt only when
     _rows() hands back a newly loaded list."""
     global _names
+    from .us_names import POPULAR, korean_name
     rows = _rows()
     if _names[0] is not rows:
-        _names = (rows, {row['symbol']: row['english'] for row in rows if row.get('english')})
-    return _names[1].get(symbol)
+        _names = (rows, {row['symbol']: korean_name(row) for row in rows})
+    return _names[1].get(symbol) or POPULAR.get(symbol)
 
 
 def _search_text(value):

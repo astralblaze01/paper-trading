@@ -369,7 +369,8 @@ app/
   kr_session.py      한국 세션 판정 (KRX·NXT, Asia/Seoul)
   kr_quotes.py       한국 통합 시세, 종목별 NXT·ETP capability
   quote_policy.py    시세의 세션·실시간·주문 가능 여부 판정
-  kr_symbols.py, us_symbols.py   종목 마스터 검색 · 종목명(포트폴리오·관심종목 등: 국내는 한글, 미국은 영문)
+  kr_symbols.py, us_symbols.py   종목 마스터 검색 · 종목명(국내·미국 모두 한글)
+  us_names.py                    미국 종목 한글명: 주식은 한국투자증권 마스터 한글명, 인기 ETF는 직접 쓴 이름, 나머지 ETF는 운용사·용어 사전으로 변환
   instruments.py     기본 종목 목록(채권·금 ETF 포함)
   db.py, migrations.py           테이블 정의와 마이그레이션
   worker.py, market_worker.py    백그라운드 작업

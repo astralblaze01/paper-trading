@@ -17,7 +17,7 @@ def company_info(symbol,market):
                 result.update(name=data.get('prdt_abrv_name') or data.get('prdt_name') or info['name'],country='한국',industry=data.get('std_idst_clsf_cd_name'),ipo=data.get('scts_mket_lstg_dt') or data.get('kosdaq_mket_lstg_dt'),source='한국투자증권 종목 기본정보')
             else:
                 data=market.us.get('/stock/profile2',{'symbol':symbol},86400)
-                result.update(name=data.get('name') or info['name'],industry=data.get('finnhubIndustry'),exchange=data.get('exchange'),country=data.get('country'),website=data.get('weburl'),ipo=data.get('ipo'),market_cap=data.get('marketCapitalization'),source='Finnhub 기업 기본정보')
+                result.update(name=info['name'] if info['name']!=symbol else data.get('name') or symbol,industry=data.get('finnhubIndustry'),exchange=data.get('exchange'),country=data.get('country'),website=data.get('weburl'),ipo=data.get('ipo'),market_cap=data.get('marketCapitalization'),source='Finnhub 기업 기본정보')
             if not result['industry']: result['notice']='공급자가 업종·사업 소개를 제공하지 않는 종목입니다.'
         except (MarketError,KeyError,TypeError,AttributeError):
             result['notice']='기업 정보를 불러오지 못했습니다. 시세와 주문은 별도로 이용할 수 있습니다.'
