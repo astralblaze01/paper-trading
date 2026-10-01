@@ -149,7 +149,7 @@ def test_internal_jobs_run_every_job_when_a_queued_order_vanishes(client, monkey
     monkeypatch.setattr(main, 'tick', lambda market, fx=None: ran.append('weekly') or 'waiting')
     monkeypatch.setattr(main, 'capture_daily_snapshots', lambda market, fx: ran.append('snapshots') or 'waiting')
     r = client.post('/internal/jobs', headers={WORKER_TOKEN_HEADER: worker_token(main.secret)})
-    assert r.status_code == 200 and r.json() == {'filled': 0, 'weekly': 'waiting', 'snapshots': 'waiting'}
+    assert r.status_code == 200 and r.json() == {'filled': 0, 'weekly': 'waiting', 'snapshots': 'waiting', 'dividends': 'disabled'}
     assert ran == ['weekly', 'snapshots']
 
 

@@ -601,11 +601,17 @@ def public_performance(username: str, period: PerformancePeriod = '1M', start: s
         target_id, username = target.id, target.username
     return performance_view(target_id, username, period, start, end)
 
+@app.get('/api/dividends')
+def dividend_summary(uid=Depends(current_user)):
+    """Dividends credited to this account, totals per currency, and the ones still to come."""
+    return dividends.summary(uid)
+
 @app.get('/api/weekly')
 def weekly(page: int = Query(1, ge=1), uid=Depends(current_user)):
     return report_list(page)
 
 
+from . import dividends
 from .routes import install
 import sys
 install(app, sys.modules[__name__])
@@ -621,4 +627,7 @@ def internal_jobs(request: Request):
     try: snapshots=capture_daily_snapshots(market,fx)
     except Exception:
         request_log.exception('daily snapshot failed'); snapshots='error'
-    return {'filled':filled,'weekly':weekly_result,'snapshots':snapshots}
+    try: dividend_result=dividends.run(market.kr) if getattr(market,'kr',None) is not None and market.kr.configured else 'disabled'
+    except Exception:
+        request_log.exception('dividends failed'); dividend_result='error'
+    return {'filled':filled,'weekly':weekly_result,'snapshots':snapshots,'dividends':dividend_result}

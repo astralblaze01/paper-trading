@@ -70,11 +70,21 @@ def dividend_info(symbol,market,metric=None):
             price=_number(quote.get('native_price',quote.get('price')))
             if not price or price<=0: return {'yield':None,'status':'unavailable','basis':'현재가 확인 불가'}
             return {'yield':(total/price*100).quantize(Decimal('.01')),'status':'paid','basis':'최근 12개월 주당 배당금 ÷ 현재가 · 한국투자증권'}
-        metric=metric() if metric else _us_metric(symbol,market)
+        try: metric=metric() if metric else _us_metric(symbol,market)
+        except MarketError: metric={}
         keys=('dividendYieldIndicatedAnnual','currentDividendYieldTTM','dividendIndicatedAnnual','dividendPerShareTTM')
-        if not any(k in metric for k in keys): return {'yield':None,'status':'unavailable','basis':'공급자 배당 자료 없음'}
         value=_number(metric.get('dividendYieldIndicatedAnnual')) or _number(metric.get('currentDividendYieldTTM'))
         if value and value>0: return {'yield':value.quantize(Decimal('.01')),'status':'paid','basis':'연간 배당수익률 · Finnhub'}
+        # Finnhub has no dividend data for many ETFs: sum the last 12 months of KIS dividends instead.
+        kis=getattr(market,'kr',None)
+        if kis is not None and getattr(kis,'configured',False):
+            from .dividends import trailing_yield
+            quote=market.quote(symbol);price=_number(quote.get('native_price',quote.get('price')))
+            if price and price>0:
+                kis_yield=trailing_yield(symbol,kis,price,date.today())
+                if kis_yield: return {'yield':kis_yield,'status':'paid','basis':'최근 12개월 주당 배당금 ÷ 현재가 · 한국투자증권'}
+                return {'yield':None,'status':'none','basis':'최근 12개월 배당 기록 없음 · 한국투자증권'}
+        if not any(k in metric for k in keys): return {'yield':None,'status':'unavailable','basis':'공급자 배당 자료 없음'}
         return {'yield':None,'status':'none','basis':'Finnhub 배당 정보 없음'}
     except (MarketError,KeyError,TypeError,AttributeError,ValueError):
         return {'yield':None,'status':'unavailable','basis':'배당 정보를 불러오지 못했습니다.'}

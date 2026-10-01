@@ -587,8 +587,8 @@ def test_internal_jobs_accept_the_worker_token(client, monkeypatch, caplog):
     token = hmac.new(main.secret.encode(), b'paper-worker', hashlib.sha256).hexdigest()
     monkeypatch.setenv('DAILY_SNAPSHOT_ENABLED', 'false')
     r = client.post('/internal/jobs', headers={'x-worker-token': token})
-    assert r.status_code == 200 and list(r.json()) == ['filled', 'weekly', 'snapshots']
-    assert r.json() == {'filled': 0, 'weekly': 'disabled', 'snapshots': 'disabled'}
+    assert r.status_code == 200 and list(r.json()) == ['filled', 'weekly', 'snapshots', 'dividends']
+    assert r.json() == {'filled': 0, 'weekly': 'disabled', 'snapshots': 'disabled', 'dividends': 'disabled'}
     for bad in ('', token[:-1], token.upper()):
         r = client.post('/internal/jobs', headers={'x-worker-token': bad})
         assert r.status_code == 403 and r.json() == {'detail': 'Forbidden'}

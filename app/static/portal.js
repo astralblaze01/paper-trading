@@ -59,7 +59,7 @@ window.routePage = async function() {
     if(selected==='history')await history();
     if(selected==='ranking')await refreshRankingOnly();
     if(selected==='admin')await admin();
-    if(selected==='portfolio'){window.loadMyPerformance?.();loadFees().catch(e=>{$('feeRates').textContent=e.message;});if(window.loadMyProfile)await loadMyProfile();}
+    if(selected==='portfolio'){window.loadMyPerformance?.();loadFees().catch(e=>{$('feeRates').textContent=e.message;});loadDividends().catch(e=>{$('dividendNote').textContent=e.message;});if(window.loadMyProfile)await loadMyProfile();}
   } catch(e){message(e.message);}
 };
 // segment is still URI-encoded: the missing-price retry compares it with the live hash.
@@ -810,6 +810,42 @@ function renderFees(){
   $('feeRates').textContent=`토스증권 기준 · 미국 주식 매수 ${pctText(t.US_BUY_FEE_BPS)} / 매도 ${pctText(t.US_SELL_FEE_BPS)} · 국내 주식 매수 ${pctText(t.KR_BUY_FEE_BPS)} / 매도 ${pctText(t.KR_SELL_FEE_BPS)} · 국내 주식 매도 세금 ${pctText(t.KR_SELL_TAX_BPS)} (ETF·ETN 면제) · 환전 ${pctText(t.FX_FEE_BPS)}`;
 }
 window.addEventListener('displaycurrencychange',renderFees);
+
+// Dividends land in the wallet of the listing's currency after withholding tax, so like
+// fees each currency keeps its own figure; the total converts at today's reference rate.
+let dividendCache=null;
+async function loadDividends(){dividendCache=await api('dividends');renderDividends();}
+function renderDividends(){
+  const r=dividendCache,box=$('dividendSummary');if(!r||!box)return;
+  box.replaceChildren();
+  const t=r.totals,shown=returnBasis(),rate=Number(feeCache?.fx?.rate);
+  const krw=Number(t.KRW.net)+(rate?Number(t.USD.net)*rate:0),total=shown==='USD'&&rate?krw/rate:krw;
+  const sum=node('div',null,'fee-total');sum.append(node('span',`받은 배당금 (세후 · ${shown==='USD'?'달러':'원화'} 환산)`),node('strong',rate||!Number(t.USD.net)?nativeMoney(total,shown):'—'));
+  box.append(sum);
+  const day=v=>v?String(v).slice(5).replace('-','.'):'미정';
+  if(r.upcoming.length){
+    box.append(node('h3','지급 예정','dividend-sub'));
+    const list=node('ul',null,'dividend-list');
+    for(const u of r.upcoming){
+      const li=node('li'),name=node('span',null,'dividend-name');name.append(node('strong',u.name),node('small',`${u.status} · 기준일 ${day(u.record_date)} · 입금 ${day(u.credit_date)} · ${u.quantity.toLocaleString()}주`));
+      li.append(name,node('span',`+${nativeMoney(u.expected_net,u.currency)}`,'dividend-amount'));list.append(li);
+    }
+    box.append(list);
+  }
+  box.append(node('h3','받은 배당','dividend-sub'));
+  if(!r.payments.length)box.append(node('p','아직 받은 배당이 없습니다.','empty-state dividend-empty'));
+  else{
+    const list=node('ul',null,'dividend-list');
+    for(const p of r.payments.slice(0,10)){
+      const li=node('li'),name=node('span',null,'dividend-name');name.append(node('strong',p.name),node('small',`${new Date(p.created_at).toLocaleDateString('ko-KR',{timeZone:'Asia/Seoul'})} 입금 · ${p.quantity.toLocaleString()}주 × ${nativeMoney(p.per_share,p.currency)} · 세금 ${nativeMoney(p.tax,p.currency)}`));
+      li.append(name,node('span',`+${nativeMoney(p.net,p.currency)}`,'dividend-amount gain'));list.append(li);
+    }
+    box.append(list);
+  }
+  const pct=b=>`${Number(b)/100}%`;
+  $('dividendNote').textContent=`배당 기준일에 보유한 수량만큼 지급일에 자동 입금됩니다 (국내 주식 원화 지갑, 미국 주식 달러 지갑 · 미국은 지급일 다음 날). 배당소득세 국내 ${pct(r.rates.KR_DIVIDEND_TAX_BPS)} · 미국 ${pct(r.rates.US_DIVIDEND_TAX_BPS)} 원천징수 후 금액입니다.`;
+}
+window.addEventListener('displaycurrencychange',renderDividends);
 
 // Header search: type to see matches, Enter or click opens the stock; ⌘K / Ctrl+K or '/' focuses it.
 let headerSearchVersion=0,headerSearchTimer=null,headerMatches=[],headerActive=-1;

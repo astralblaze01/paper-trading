@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select, delete, func, text, or_
-from .db import ACCOUNT_LOCK, Session, User, Wallet, Settings, Position, Transaction, FxTransaction, LimitOrder, Watchlist, PopularityEvent, SeasonArchive, WeeklyReport, AdminAudit, WalletTransfer, UserAdminNote, lock_user
+from .db import ACCOUNT_LOCK, Session, User, Wallet, Settings, Position, Transaction, FxTransaction, LimitOrder, Watchlist, PopularityEvent, SeasonArchive, WeeklyReport, AdminAudit, WalletTransfer, UserAdminNote, DividendPayment, lock_user
 from .accounts import delete_account_data
 from .money import wallets, initial_amount, rounded, bps
 from .weekly import assign_ranks, drop_from_baseline
@@ -70,7 +70,7 @@ def _clear(db,u,ws,before,actor,reason,q,now):
     """Back to the state right after registration; everything removed is archived first."""
     target=u.id
     # Preserve recovery evidence before removing user-facing records.
-    models=[Position,Transaction,FxTransaction,LimitOrder,Watchlist,PopularityEvent]
+    models=[Position,Transaction,FxTransaction,LimitOrder,Watchlist,PopularityEvent,DividendPayment]
     archive={m.__tablename__:records(db,m,target) for m in models}
     archive['wallet_transfers']=[{c.name:getattr(row,c.name) for c in WalletTransfer.__table__.columns} for row in db.scalars(select(WalletTransfer).where(or_(WalletTransfer.sender_id==target,WalletTransfer.recipient_id==target)))]
     archive['wallets']=before;archive['actor']=actor;archive['reason']=reason

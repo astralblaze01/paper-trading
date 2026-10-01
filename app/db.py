@@ -333,3 +333,34 @@ class SnapshotRun(Base):
     errors: Mapped[dict] = mapped_column(JSONB, default=dict)
     benchmarks: Mapped[dict] = mapped_column(JSONB, default=dict)
     outcome: Mapped[str | None] = mapped_column(String(16), nullable=True)
+
+class DividendEvent(Base):
+    """One cash dividend of one listing: who held it at the cut-off is paid on pay_date."""
+    __tablename__ = 'dividend_events'
+    id: Mapped[int] = mapped_column(primary_key=True)
+    symbol: Mapped[str] = mapped_column(String(16))
+    record_date: Mapped[date] = mapped_column(Date)
+    pay_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    per_share: Mapped[Decimal] = mapped_column(Numeric(20,6))
+    currency: Mapped[str] = mapped_column(String(3))
+    source: Mapped[str] = mapped_column(String(32))
+    # Set once every holder at the cut-off has been paid.
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    __table_args__ = (UniqueConstraint('symbol','record_date'), CheckConstraint('per_share > 0'))
+
+class DividendPayment(Base):
+    """A dividend credited to one account's wallet, after withholding tax."""
+    __tablename__ = 'dividend_payments'
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey('users.id'), index=True)
+    event_id: Mapped[int] = mapped_column(ForeignKey('dividend_events.id'))
+    symbol: Mapped[str] = mapped_column(String(16))
+    quantity: Mapped[int] = mapped_column(Integer)
+    per_share: Mapped[Decimal] = mapped_column(Numeric(20,6))
+    currency: Mapped[str] = mapped_column(String(3))
+    gross: Mapped[Decimal] = mapped_column(Numeric(24,4))
+    tax: Mapped[Decimal] = mapped_column(Numeric(24,4))
+    tax_bps: Mapped[Decimal] = mapped_column(Numeric(10,4))
+    net: Mapped[Decimal] = mapped_column(Numeric(24,4))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (UniqueConstraint('user_id','event_id'), CheckConstraint('quantity > 0'), CheckConstraint('net >= 0'))

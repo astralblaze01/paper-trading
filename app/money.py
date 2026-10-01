@@ -21,7 +21,10 @@ class OrderRejected(HTTPException):
 # (with the rural special tax) on sales. Korean ETFs/ETNs pay no transaction
 # tax. Each can be overridden by the environment variable of the same name.
 FEE_DEFAULTS = {'US_BUY_FEE_BPS': '10', 'US_SELL_FEE_BPS': '10', 'KR_BUY_FEE_BPS': '1.5', 'KR_SELL_FEE_BPS': '1.5',
-                'KR_SELL_TAX_BPS': '20', 'FX_FEE_BPS': '10', 'FX_SPREAD_BPS': '5'}
+                'KR_SELL_TAX_BPS': '20', 'FX_FEE_BPS': '10', 'FX_SPREAD_BPS': '5',
+                # Dividend withholding: Korean dividends 15.4% (income tax 14% + local 1.4%);
+                # US dividends 15% under the Korea-US tax treaty.
+                'KR_DIVIDEND_TAX_BPS': '1540', 'US_DIVIDEND_TAX_BPS': '1500'}
 
 def bps(name, default=None):
     value = D(os.getenv(name) or (default if default is not None else FEE_DEFAULTS.get(name, '0')))
