@@ -350,6 +350,20 @@ async function history() {
   const query=new URLSearchParams({page});if(historySide)query.set('side',historySide);if(historyMonth)query.set('month',historyMonth);
   const [rows,summary]=await Promise.all([api('transactions?'+query),api('transactions/summary'+(historyMonth?'?month='+historyMonth:'')),loadHistoryMonths()]);
   historyCache=rows;renderHistory();renderHistorySummary(summary);
+  api('splits').then(renderSplits).catch(()=>{});
+}
+// Splits applied to this account's holdings, and coming ones of what it holds; hidden when none.
+function renderSplits(r){
+  const items=[];const md=d=>String(d).slice(5).replace('-','.');
+  const ratioText=x=>{const n=Number(x);return n>=1?`1주 → ${+n.toFixed(4)}주`:`${+(1/n).toFixed(4)}주 → 1주`;};
+  for(const u of r.upcoming){const li=node('li'),name=node('span',null,'dividend-name');name.append(node('strong',u.name),node('small',`${md(u.effective_date)} 예정 · ${ratioText(u.ratio)}`));li.append(name,node('span','예정','dday confirmed'));items.push(li);}
+  for(const a of r.applied){
+    const li=node('li'),name=node('span',null,'dividend-name');
+    const facts=[`${md(a.effective_date)} · ${ratioText(a.ratio)}`,`${Number(a.before_quantity).toLocaleString()}주 → ${Number(a.after_quantity).toLocaleString()}주`];
+    if(Number(a.cash))facts.push(`끝수 현금 ${nativeMoney(a.cash,a.currency)}`);
+    name.append(node('strong',a.name),node('small',facts.join(' · ')));li.append(name,node('span','적용','dday'));items.push(li);
+  }
+  $('splitList').replaceChildren(...items);$('splitPanel').hidden=!items.length;
 }
 // The side card: server totals for the chosen month (all pages, both sides), each in its settlement currency.
 function renderHistorySummary(summary){

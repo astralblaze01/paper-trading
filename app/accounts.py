@@ -6,7 +6,7 @@ from fastapi import Depends, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select, delete, update, or_, text
 from .db import (ACCOUNT_LOCK, Session, PrivacyChoice, PerformanceSnapshot, User, Position, Wallet, Transaction, FxTransaction, LimitOrder, Watchlist, PopularityEvent,
-                 SeasonArchive, WeeklyReport, AdminAudit, WalletTransfer, UserAdminNote, UserProfile, UserProfileImage, DividendPayment, lock_user)
+                 SeasonArchive, WeeklyReport, AdminAudit, WalletTransfer, UserAdminNote, UserProfile, UserProfileImage, DividendPayment, SplitApplication, lock_user)
 from .weekly import drop_from_baseline
 
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
@@ -31,7 +31,7 @@ def delete_account_data(db, user):
     drop_from_baseline(db, target)
     db.execute(update(WalletTransfer).where(WalletTransfer.sender_id == target).values(sender_id=None))
     db.execute(update(WalletTransfer).where(WalletTransfer.recipient_id == target).values(recipient_id=None))
-    for model in (Position, Transaction, FxTransaction, LimitOrder, Watchlist, PopularityEvent, SeasonArchive, Wallet, DividendPayment,
+    for model in (Position, Transaction, FxTransaction, LimitOrder, Watchlist, PopularityEvent, SeasonArchive, Wallet, DividendPayment, SplitApplication,
                   UserAdminNote, UserProfileImage, UserProfile, PerformanceSnapshot, PrivacyChoice):
         db.execute(delete(model).where(model.user_id == target))
     db.execute(delete(AdminAudit).where(or_(AdminAudit.actor_id == target, AdminAudit.target_id == target)))

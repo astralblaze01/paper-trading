@@ -411,6 +411,7 @@ with sync_playwright() as p:
         expect(sale.locator('td').nth(8).locator('.realized-cell')).to_be_visible()
         expect(sale.locator('td').nth(1)).to_contain_text('애플')
         expect(page.locator('#historySummary')).to_contain_text('실현 손익 (매도)')
+        expect(page.locator('#splitPanel')).to_be_hidden()   # no split touched this account
         page.locator('#historySide button[data-side="sell"]').click()
         expect(page.locator('#history .trade-side.gain')).to_have_count(0)
         expect(page.locator('#history .trade-side.loss').first).to_be_visible()

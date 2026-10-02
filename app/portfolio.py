@@ -46,15 +46,26 @@ def ensure_initial_krw(user, usd_krw, fx_date):
         user.initial_fx_date=fx_date
 
 
-def dual_costs(trades):
+def dual_costs(trades, splits=None):
     """Cost of each open holding in KRW and in USD, each fill converted at its own rate.
 
     Moving average like the native cost: a buy adds its settled amount (fees
     included), a sale removes its share of the cost. A holding with a fill of
     unknown rate is left out, so it shows no converted return rather than a
     wrong one."""
-    book = {}
+    book, pending = {}, {s: list(v) for s, v in (splits or {}).items()}
+    def split_until(symbol, until):
+        # A split between fills multiplies the shares; the cost stays, less a fraction paid out.
+        qty, krw, usd, known = book.get(symbol, (0, Decimal(0), Decimal(0), True))
+        while pending.get(symbol) and (until is None or pending[symbol][0][0] <= until):
+            _, ratio = pending[symbol].pop(0)
+            if qty:
+                exact = Decimal(qty) * ratio
+                whole = int(exact)
+                krw, usd, qty = krw * whole / exact, usd * whole / exact, whole
+        book[symbol] = (qty, krw, usd, known)
     for t in trades:
+        if pending: split_until(t.symbol, t.created_at)
         qty, krw, usd, known = book.get(t.symbol, (0, Decimal(0), Decimal(0), True))
         rate = t.usd_krw
         if rate is None or not rate > 0 or t.net_amount is None: known = False
@@ -69,6 +80,7 @@ def dual_costs(trades):
             qty -= t.quantity
             if qty <= 0: qty, krw, usd, known = 0, Decimal(0), Decimal(0), True
         book[t.symbol] = (qty, krw, usd, known)
+    for symbol in list(pending): split_until(symbol, None)
     return {symbol: {'quantity': q, 'KRW': k, 'USD': u} for symbol, (q, k, u, known) in book.items() if known and q > 0}
 
 
@@ -106,7 +118,8 @@ def portfolio(uid, market, fx):
         ws=wallets(db,user)
         balances={c:w.balance for c,w in ws.items()}
         positions=list(db.scalars(select(Position).where(Position.user_id==uid)))
-        both=dual_costs(db.scalars(select(Transaction).where(Transaction.user_id==uid).order_by(Transaction.id)))
+        from .splits import applied
+        both=dual_costs(db.scalars(select(Transaction).where(Transaction.user_id==uid).order_by(Transaction.id)),applied(db))
         realized=dict(db.execute(select(Transaction.currency,func.sum(Transaction.realized_pnl)).where(Transaction.user_id==uid,Transaction.accounting_version==2,*([Transaction.created_at>=user.performance_since] if user.performance_since else [])).group_by(Transaction.currency)).all())
     rows=[]; equity=balances['KRW']+(balances['USD']*rate['rate'] if rate else 0)
     complete=rate is not None

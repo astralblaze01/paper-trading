@@ -619,6 +619,12 @@ def dividend_summary(uid=Depends(current_user)):
     """Dividends credited to this account, totals per currency, and the ones still to come."""
     return dividends.summary(uid)
 
+@app.get('/api/splits')
+def split_summary(uid=Depends(current_user)):
+    """Stock splits applied to this account's holdings, and coming splits of what it holds."""
+    from . import splits
+    return splits.summary(uid)
+
 @app.get('/api/weekly')
 def weekly(page: int = Query(1, ge=1), uid=Depends(current_user)):
     return report_list(page)
@@ -640,7 +646,7 @@ def internal_jobs(request: Request):
     try: snapshots=capture_daily_snapshots(market,fx)
     except Exception:
         request_log.exception('daily snapshot failed'); snapshots='error'
-    try: dividend_result=dividends.run(market.kr) if getattr(market,'kr',None) is not None and market.kr.configured else 'disabled'
+    try: dividend_result=dividends.run(market.kr,market=market) if getattr(market,'kr',None) is not None and market.kr.configured else 'disabled'
     except Exception:
         request_log.exception('dividends failed'); dividend_result='error'
     return {'filled':filled,'weekly':weekly_result,'snapshots':snapshots,'dividends':dividend_result}

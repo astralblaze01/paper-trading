@@ -418,7 +418,7 @@ def test_manage_clear_archives_restores_registration_state_and_audits(client):
         assert archive.created_at == u.records_since == a.created_at and recent(a.created_at)
         data = archive.data
         assert set(data) == {'positions', 'transactions', 'fx_transactions', 'limit_orders', 'watchlists', 'popularity_events',
-                             'dividend_payments', 'wallet_transfers', 'wallets', 'actor', 'reason', 'performance', 'weekly_rows'}
+                             'dividend_payments', 'split_applications', 'wallet_transfers', 'wallets', 'actor', 'reason', 'performance', 'weekly_rows'}
         assert (data['wallets'], data['actor'], data['reason'], data['weekly_rows']) == (
             {'USD': '99800.0000', 'KRW': '5000.0000'}, admin_id, '회원가입 직후 상태로 초기화', [])
         assert data['performance'] == {'initial_krw': '100000000.0000', 'initial_usd': '100000.0000', 'net_contributions_krw': '7000.0000',

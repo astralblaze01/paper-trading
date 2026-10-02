@@ -8,7 +8,7 @@
   <link rel="icon" type="image/png" href="/static/brand/mark.png">
   <link rel="stylesheet" href="/static/fonts/fonts.css?v=1">
   <link rel="stylesheet" href="/static/style.css?v=73">
-  <script src="/static/app.js?v=59" defer></script>
+  <script src="/static/app.js?v=60" defer></script>
   <script src="/static/portal.js?v=60" defer></script>
   <script src="/static/profile.js?v=57" defer></script>
 </head>
@@ -198,6 +198,7 @@
         <section class="panel history-panel"><div class="section-heading"><h2>거래내역</h2></div><div class="history-filters"><div id="historySide" class="chip-row" role="group" aria-label="매매 구분"><button type="button" data-side="" aria-pressed="true">전체</button><button type="button" data-side="buy" aria-pressed="false">매수</button><button type="button" data-side="sell" aria-pressed="false">매도</button></div><label class="history-month">기간 <select id="historyMonth" aria-label="거래 월"><option value="">전체 기간</option></select></label></div><div id="history" class="scroll"></div><div class="pagination"><button id="previous" class="secondary">이전</button><span id="page"></span><button id="next" class="secondary">다음</button></div></section>
         <section class="panel reserve-panel"><div class="section-heading"><h2>예약 주문</h2></div><div id="reserveRows" class="reserve-rows"></div></section>
         <section class="panel history-summary" aria-labelledby="historySummaryTitle"><div class="section-heading"><h2 id="historySummaryTitle">전체 기간 합계</h2></div><dl id="historySummary" class="summary-list"></dl><p class="field-help">결제 통화(달러·원화)별 합계입니다. 매수·매도 필터와 관계없이 이 기간의 체결을 모두 더합니다.</p></section>
+        <section class="panel split-panel" id="splitPanel" hidden><div class="section-heading"><h2>주식 분할</h2></div><ul id="splitList" class="dividend-list"></ul><p class="field-help">분할일에 보유 수량 × 비율, 평균 단가 ÷ 비율로 자동 조정해 평가액은 그대로입니다. 병합으로 생긴 1주 미만은 그날 가격으로 현금 정산합니다.</p></section>
       </div>
       <div data-page="ranking" class="ranking-desk">
         <section class="panel ranking-panel"><div class="section-heading"><h2>자산 순위</h2><span id="rankingStatus" class="unit"></span></div><div id="ranking" class="scroll"></div><p class="ranking-foot">순위 변화는 오늘 아침 기록 대비 · 관리자 제외 · 이름을 누르면 공개 프로필</p></section>
@@ -213,7 +214,7 @@
         </aside>
       </div>
     </div>
-    <div class="notice"><strong>모의투자 안내</strong><p>모든 자산은 가상이며 실제 돈이나 증권은 거래되지 않습니다. 설정된 모의 수수료가 적용됩니다. 배당은 보유 수량만큼 세후 금액이 자동 입금되며, 주식 분할은 자동 반영하지 않습니다.</p></div>
+    <div class="notice"><strong>모의투자 안내</strong><p>모든 자산은 가상이며 실제 돈이나 증권은 거래되지 않습니다. 설정된 모의 수수료가 적용됩니다. 배당은 보유 수량만큼 세후 금액이 자동 입금되고, 주식 분할·병합은 분할일에 보유 수량에 자동 반영됩니다.</p></div>
   </main>
   <div id="toasts" class="toast-region" aria-live="polite" aria-atomic="false"></div>
   <dialog id="withdrawDialog" class="confirm-dialog" aria-labelledby="withdrawTitle">

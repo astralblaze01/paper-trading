@@ -40,9 +40,6 @@ SYNC_BATCH = 2   # listings per scheduler pass (one a minute): 2-4 KIS calls eac
 LOOKBACK_DAYS, LOOKAHEAD_DAYS = 400, 120
 RECENT_TRADE_DAYS = 60
 MAX_RIGHTS_PAGES = 10
-# KIS right types for a split (액면분할) and a reverse split (액면병합); the allocation
-# rate is in percent of the old share count (2000 = one share became twenty).
-SPLIT_RIGHTS = ('14', '15')
 PRODUCT_TYPES = {'NAS': '512', 'NYS': '513', 'AMS': '529'}   # KIS overseas product type by exchange
 
 
@@ -93,6 +90,8 @@ def schedule(symbol, kis, today, lookback=LOOKBACK_DAYS):
             if record and per_share and str(r.get('sht_cd', symbol[3:])) == symbol[3:]:
                 events.append({'record_date': record, 'pay_date': _day(r.get('divi_pay_dt'), '%Y/%m/%d'),
                                'per_share': per_share, 'currency': 'KRW', 'source': 'KIS 예탁원 배당'})
+        amounts = restate(symbol, kis, {e['record_date']: e['per_share'] for e in events}, today, start, end)
+        for e in events: e['per_share'] = amounts[e['record_date']]
         return events
     # The product type must name the listing's exchange: with another one KIS answers
     # with a different security's rights, or none (NYSE KO under NASDAQ's code).
@@ -118,18 +117,21 @@ def schedule(symbol, kis, today, lookback=LOOKBACK_DAYS):
         record, per_share = _day(r.get('acpl_bass_dt'), '%Y%m%d'), _amount(r.get('alct_frcr_unpr'))
         if record in pay_by_record and per_share and r.get('crcy_cd', 'USD') == 'USD':
             amounts[record] = amounts.get(record, Decimal(0)) + per_share   # e.g. a regular dividend and a special one
-    # Restate dividends from before a split per current share, so yields and estimates
-    # compare with today's price. One this service may still pay (from PAY_FROM) is left
-    # as declared: positions here are not split, so it is owed per share held.
-    for kind in SPLIT_RIGHTS:
-        for r in _period_rights(kis, symbol, kind, start, end, product):
-            effective, ratio = _day(r.get('acpl_bass_dt'), '%Y%m%d'), _amount(r.get('stck_alct_rt'))
-            if not effective or not ratio: continue
-            for record in amounts:
-                if record < effective and record < PAY_FROM: amounts[record] /= ratio / 100
+    amounts = restate(symbol, kis, amounts, today, start, end)
     return [{'record_date': record, 'pay_date': pay_by_record[record], 'per_share': amount.quantize(Decimal('.000001')),
              'currency': 'USD', 'source': 'KIS 해외 권리'}
             for record, amount in sorted(amounts.items())]
+
+
+def restate(symbol, kis, amounts, today, start, end):
+    """{record_date: per share} with dividends from before a split restated per current share,
+    so yields and estimates compare with today's price. One this service may still pay
+    (from PAY_FROM) keeps its declared amount: it is owed per share held at its cut-off."""
+    from .splits import schedule as split_schedule
+    for split in split_schedule(symbol, kis, today, start, end):
+        for record in amounts:
+            if record < split['effective_date'] and record < PAY_FROM: amounts[record] = amounts[record] / split['ratio']
+    return amounts
 
 
 def _period_rights(kis, symbol, kind, start, end, product):
@@ -164,7 +166,10 @@ def sync(kis, symbols, now=None):
     today = now.astimezone(SEOUL).date()
     done = []
     for symbol in symbols:
-        try: events = schedule(symbol, kis, today)
+        try:
+            events = schedule(symbol, kis, today)
+            from .splits import schedule as split_schedule
+            split_events = split_schedule(symbol, kis, today, today - timedelta(days=LOOKBACK_DAYS), today + timedelta(days=LOOKAHEAD_DAYS))
         except Exception as exc:
             log.warning('dividend schedule unavailable for %s: %s', symbol, exc)
             if '한도' in str(exc): break
@@ -179,6 +184,8 @@ def sync(kis, symbols, now=None):
                                                               DividendEvent.record_date >= start, DividendEvent.record_date <= end)):
                 if row.record_date not in fresh: db.delete(row)
             db.flush()
+            from . import splits
+            splits.store(db, symbol, split_events, start, end)
             for e in events:
                 row = db.scalar(select(DividendEvent).where(DividendEvent.symbol == symbol, DividendEvent.record_date == e['record_date']))
                 if row is None:
@@ -189,10 +196,11 @@ def sync(kis, symbols, now=None):
 
 
 def holding_at(db, user_id, symbol, moment):
-    bought = func.coalesce(func.sum(Transaction.quantity).filter(Transaction.side == 'buy'), 0)
-    sold = func.coalesce(func.sum(Transaction.quantity).filter(Transaction.side == 'sell'), 0)
-    return int(db.execute(select(bought - sold).where(Transaction.user_id == user_id, Transaction.symbol == symbol,
-                                                      Transaction.created_at < moment)).scalar() or 0)
+    """Shares held just before `moment`: the account's fills with the splits applied between them."""
+    from .splits import applied, replay_quantity
+    trades = db.scalars(select(Transaction).where(Transaction.user_id == user_id, Transaction.symbol == symbol,
+                                                  Transaction.created_at < moment).order_by(Transaction.created_at)).all()
+    return replay_quantity(trades, applied(db, symbol).get(symbol, []), moment)
 
 
 def withholding(symbol, gross, currency):
@@ -237,7 +245,7 @@ def pay_due(now=None):
     return paid
 
 
-def run(kis, now=None):
+def run(kis, now=None, market=None):
     """The scheduler's dividend step: read a few listings' schedules, then pay what is due.
 
     One pass reads at most SYNC_BATCH listings, in symbol order after the cursor, so a
@@ -258,7 +266,10 @@ def run(kis, now=None):
         with Session.begin() as db:
             finished = not pending or (len(synced) == len(pending) and len(pending) < SYNC_BATCH)
             if after != ROUND_DONE: db.merge(Settings(key=CURSOR_KEY, value=ROUND_DONE if finished else synced[-1]))
-    return {'synced': len(synced), 'paid': pay_due(now)}
+    from .splits import apply_due
+    # Splits first: a dividend paid the same day then counts the restated shares.
+    restated = apply_due(market, now) if market is not None else 0
+    return {'synced': len(synced), 'split': restated, 'paid': pay_due(now)}
 
 
 def summary(user_id, now=None):

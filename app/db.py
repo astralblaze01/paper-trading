@@ -364,3 +364,30 @@ class DividendPayment(Base):
     net: Mapped[Decimal] = mapped_column(Numeric(24,4))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     __table_args__ = (UniqueConstraint('user_id','event_id'), CheckConstraint('quantity > 0'), CheckConstraint('net >= 0'))
+
+class SplitEvent(Base):
+    """A stock split or reverse split: from effective_date (local) each share is `ratio` shares."""
+    __tablename__ = 'split_events'
+    id: Mapped[int] = mapped_column(primary_key=True)
+    symbol: Mapped[str] = mapped_column(String(16))
+    effective_date: Mapped[date] = mapped_column(Date)
+    ratio: Mapped[Decimal] = mapped_column(Numeric(20,10))
+    source: Mapped[str] = mapped_column(String(32))
+    # Set once every holding and pending reservation has been restated.
+    applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    __table_args__ = (UniqueConstraint('symbol','effective_date'), CheckConstraint('ratio > 0'))
+
+class SplitApplication(Base):
+    """One account's holding restated by a split, with cash paid for a fractional share."""
+    __tablename__ = 'split_applications'
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey('users.id'), index=True)
+    split_id: Mapped[int] = mapped_column(ForeignKey('split_events.id'))
+    symbol: Mapped[str] = mapped_column(String(16))
+    ratio: Mapped[Decimal] = mapped_column(Numeric(20,10))
+    before_quantity: Mapped[int] = mapped_column(Integer)
+    after_quantity: Mapped[int] = mapped_column(Integer)
+    cash: Mapped[Decimal] = mapped_column(Numeric(24,4))
+    currency: Mapped[str] = mapped_column(String(3))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (UniqueConstraint('user_id','split_id'),)
