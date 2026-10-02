@@ -40,6 +40,9 @@ SYNC_BATCH = 2   # listings per scheduler pass (one a minute): 2-4 KIS calls eac
 LOOKBACK_DAYS, LOOKAHEAD_DAYS = 400, 120
 RECENT_TRADE_DAYS = 60
 MAX_RIGHTS_PAGES = 10
+# KIS right types for a split (액면분할) and a reverse split (액면병합); the allocation
+# rate is in percent of the old share count (2000 = one share became twenty).
+SPLIT_RIGHTS = ('14', '15')
 PRODUCT_TYPES = {'NAS': '512', 'NYS': '513', 'AMS': '529'}   # KIS overseas product type by exchange
 
 
@@ -95,19 +98,7 @@ def schedule(symbol, kis, today, lookback=LOOKBACK_DAYS):
     # with a different security's rights, or none (NYSE KO under NASDAQ's code).
     from .us_symbols import exchange_of
     product = PRODUCT_TYPES.get(exchange_of(symbol), '512')
-    # Period rights match the code loosely (QQQ also returns QQQM, QQQS, ...) and come
-    # 100 rows a page, so every page is read and rows are kept for this exact symbol.
-    params = {'RGHT_TYPE_CD': '03', 'INQR_DVSN_CD': '02', 'INQR_STRT_DT': start.strftime('%Y%m%d'),
-              'INQR_END_DT': end.strftime('%Y%m%d'), 'PDNO': symbol, 'PRDT_TYPE_CD': product,
-              'CTX_AREA_NK50': '', 'CTX_AREA_FK50': ''}
-    rights = []
-    for page in range(MAX_RIGHTS_PAGES):
-        data = kis.get('/uapi/overseas-price/v1/quotations/period-rights', 'CTRGT011R', params, 21600, **({'tr_cont': 'N'} if page else {}))
-        rights += data.get('output') or []
-        if data.get('_tr_cont') not in ('M', 'F'): break
-        params = params | {'CTX_AREA_NK50': data.get('ctx_area_nk50', ''), 'CTX_AREA_FK50': data.get('ctx_area_fk50', '')}
-    else:
-        raise MarketError(f'{symbol} 권리 조회가 {MAX_RIGHTS_PAGES}쪽을 넘었습니다.')
+    rights = _period_rights(kis, symbol, '03', start, end, product)
     pays = kis.get('/uapi/overseas-price/v1/quotations/rights-by-ice', 'HHDFS78330900',
                    {'NCOD': 'US', 'SYMB': symbol, 'ST_YMD': start.strftime('%Y%m%d'), 'ED_YMD': end.strftime('%Y%m%d')},
                    21600).get('output1') or []
@@ -125,10 +116,37 @@ def schedule(symbol, kis, today, lookback=LOOKBACK_DAYS):
     amounts = {}
     for r in rights:
         record, per_share = _day(r.get('acpl_bass_dt'), '%Y%m%d'), _amount(r.get('alct_frcr_unpr'))
-        if record in pay_by_record and per_share and str(r.get('pdno', '')).upper() == symbol and r.get('crcy_cd', 'USD') == 'USD':
+        if record in pay_by_record and per_share and r.get('crcy_cd', 'USD') == 'USD':
             amounts[record] = amounts.get(record, Decimal(0)) + per_share   # e.g. a regular dividend and a special one
-    return [{'record_date': record, 'pay_date': pay_by_record[record], 'per_share': amount, 'currency': 'USD', 'source': 'KIS 해외 권리'}
+    # Restate dividends from before a split per current share, so yields and estimates
+    # compare with today's price. One this service may still pay (from PAY_FROM) is left
+    # as declared: positions here are not split, so it is owed per share held.
+    for kind in SPLIT_RIGHTS:
+        for r in _period_rights(kis, symbol, kind, start, end, product):
+            effective, ratio = _day(r.get('acpl_bass_dt'), '%Y%m%d'), _amount(r.get('stck_alct_rt'))
+            if not effective or not ratio: continue
+            for record in amounts:
+                if record < effective and record < PAY_FROM: amounts[record] /= ratio / 100
+    return [{'record_date': record, 'pay_date': pay_by_record[record], 'per_share': amount.quantize(Decimal('.000001')),
+             'currency': 'USD', 'source': 'KIS 해외 권리'}
             for record, amount in sorted(amounts.items())]
+
+
+def _period_rights(kis, symbol, kind, start, end, product):
+    """KIS period rights of one type for this exact symbol.
+
+    The lookup matches the code loosely (QQQ also returns QQQM, QQQS, ...) and comes 100
+    rows a page, so every page is read and rows of other symbols are dropped."""
+    params = {'RGHT_TYPE_CD': kind, 'INQR_DVSN_CD': '02', 'INQR_STRT_DT': start.strftime('%Y%m%d'),
+              'INQR_END_DT': end.strftime('%Y%m%d'), 'PDNO': symbol, 'PRDT_TYPE_CD': product,
+              'CTX_AREA_NK50': '', 'CTX_AREA_FK50': ''}
+    rows = []
+    for page in range(MAX_RIGHTS_PAGES):
+        data = kis.get('/uapi/overseas-price/v1/quotations/period-rights', 'CTRGT011R', params, 21600, **({'tr_cont': 'N'} if page else {}))
+        rows += [r for r in data.get('output') or [] if str(r.get('pdno', '')).upper() == symbol]
+        if data.get('_tr_cont') not in ('M', 'F'): return rows
+        params = params | {'CTX_AREA_NK50': data.get('ctx_area_nk50', ''), 'CTX_AREA_FK50': data.get('ctx_area_fk50', '')}
+    raise MarketError(f'{symbol} 권리 조회가 {MAX_RIGHTS_PAGES}쪽을 넘었습니다.')
 
 
 def tracked_symbols(db, now):

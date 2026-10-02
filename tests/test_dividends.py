@@ -139,7 +139,7 @@ def test_us_schedule_asks_with_the_listing_exchange(monkeypatch):
     asked = []
     class KIS:
         def get(self, path, tr, params, ttl):
-            if path.endswith('period-rights'): asked.append((params['PDNO'], params['PRDT_TYPE_CD']))
+            if path.endswith('period-rights') and params['RGHT_TYPE_CD'] == '03': asked.append((params['PDNO'], params['PRDT_TYPE_CD']))
             return {'output': [], 'output1': []}
     for symbol in ('AAPL', 'KO', 'SCHD', 'ZZZZ'): dividends.schedule(symbol, KIS(), date(2026, 10, 1))
     assert asked == [('AAPL', '512'), ('KO', '513'), ('SCHD', '529'), ('ZZZZ', '512')]
@@ -185,10 +185,12 @@ def test_an_estimate_repeats_the_latest_rhythm():
 class PagedKIS:
     """KIS overseas rights: period rights paged 100 rows at a time and mixing look-alike
     tickers (QQQ also returns QQQM, QQQS, ...); the cash-dividend list by exact symbol."""
-    def __init__(self, pages, cash):
-        self.pages, self.cash, self.asked = pages, cash, []
+    def __init__(self, pages, cash, splits=()):
+        self.pages, self.cash, self.splits, self.asked = pages, cash, list(splits), []
     def get(self, path, tr, params, ttl, tr_cont=''):
         if path.endswith('period-rights'):
+            if params['RGHT_TYPE_CD'] != '03':      # splits (14) and reverse splits (15)
+                return {'output': [s for s in self.splits if s['rght_type_cd'] == params['RGHT_TYPE_CD']], '_tr_cont': 'D'}
             page = 0 if not tr_cont else int(params['CTX_AREA_NK50'])
             self.asked.append(page)
             return {'output': self.pages[page], '_tr_cont': 'M' if page + 1 < len(self.pages) else 'D',
@@ -236,3 +238,22 @@ def test_sync_drops_unpaid_dividends_the_provider_no_longer_lists():
     with Session() as db:
         rows = [(e.record_date, e.per_share) for e in db.scalars(select(DividendEvent).order_by(DividendEvent.record_date))]
     assert rows == [(date(2025, 1, 2), D('0.01')), (date(2026, 3, 11), D('0.01'))]
+
+
+def test_dividends_before_a_split_are_restated_per_current_share():
+    # Regression: MUU split 1 → 20 on 2026-07-14 (KIS allocation 2000%), yet its earlier
+    # dividends were added at their pre-split size: the detail page showed a 16.5% yield.
+    split = {'pdno': 'MUU', 'rght_type_cd': '14', 'acpl_bass_dt': '20260714', 'stck_alct_rt': '2000.000000000000'}
+    kis = PagedKIS([[right('MUU', '20251210', '3.63200'), right('MUU', '20260623', '2.04700'), right('MUU', '20261210', '0.50000')]],
+                   [cash('20251210', '20251217'), cash('20260623', '20260630'), cash('20261210', '20261217')], [split])
+    events = {e['record_date']: e['per_share'] for e in dividends.schedule('MUU', kis, date(2026, 10, 2))}
+    assert events == {date(2025, 12, 10): D('0.1816'), date(2026, 6, 23): D('0.10235'), date(2026, 12, 10): D('0.5')}
+    # Twelve months to 2026-10-02 at $38.44: (0.1816 + 0.10235) / 38.44.
+    assert dividends.trailing_yield('MUU', kis, D('38.44'), date(2026, 10, 2)) == D('0.74')
+
+
+def test_a_dividend_this_service_may_pay_is_never_restated():
+    # Positions here are not split, so a dividend paid from PAY_FROM on stays per held share.
+    split = {'pdno': 'ABC', 'rght_type_cd': '14', 'acpl_bass_dt': '20261020', 'stck_alct_rt': '200'}
+    kis = PagedKIS([[right('ABC', '20261005', '1.00000')]], [cash('20261005', '20261012')], [split])
+    assert [e['per_share'] for e in dividends.schedule('ABC', kis, date(2026, 10, 2))] == [D('1')]
