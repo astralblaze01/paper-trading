@@ -818,17 +818,38 @@ async function loadDividends(){dividendCache=await api('dividends');renderDivide
 function renderDividends(){
   const r=dividendCache,box=$('dividendSummary');if(!r||!box)return;
   box.replaceChildren();
-  const t=r.totals,shown=returnBasis(),rate=Number(feeCache?.fx?.rate);
-  const krw=Number(t.KRW.net)+(rate?Number(t.USD.net)*rate:0),total=shown==='USD'&&rate?krw/rate:krw;
-  const sum=node('div',null,'fee-total');sum.append(node('span',`받은 배당금 (세후 · ${shown==='USD'?'달러':'원화'} 환산)`),node('strong',rate||!Number(t.USD.net)?nativeMoney(total,shown):'—'));
-  box.append(sum);
-  const day=v=>v?String(v).slice(5).replace('-','.'):'미정';
-  if(r.upcoming.length){
-    box.append(node('h3','지급 예정','dividend-sub'));
-    const list=node('ul',null,'dividend-list');
-    for(const u of r.upcoming){
-      const li=node('li'),name=node('span',null,'dividend-name');name.append(node('strong',u.name),node('small',`${u.status} · 기준일 ${day(u.record_date)} · 입금 ${day(u.credit_date)} · ${u.quantity.toLocaleString()}주`));
-      li.append(name,node('span',`+${nativeMoney(u.expected_net,u.currency)}`,'dividend-amount'));list.append(li);
+  const shown=returnBasis(),rate=Number(feeCache?.fx?.rate);
+  // Totals convert USD at today's reference rate into the display currency.
+  const inShown=(usd,krw)=>{const k=Number(krw)+(rate?Number(usd)*rate:0);return shown==='USD'&&rate?k/rate:k;};
+  const canTotal=v=>rate||!Number(v);
+  const sums=node('div',null,'dividend-totals');
+  for(const [label,usd,krw] of [['받은 배당금 (세후)',r.totals.USD.net,r.totals.KRW.net],['연간 예상 배당 (세후)',r.annual_net.USD,r.annual_net.KRW]]){
+    const s=node('div',null,'fee-total');s.append(node('span',label),node('strong',canTotal(usd)?nativeMoney(inShown(usd,krw),shown):'—'));sums.append(s);
+  }
+  box.append(sums);
+  // D-day against today in Korea, when the wallet is credited.
+  const today=new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Seoul'});
+  const dday=d=>{if(!d)return null;const n=Math.round((Date.parse(d)-Date.parse(today))/864e5);return n>0?`D-${n}`:n===0?'D-day':'입금 처리 중';};
+  const md=d=>d?String(d).slice(5).replace('-','.'):'미정';
+  box.append(node('h3','보유 종목별 배당','dividend-sub'));
+  if(!r.holdings.length)box.append(node('p','보유 종목이 없습니다.','empty-state dividend-empty'));
+  else{
+    const list=node('ul',null,'dividend-list dividend-holdings');
+    for(const h of r.holdings){
+      const li=node('li'),name=node('span',null,'dividend-name'),n=h.next;
+      name.append(node('strong',h.name));
+      if(!n){
+        name.append(node('small',h.known?'최근 1년 배당 없음':'배당 기록 없음'));li.append(name,node('span','—','dividend-amount muted'));list.append(li);continue;
+      }
+      const facts=[`${n.confirmed?'확정':'예상'} · ${md(n.credit_date)} 입금`,`주당 ${viewMoney(n.per_share,h.currency)} × ${Number(n.quantity).toLocaleString()}주`];
+      if(h.frequency)facts.push(h.frequency);
+      name.append(node('small',facts.join(' · ')));
+      if(!n.entitled&&n.buy_by)name.append(node('small',`${md(n.buy_by)}까지 보유하면 받음 · 연 ${viewMoney(h.annual_net,h.currency)} (세후)`,'dividend-hint'));
+      else if(n.entitled)name.append(node('small','배당 받을 권리 확정 · 입금일에 자동 입금','dividend-hint'));
+      const right=node('span',null,'dividend-right');
+      const d=dday(n.credit_date);if(d){const chip=node('span',d,'dday'+(n.confirmed?' confirmed':''));right.append(chip);}
+      right.append(node('span',`+${viewMoney(n.net,h.currency)}`,'dividend-amount'+(n.confirmed?' gain':'')));
+      li.append(name,right);list.append(li);
     }
     box.append(list);
   }
@@ -837,13 +858,13 @@ function renderDividends(){
   else{
     const list=node('ul',null,'dividend-list');
     for(const p of r.payments.slice(0,10)){
-      const li=node('li'),name=node('span',null,'dividend-name');name.append(node('strong',p.name),node('small',`${new Date(p.created_at).toLocaleDateString('ko-KR',{timeZone:'Asia/Seoul'})} 입금 · ${p.quantity.toLocaleString()}주 × ${nativeMoney(p.per_share,p.currency)} · 세금 ${nativeMoney(p.tax,p.currency)}`));
-      li.append(name,node('span',`+${nativeMoney(p.net,p.currency)}`,'dividend-amount gain'));list.append(li);
+      const li=node('li'),name=node('span',null,'dividend-name');name.append(node('strong',p.name),node('small',`${new Date(p.created_at).toLocaleDateString('ko-KR',{timeZone:'Asia/Seoul'})} 입금 · ${p.quantity.toLocaleString()}주 × ${viewMoney(p.per_share,p.currency)} · 세금 ${viewMoney(p.tax,p.currency)}`));
+      li.append(name,node('span',`+${viewMoney(p.net,p.currency)}`,'dividend-amount gain'));list.append(li);
     }
     box.append(list);
   }
   const pct=b=>`${Number(b)/100}%`;
-  $('dividendNote').textContent=`배당 기준일에 보유한 수량만큼 지급일에 자동 입금됩니다 (국내 주식 원화 지갑, 미국 주식 달러 지갑 · 미국은 지급일 다음 날). 배당소득세 국내 ${pct(r.rates.KR_DIVIDEND_TAX_BPS)} · 미국 ${pct(r.rates.US_DIVIDEND_TAX_BPS)} 원천징수 후 금액입니다.`;
+  $('dividendNote').textContent=`금액은 배당소득세(국내 ${pct(r.rates.KR_DIVIDEND_TAX_BPS)} · 미국 ${pct(r.rates.US_DIVIDEND_TAX_BPS)})를 뗀 세후입니다. 배당 기준일에 보유한 수량만큼 입금일에 해당 통화 지갑으로 자동 입금됩니다(미국은 지급일 다음 날). '예상'은 발표 전이라 최근 배당 금액과 주기로 계산한 값입니다.`;
 }
 window.addEventListener('displaycurrencychange',renderDividends);
 

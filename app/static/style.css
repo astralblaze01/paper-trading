@@ -857,6 +857,11 @@ footer { max-width: 1680px; margin: 0 auto; padding: 8px 32px 28px; display: fle
 .dividend-name small { color: var(--muted); font-size: var(--fs-xs); }
 .dividend-amount { flex-shrink: 0; font-family: var(--font-num); font-weight: 700; font-variant-numeric: tabular-nums; }
 .dividend-empty { margin: 6px 0 0; }
+.dividend-right { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; }
+.dividend-hint { color: var(--muted); }
+.dividend-amount.muted { color: var(--faint); }
+.dday { padding: 2px 8px; border-radius: 999px; font-family: var(--font-num); font-size: var(--fs-xs); font-weight: 700; color: var(--muted); background: var(--surface-2); }
+.dday.confirmed { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .account-panel .field-help { margin-bottom: 14px; }
 #publicMetrics { margin-top: 24px; }
 #publicMetrics .metric > span { display: block; font-size: var(--fs-figure); font-family: var(--font-num); }

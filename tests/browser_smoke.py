@@ -294,6 +294,8 @@ with sync_playwright() as p:
         expect(page.locator('#feeRates')).to_contain_text('토스증권 기준')
         # Dividends: credited automatically; a new account has none yet.
         expect(page.locator('#dividendSummary')).to_contain_text('아직 받은 배당이 없습니다.')
+        expect(page.locator('#dividendSummary')).to_contain_text('보유 종목별 배당')
+        expect(page.locator('#dividendSummary .dividend-holdings li').first).to_contain_text('애플')
         expect(page.locator('#dividendNote')).to_contain_text('자동 입금')
         # Profile line: tier emblem left of the rank, realized profit; the photo framed in the tier color.
         # The tier arrives with the ranking, which values every fixture account first.

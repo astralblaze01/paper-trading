@@ -34,7 +34,9 @@ PAY_FROM = date(2026, 10, 1)
 SYNC_HOURS = 6
 SYNC_KEY, CURSOR_KEY, ROUND_DONE = 'DIVIDENDS_SYNCED_AT', 'DIVIDENDS_CURSOR', '~'
 SYNC_BATCH = 3   # listings per scheduler pass (one a minute): 2 KIS calls each for US listings
-LOOKBACK_DAYS, LOOKAHEAD_DAYS = 150, 120   # Korean year-end dividends are paid about four months later.
+# A year back gives each listing's rhythm and annual total; Korean year-end dividends
+# are paid about four months after the record date.
+LOOKBACK_DAYS, LOOKAHEAD_DAYS = 400, 120
 RECENT_TRADE_DAYS = 60
 PRODUCT_TYPES = {'NAS': '512', 'NYS': '513', 'AMS': '529'}   # KIS overseas product type by exchange
 
@@ -243,11 +245,57 @@ def summary(user_id, now=None):
                              'credit_date': credit_day(e.symbol, e.pay_date) if e.pay_date else None,
                              'buy_by': moment.astimezone(SEOUL if e.symbol.startswith('KR:') else NEW_YORK).date() - timedelta(days=1),
                              'per_share': e.per_share, 'currency': e.currency, 'quantity': quantity, 'expected_net': gross - tax, 'status': status})
+        holdings = [_holding_outlook(db, user_id, symbol, quantity, [u for u in upcoming if u['symbol'] == symbol], today)
+                    for symbol, quantity in sorted(held.items())]
     rows = [{'symbol': p.symbol, 'name': instrument(p.symbol)['name'], 'record_date': record, 'pay_date': pay, 'quantity': p.quantity,
              'per_share': p.per_share, 'currency': p.currency, 'gross': p.gross, 'tax': p.tax, 'net': p.net, 'created_at': p.created_at}
             for p, record, pay in payments]
-    return {'payments': rows, 'totals': totals, 'upcoming': upcoming,
+    annual = {c: sum((h['annual_net'] for h in holdings if h['currency'] == c), Decimal(0)) for c in ('USD', 'KRW')}
+    return {'payments': rows, 'totals': totals, 'upcoming': upcoming, 'holdings': holdings, 'annual_net': annual,
             'rates': {'KR_DIVIDEND_TAX_BPS': bps('KR_DIVIDEND_TAX_BPS'), 'US_DIVIDEND_TAX_BPS': bps('US_DIVIDEND_TAX_BPS')}}
+
+
+FREQUENCY = {12: '월배당', 4: '분기배당', 2: '반기배당', 1: '연배당'}
+
+
+def _after_tax(symbol, per_share, quantity, currency):
+    gross = per_share * quantity
+    return gross - withholding(symbol, gross, currency)[0]
+
+
+def _holding_outlook(db, user_id, symbol, quantity, upcoming, today):
+    """One holding's next dividend (announced, or estimated from its rhythm) and a year's worth, after tax.
+
+    The rhythm is the median gap between recent record dates, read as monthly, quarterly,
+    half-yearly or yearly. An estimate repeats the latest dividend: its amount and its
+    record-to-pay gap. A year's worth is the latest amount times the payments a year."""
+    currency = currency_of(symbol)
+    events = list(db.scalars(select(DividendEvent).where(DividendEvent.symbol == symbol).order_by(DividendEvent.record_date)))
+    past = [e for e in events if e.record_date <= today]
+    recent = past[-5:]
+    gaps = sorted(g for g in ((b.record_date - a.record_date).days for a, b in zip(recent, recent[1:])) if g > 0)
+    step = gaps[len(gaps) // 2] if gaps else None
+    per_year = min(FREQUENCY, key=lambda n: abs(365 / n - step)) if step else 1
+    latest = upcoming[0]['per_share'] if upcoming else past[-1].per_share if past else Decimal(0)
+    row = {'symbol': symbol, 'name': instrument(symbol)['name'], 'currency': currency, 'quantity': quantity,
+           'frequency': FREQUENCY[per_year] if step else None, 'annual_per_share': latest * per_year,
+           'annual_net': _after_tax(symbol, latest * per_year, quantity, currency), 'next': None, 'known': bool(events)}
+    if upcoming:
+        u = upcoming[0]
+        row['next'] = {'record_date': u['record_date'], 'credit_date': u['credit_date'], 'buy_by': u['buy_by'],
+                       'per_share': u['per_share'], 'quantity': u['quantity'], 'net': u['expected_net'],
+                       'confirmed': True, 'entitled': u['status'] == '지급 예정'}
+    elif past:
+        last = past[-1]
+        record = last.record_date
+        while record <= today: record += timedelta(days=step or 365)
+        lag = (last.pay_date - last.record_date) if last.pay_date else timedelta(days=30)
+        moment = cutoff(symbol, record)
+        row['next'] = {'record_date': record, 'credit_date': credit_day(symbol, record + lag),
+                       'buy_by': moment.astimezone(SEOUL if symbol.startswith('KR:') else NEW_YORK).date() - timedelta(days=1),
+                       'per_share': last.per_share, 'quantity': quantity,
+                       'net': _after_tax(symbol, last.per_share, quantity, currency), 'confirmed': False, 'entitled': False}
+    return row
 
 
 def trailing_yield(symbol, kis, price, today):

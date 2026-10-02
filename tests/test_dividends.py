@@ -142,3 +142,40 @@ def test_us_schedule_asks_with_the_listing_exchange(monkeypatch):
             return {'output': [], 'output1': []}
     for symbol in ('AAPL', 'KO', 'SCHD', 'ZZZZ'): dividends.schedule(symbol, KIS(), date(2026, 10, 1))
     assert asked == [('AAPL', '512'), ('KO', '513'), ('SCHD', '529'), ('ZZZZ', '512')]
+
+
+def test_each_holding_shows_its_next_dividend_after_tax(client):
+    token = register(client)
+    trade(client, token, symbol='AAPL', quantity=10)
+    trade(client, token, symbol='MSFT', quantity=4)
+    trade(client, token, symbol='NVDA', quantity=1)
+    with Session.begin() as db:
+        # AAPL: quarterly, the next one announced.
+        for record, pay in ((date(2026, 2, 9), date(2026, 2, 12)), (date(2026, 5, 11), date(2026, 5, 14)), (date(2026, 8, 10), date(2026, 8, 13))):
+            db.add(DividendEvent(symbol='AAPL', record_date=record, pay_date=pay, per_share=D('0.26'), currency='USD', source='test'))
+        db.add(DividendEvent(symbol='AAPL', record_date=date(2099, 11, 9), pay_date=date(2099, 11, 12), per_share=D('0.30'), currency='USD', source='test'))
+        # MSFT: quarterly, nothing announced yet: estimated from the rhythm.
+        for record, pay in ((date(2026, 2, 19), date(2026, 3, 12)), (date(2026, 5, 21), date(2026, 6, 11)), (date(2026, 8, 20), date(2026, 9, 10))):
+            db.add(DividendEvent(symbol='MSFT', record_date=record, pay_date=pay, per_share=D('0.91'), currency='USD', source='test'))
+    rows = {h['symbol']: h for h in client.get('/api/dividends').json()['holdings']}
+    aapl = rows['AAPL']
+    # 10 × $0.30 = $3.00, 15% withheld: $2.55, credited the day after the US pay date.
+    assert aapl['next']['confirmed'] and D(str(aapl['next']['net'])) == D('2.55') and aapl['next']['credit_date'] == '2099-11-13'
+    msft = rows['MSFT']['next']
+    assert not msft['confirmed'] and msft['record_date'] > '2026-08-20' and D(str(msft['net'])) == D('3.10')   # 4 × 0.91 = 3.64 − 0.54
+    assert rows['MSFT']['frequency'] == '분기배당' and D(str(rows['MSFT']['annual_net'])) == D('12.38')       # 4 × 3.64, less 15%
+    assert rows['AAPL']['frequency'] == '분기배당' and D(str(rows['AAPL']['annual_net'])) == D('10.20')       # the announced $0.30 × 4
+    assert rows['NVDA']['next'] is None and rows['NVDA']['known'] is False
+
+
+def test_an_estimate_repeats_the_latest_rhythm():
+    from app.db import DividendEvent as E
+    with Session.begin() as db:
+        for record in (date(2026, 1, 15), date(2026, 4, 15), date(2026, 7, 15)):
+            db.add(E(symbol='KO', record_date=record, pay_date=record.replace(day=30), per_share=D('0.53'), currency='USD', source='test'))
+    with Session() as db:
+        row = dividends._holding_outlook(db, 0, 'KO', 100, [], date(2026, 10, 2))
+    n = row['next']
+    assert n['record_date'] == date(2026, 10, 14) and n['credit_date'] == date(2026, 10, 30)   # 91-day rhythm, 15-day pay gap, +1 day (US)
+    assert n['net'] == D('53') - D('7.95') and row['frequency'] == '분기배당'
+    assert row['annual_net'] == D('212') - D('31.80')                                         # $0.53 × 4 × 100 shares, less 15%
