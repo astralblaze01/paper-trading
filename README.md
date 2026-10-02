@@ -286,6 +286,7 @@ docker compose exec web python -m app.admin_cli <아이디>
 | `SESSION_SECRET` | (필수) | 세션 서명 키, 32자 이상 |
 | `BIND_ADDRESS` / `HTTP_PORT` | `127.0.0.1` / `8080` | nginx가 여는 주소와 포트 |
 | `COOKIE_SECURE` | `false` | HTTPS 전용 쿠키 사용 여부 |
+| `PUBLIC_URL` | | 링크 미리보기(카카오톡 등)에 쓰는 사이트 주소. 예: `https://example.com`. 비우면 접속한 주소를 씁니다 |
 | `OPENAPI_ENABLED` | `false` | `/openapi.json`(경로·스키마 목록) 제공 여부. 개발용이며 운영에서는 끕니다. |
 | `FINNHUB_API_KEY` | | 미국 시세 |
 | `KIS_APP_KEY` / `KIS_APP_SECRET` | | 한국투자증권 시세 |

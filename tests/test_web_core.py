@@ -694,3 +694,20 @@ def test_login_page_says_how_to_recover_a_forgotten_password(client):
     login_form = html[html.index('id="authForm"'):html.index('id="registerForm"')]
     assert '비밀번호를 잊으셨나요?' in login_form
     assert 'mailto:7829hw@gmail.com' in login_form and 'mailto:jack3618@knu.ac.kr' in login_form
+
+
+def test_pages_carry_link_preview_tags(client, monkeypatch):
+    monkeypatch.delenv('PUBLIC_URL', raising=False)
+    monkeypatch.setenv('COOKIE_SECURE', 'true')
+    html = client.get('/', headers={'host': 'alpharena.example'}).text
+    assert '<meta property="og:image" content="https://alpharena.example/static/brand/og.png">' in html
+    assert '<meta property="og:url" content="https://alpharena.example/">' in html
+    assert '<meta name="twitter:card" content="summary_large_image">' in html
+    assert '{{' not in html
+    # A forged Host header cannot inject markup into the tags.
+    html = client.get('/terms', headers={'host': 'evil"><script>'}).text
+    assert '<script>"' not in html and 'content="https://localhost/terms"' in html
+    monkeypatch.setenv('PUBLIC_URL', 'https://alpharena.kr/')
+    assert 'content="https://alpharena.kr/static/brand/og.png"' in client.get('/privacy').text
+    image = client.get('/static/brand/og.png')
+    assert image.status_code == 200 and image.headers['content-type'] == 'image/png'
