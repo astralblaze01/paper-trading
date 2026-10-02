@@ -14,6 +14,9 @@ from .us_quotes import known_us_exchange
 # EXPLORE_REFRESH_MS in static/portal.js). Korea is one KIS call per list; the
 # US is three (NASDAQ, NYSE, AMEX) at the 1.1 s overseas spacing.
 KR_RANK_SECONDS = 10
+# Past its refresh interval a ranking is still shown for up to this long while one
+# background call fetches the next, so a browser polling at the interval never waits on KIS.
+RANK_STALE_SECONDS = 60
 US_RANK_SECONDS = 15
 RANGES={'1D':(1,'5'),'1W':(7,'30'),'3M':(93,'D'),'1Y':(366,'D'),'5Y':(1830,'W'),'ALL':(365*40,'M')}
 
@@ -183,7 +186,7 @@ class USProvider:
                 if row['symbol'] not in unique or row[measure]>unique[row['symbol']][measure]: unique[row['symbol']]=row
             if not unique: raise MarketError(f'KIS 미국 {label} 순위를 불러오지 못했습니다.')
             return list(unique.values()),stamp
-        return self.cache.get('kis-us-rank' if measure=='turnover' else 'kis-us-rank-'+measure,US_RANK_SECONDS,load)
+        return self.cache.get('kis-us-rank' if measure=='turnover' else 'kis-us-rank-'+measure,US_RANK_SECONDS,load,stale=RANK_STALE_SECONDS)
     def _kis_movers(self,direction):
         if direction=='shares':
             rows,stamp=self._kis_rank_rows('volume')
@@ -334,7 +337,7 @@ class KRProvider:
             scope={'volume':'KRX · KIS 거래금액순','shares':'KRX · KIS 거래량순'}.get(direction,'KRX · 공급자 반환 순위')
             notice={'volume':'KIS 거래금액순(20171) 공급자가 반환한 종목만 표시합니다. 시각은 API 조회 시각입니다.','shares':'KIS 거래량순(20171) 공급자가 반환한 종목만 표시합니다. 시각은 API 조회 시각입니다.'}.get(direction,'시각은 API 조회 시각입니다. 목록 가격으로 주문을 체결하지 않습니다.')
             return {'rows':rows,'scope':scope,'source':'KIS','data_time':stamp,'notice':notice}
-        return self.cache.get(('leaders',direction),KR_RANK_SECONDS,load)
+        return self.cache.get(('leaders',direction),KR_RANK_SECONDS,load,stale=RANK_STALE_SECONDS)
     def volume_leaders(self): return self.movers('volume')
     def trading_day(self,local=None):
         """True/False from the KIS holiday API, None when it cannot be checked."""
