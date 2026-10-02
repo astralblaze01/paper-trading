@@ -403,7 +403,7 @@ def test_session_payload(client, monkeypatch):
 TRANSACTION_KEYS = ['id', 'symbol', 'side', 'quantity', 'price', 'currency', 'native_price', 'fx_rate', 'fx_date',
                     'quote_time', 'created_at', 'gross_amount', 'fee', 'tax', 'net_amount', 'realized_pnl',
                     'accounting_version', 'order_requested_at', 'market_session', 'venue', 'quote_source',
-                    'price_mode', 'quote_stale']
+                    'price_mode', 'quote_stale', 'name', 'realized_pct']
 
 
 def test_transactions_projection_and_pages(client):

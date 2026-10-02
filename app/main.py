@@ -25,7 +25,7 @@ from sqlalchemy.exc import IntegrityError
 from .db import Base, engine, Session, User, Transaction, LimitOrder
 from .market import MarketError
 from .multi_market import MultiMarket
-from .instruments import SYMBOL_PATTERN, valid_symbol, CATEGORIES, market_of
+from .instruments import SYMBOL_PATTERN, valid_symbol, CATEGORIES, market_of, instrument
 from .migrations import migrate
 from .trading import execute_order, filled_replay
 from .money import MAX_ORDER_QUANTITY, wallets, initial_amount
@@ -439,7 +439,18 @@ def transactions(page: int = Query(1, ge=1), side: Literal['buy', 'sell'] | None
     with Session() as db:
         rows = db.scalars(select(Transaction).where(*where).order_by(Transaction.id.desc())
                           .offset((page-1)*TRANSACTIONS_PAGE_SIZE).limit(TRANSACTIONS_PAGE_SIZE))
-        return [{field: getattr(t, field) for field in TRANSACTION_FIELDS} for t in rows]
+        return [_transaction_row(t) for t in rows]
+
+def _transaction_row(t):
+    """One fill for the history: its fields, the listing's name, and for a sale its realized
+    return against the cost sold (fees and taxes included). Sales recorded before realized
+    P&L was kept (accounting version 1) have no return."""
+    row = {field: getattr(t, field) for field in TRANSACTION_FIELDS}
+    row['name'] = instrument(t.symbol)['name']
+    cost = (t.net_amount - t.realized_pnl) if t.side == 'sell' and t.accounting_version == 2 and t.net_amount is not None else None
+    row['realized_pct'] = float(t.realized_pnl / cost * 100) if cost else None
+    if row['realized_pct'] is None and t.side == 'sell' and t.accounting_version != 2: row['realized_pnl'] = None
+    return row
 
 @app.get('/api/transactions/months')
 def transaction_months(uid=Depends(current_user)):
@@ -461,12 +472,14 @@ def transaction_summary(month: str | None = Query(None, max_length=7), uid=Depen
         bounds = 'AND created_at >= :start AND created_at < :end'
     with Session() as db:
         rows = db.execute(text(f"""SELECT currency, side, count(*), coalesce(sum(coalesce(gross_amount, native_price * quantity)), 0),
-                                          coalesce(sum(fee), 0), coalesce(sum(tax), 0)
+                                          coalesce(sum(fee), 0), coalesce(sum(tax), 0),
+                                          coalesce(sum(realized_pnl) FILTER (WHERE accounting_version = 2), 0)
                                    FROM transactions WHERE user_id = :u {bounds} GROUP BY 1, 2"""), params).all()
     zero = Decimal(0)
-    totals = {c: {'buy_count': 0, 'buy_gross': zero, 'sell_count': 0, 'sell_gross': zero, 'fee': zero, 'tax': zero} for c in ('USD', 'KRW')}
-    for currency, side, count, gross, fee, tax in rows:
+    totals = {c: {'buy_count': 0, 'buy_gross': zero, 'sell_count': 0, 'sell_gross': zero, 'fee': zero, 'tax': zero, 'realized_pnl': zero} for c in ('USD', 'KRW')}
+    for currency, side, count, gross, fee, tax, realized in rows:
         row = totals[currency]; row[side + '_count'] += count; row[side + '_gross'] += gross; row['fee'] += fee; row['tax'] += tax
+        if side == 'sell': row['realized_pnl'] += realized
     return {'month': month, 'currencies': totals}
 
 @app.get('/api/fees')

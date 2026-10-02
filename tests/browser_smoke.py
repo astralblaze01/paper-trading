@@ -405,6 +405,12 @@ with sync_playwright() as p:
         expect(page.locator('#history .trade-side.gain').first).to_have_text('매수')
         expect(page.locator('#history .trade-side.gain').first).to_have_css('color','rgb(196, 47, 58)')
         expect(page.locator('#history .trade-side.loss').first).to_have_text('매도')
+        # A sale shows its realized P&L (name, not code, in the stock column); a purchase shows none.
+        expect(page.locator('#history th').nth(8)).to_have_text('실현 손익')
+        sale=page.locator('#history tbody tr').filter(has=page.locator('.trade-side.loss')).first
+        expect(sale.locator('td').nth(8).locator('.realized-cell')).to_be_visible()
+        expect(sale.locator('td').nth(1)).to_contain_text('애플')
+        expect(page.locator('#historySummary')).to_contain_text('실현 손익 (매도)')
         page.locator('#historySide button[data-side="sell"]').click()
         expect(page.locator('#history .trade-side.gain')).to_have_count(0)
         expect(page.locator('#history .trade-side.loss').first).to_be_visible()

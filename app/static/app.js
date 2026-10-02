@@ -360,7 +360,11 @@ function renderHistorySummary(summary){
   const lines=[[`매수 체결 · ${count('buy')}건`,both(r=>r.buy_gross,r=>r.buy_count>0)],
                [`매도 체결 · ${count('sell')}건`,both(r=>r.sell_gross,r=>r.sell_count>0)],
                ['수수료 · 세금',both(r=>Number(r.fee)+Number(r.tax),r=>r.buy_count+r.sell_count>0)]];
-  $('historySummary').replaceChildren(...lines.map(([label,value])=>{const row=document.createElement('div'),dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=label;dd.textContent=value;row.append(dt,dd);return row;}));
+  // Realized P&L of the period's sales, per currency, coloured gain/loss.
+  const realizedLine=node('span');
+  for(const k of ['USD','KRW'].filter(k=>c[k].sell_count>0)){if(realizedLine.childNodes.length)realizedLine.append(' · ');const v=Number(c[k].realized_pnl);realizedLine.append(signed(v,(v>0?'+':'')+nativeMoney(v,k)));}
+  lines.push(['실현 손익 (매도)',realizedLine.childNodes.length?realizedLine:'—']);
+  $('historySummary').replaceChildren(...lines.map(([label,value])=>{const row=document.createElement('div'),dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=label;if(value instanceof Node)dd.append(value);else dd.textContent=value;row.append(dt,dd);return row;}));
 }
 async function loadHistoryMonths(){
   const months=await api('transactions/months'),select=$('historyMonth');
@@ -370,7 +374,10 @@ async function loadHistoryMonths(){
 }
 function sideLabel(side){const n=document.createElement('span');n.className='trade-side '+(side==='buy'?'gain':'loss');n.textContent=side==='buy'?'매수':'매도';return n;}
 function renderHistory(){const rows=historyCache;
-  table($('history'), ['체결 시각', '종목', '매매', '수량', '체결가', '총액', '수수료 / 세금', '정산 금액'], rows.map(t => [new Date(t.created_at).toLocaleString(), t.symbol, sideLabel(t.side), t.quantity, viewMoney(t.native_price,t.currency),viewMoney(t.gross_amount,t.currency),viewMoney(t.fee,t.currency)+' / '+viewMoney(t.tax,t.currency),viewMoney(t.net_amount,t.currency)]));
+  // A sale shows what it made or lost against the cost sold, fees and taxes included.
+  const realized=t=>{if(t.side!=='sell'||t.realized_pnl==null)return '—';const v=Number(t.realized_pnl),cell=node('span',null,'realized-cell');
+    cell.append(signed(v,(v>0?'+':'')+viewMoney(v,t.currency)));if(t.realized_pct!=null)cell.append(node('small',signedPctText(t.realized_pct),v>0?'gain':v<0?'loss':''));return cell;};
+  table($('history'), ['체결 시각', '종목', '매매', '수량', '체결가', '총액', '수수료 / 세금', '정산 금액', '실현 손익'], rows.map(t => [new Date(t.created_at).toLocaleString(), stockLink({symbol:t.symbol,name:t.name||t.symbol}), sideLabel(t.side), t.quantity, viewMoney(t.native_price,t.currency),viewMoney(t.gross_amount,t.currency),viewMoney(t.fee,t.currency)+' / '+viewMoney(t.tax,t.currency),viewMoney(t.net_amount,t.currency),realized(t)]));
   $('page').textContent = page + ' 페이지'; $('previous').disabled = page === 1; $('next').disabled = rows.length < 50;
 }
 async function search() {

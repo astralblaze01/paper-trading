@@ -135,3 +135,16 @@ def test_backfill_uses_the_rate_published_before_each_fill():
     with Session() as db:
         rates = list(db.scalars(select(Transaction.usd_krw).where(Transaction.user_id == uid).order_by(Transaction.id)))
     assert rates == [D(1370), D('1368.6')]
+
+
+def test_history_shows_each_sale_realized_profit_and_the_period_total(client, monkeypatch):
+    token = register(client)
+    monkeypatch.setenv('US_BUY_FEE_BPS', '10'); monkeypatch.setenv('US_SELL_FEE_BPS', '10')
+    buy(client, token, quantity=10)                              # $1,000 + $1 fee: cost $100.10 a share
+    buy(client, token, quantity=4, side='sell')                  # $400 − $0.40 fee = $399.60 for $400.40 of cost
+    rows = client.get('/api/transactions').json()
+    sale, purchase = rows
+    assert (sale['side'], sale['name'], D(str(sale['realized_pnl'])), round(sale['realized_pct'], 4)) == ('sell', '애플', D('-0.8'), round(-0.8 / 400.4 * 100, 4))
+    assert purchase['name'] == '애플' and purchase['realized_pct'] is None
+    usd = client.get('/api/transactions/summary').json()['currencies']['USD']
+    assert D(str(usd['realized_pnl'])) == D('-0.8')

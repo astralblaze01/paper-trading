@@ -1144,3 +1144,6 @@ footer { max-width: 1680px; margin: 0 auto; padding: 8px 32px 28px; display: fle
 .login-help p { margin: 10px 0 0; line-height: 1.6; }
 .login-help ul { margin: 6px 0 0; padding-left: 18px; line-height: 1.7; }
 .login-help a { color: var(--accent); overflow-wrap: anywhere; }
+/* History: a sale's realized P&L, the return under the amount. */
+.realized-cell { display: grid; gap: 1px; justify-items: end; font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+.realized-cell small { font-size: var(--fs-xs); }
