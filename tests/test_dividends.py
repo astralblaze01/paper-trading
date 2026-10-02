@@ -121,6 +121,7 @@ def test_schedule_is_read_a_few_listings_per_pass_and_waits_out_request_limits(c
         asked.append(symbol); return []
     monkeypatch.setattr(dividends, 'schedule', schedule)
     start = datetime(2026, 10, 1, tzinfo=timezone.utc)
+    monkeypatch.setattr(dividends, 'SYNC_BATCH', 3)
     assert dividends.run(None, start)['synced'] == 3 and asked == ['AAPL', 'KR:005930', 'MSFT']
     refuse.add('NVDA')                     # the shared KIS budget is spent: stop, retry next pass
     assert dividends.run(None, start)['synced'] == 0 and asked == ['AAPL', 'KR:005930', 'MSFT']
@@ -179,3 +180,59 @@ def test_an_estimate_repeats_the_latest_rhythm():
     assert n['record_date'] == date(2026, 10, 14) and n['credit_date'] == date(2026, 10, 30)   # 91-day rhythm, 15-day pay gap, +1 day (US)
     assert n['net'] == D('53') - D('7.95') and row['frequency'] == '분기배당'
     assert row['annual_net'] == D('212') - D('31.80')                                         # $0.53 × 4 × 100 shares, less 15%
+
+
+class PagedKIS:
+    """KIS overseas rights: period rights paged 100 rows at a time and mixing look-alike
+    tickers (QQQ also returns QQQM, QQQS, ...); the cash-dividend list by exact symbol."""
+    def __init__(self, pages, cash):
+        self.pages, self.cash, self.asked = pages, cash, []
+    def get(self, path, tr, params, ttl, tr_cont=''):
+        if path.endswith('period-rights'):
+            page = 0 if not tr_cont else int(params['CTX_AREA_NK50'])
+            self.asked.append(page)
+            return {'output': self.pages[page], '_tr_cont': 'M' if page + 1 < len(self.pages) else 'D',
+                    'ctx_area_nk50': str(page + 1), 'ctx_area_fk50': 'f'}
+        return {'output1': self.cash}
+
+
+def right(symbol, record, amount): return {'pdno': symbol, 'acpl_bass_dt': record, 'alct_frcr_unpr': amount, 'crcy_cd': 'USD'}
+def cash(record, pay, title='현금배당'): return {'ca_title': title, 'record_dt': record, 'pay_dt': pay}
+
+
+def test_us_schedule_reads_every_page_of_period_rights():
+    # Regression: only the first 100 rows were read, so QQQ's later dividends, listed
+    # after look-alike tickers, were never seen and holders would not have been paid.
+    kis = PagedKIS([[right('QQQM', '20260622', '0.3')] * 100, [right('QQQ', '20260622', '0.81349')]],
+                   [cash('20260622', '20260626')])
+    events = dividends.schedule('QQQ', kis, date(2026, 10, 2))
+    assert kis.asked == [0, 1]
+    assert [(e['record_date'], e['pay_date'], e['per_share']) for e in events] == [(date(2026, 6, 22), date(2026, 6, 26), D('0.81349'))]
+
+
+def test_us_rights_count_only_when_the_cash_dividend_list_has_them():
+    # Regression: NVDA's 2026-02-06 right of $11 is no cash dividend (absent from the
+    # cash-dividend list) yet was stored as one; it inflated the NVDA estimate.
+    kis = PagedKIS([[right('NVDA', '20260206', '11.00000'), right('NVDA', '20260311', '0.01000')]],
+                   [cash('20260311', '20260401'), cash('20260713', '', '주식분할')])
+    assert [(e['record_date'], e['per_share']) for e in dividends.schedule('NVDA', kis, date(2026, 10, 2))] == [(date(2026, 3, 11), D('0.01'))]
+
+
+def test_us_pay_date_is_the_earliest_listed_and_same_day_amounts_add_up():
+    kis = PagedKIS([[right('VGIT', '20251218', '0.19'), right('VGIT', '20251218', '0.05')]],
+                   [cash('20251218', '20260102'), cash('20251218', '20251222'), cash('20251218', '20251215')])
+    [event] = dividends.schedule('VGIT', kis, date(2026, 10, 2))
+    # A listed pay date before the record date is impossible and ignored.
+    assert (event['pay_date'], event['per_share']) == (date(2025, 12, 22), D('0.24'))
+
+
+def test_sync_drops_unpaid_dividends_the_provider_no_longer_lists():
+    with Session.begin() as db:
+        db.add(DividendEvent(symbol='NVDA', record_date=date(2026, 2, 6), pay_date=None, per_share=D('11'), currency='USD', source='old'))
+        db.add(DividendEvent(symbol='NVDA', record_date=date(2025, 1, 2), pay_date=date(2025, 1, 9), per_share=D('0.01'), currency='USD', source='old',
+                             paid_at=datetime(2025, 1, 10, tzinfo=timezone.utc)))   # paid: history, kept
+    kis = PagedKIS([[right('NVDA', '20260311', '0.01000')]], [cash('20260311', '20260401')])
+    assert dividends.sync(kis, ['NVDA'], datetime(2026, 10, 2, tzinfo=timezone.utc)) == ['NVDA']
+    with Session() as db:
+        rows = [(e.record_date, e.per_share) for e in db.scalars(select(DividendEvent).order_by(DividendEvent.record_date))]
+    assert rows == [(date(2025, 1, 2), D('0.01')), (date(2026, 3, 11), D('0.01'))]

@@ -26,6 +26,7 @@ from sqlalchemy import func, select
 
 from .db import Session, Settings, Position, Transaction, Wallet, DividendEvent, DividendPayment, lock_user
 from .instruments import currency_of, instrument
+from .market import MarketError
 from .money import bps
 
 log = logging.getLogger('dividends')
@@ -33,11 +34,12 @@ SEOUL, NEW_YORK = ZoneInfo('Asia/Seoul'), ZoneInfo('America/New_York')
 PAY_FROM = date(2026, 10, 1)
 SYNC_HOURS = 6
 SYNC_KEY, CURSOR_KEY, ROUND_DONE = 'DIVIDENDS_SYNCED_AT', 'DIVIDENDS_CURSOR', '~'
-SYNC_BATCH = 3   # listings per scheduler pass (one a minute): 2 KIS calls each for US listings
+SYNC_BATCH = 2   # listings per scheduler pass (one a minute): 2-4 KIS calls each for US listings
 # A year back gives each listing's rhythm and annual total; Korean year-end dividends
 # are paid about four months after the record date.
 LOOKBACK_DAYS, LOOKAHEAD_DAYS = 400, 120
 RECENT_TRADE_DAYS = 60
+MAX_RIGHTS_PAGES = 10
 PRODUCT_TYPES = {'NAS': '512', 'NYS': '513', 'AMS': '529'}   # KIS overseas product type by exchange
 
 
@@ -93,22 +95,40 @@ def schedule(symbol, kis, today, lookback=LOOKBACK_DAYS):
     # with a different security's rights, or none (NYSE KO under NASDAQ's code).
     from .us_symbols import exchange_of
     product = PRODUCT_TYPES.get(exchange_of(symbol), '512')
-    rights = kis.get('/uapi/overseas-price/v1/quotations/period-rights', 'CTRGT011R',
-                     {'RGHT_TYPE_CD': '03', 'INQR_DVSN_CD': '02', 'INQR_STRT_DT': start.strftime('%Y%m%d'),
-                      'INQR_END_DT': end.strftime('%Y%m%d'), 'PDNO': symbol, 'PRDT_TYPE_CD': product,
-                      'CTX_AREA_NK50': '', 'CTX_AREA_FK50': ''}, 21600).get('output') or []
+    # Period rights match the code loosely (QQQ also returns QQQM, QQQS, ...) and come
+    # 100 rows a page, so every page is read and rows are kept for this exact symbol.
+    params = {'RGHT_TYPE_CD': '03', 'INQR_DVSN_CD': '02', 'INQR_STRT_DT': start.strftime('%Y%m%d'),
+              'INQR_END_DT': end.strftime('%Y%m%d'), 'PDNO': symbol, 'PRDT_TYPE_CD': product,
+              'CTX_AREA_NK50': '', 'CTX_AREA_FK50': ''}
+    rights = []
+    for page in range(MAX_RIGHTS_PAGES):
+        data = kis.get('/uapi/overseas-price/v1/quotations/period-rights', 'CTRGT011R', params, 21600, **({'tr_cont': 'N'} if page else {}))
+        rights += data.get('output') or []
+        if data.get('_tr_cont') not in ('M', 'F'): break
+        params = params | {'CTX_AREA_NK50': data.get('ctx_area_nk50', ''), 'CTX_AREA_FK50': data.get('ctx_area_fk50', '')}
+    else:
+        raise MarketError(f'{symbol} 권리 조회가 {MAX_RIGHTS_PAGES}쪽을 넘었습니다.')
     pays = kis.get('/uapi/overseas-price/v1/quotations/rights-by-ice', 'HHDFS78330900',
                    {'NCOD': 'US', 'SYMB': symbol, 'ST_YMD': start.strftime('%Y%m%d'), 'ED_YMD': end.strftime('%Y%m%d')},
                    21600).get('output1') or []
-    pay_by_record = {_day(p.get('record_dt'), '%Y%m%d'): _day(p.get('pay_dt'), '%Y%m%d')
-                     for p in pays if '배당' in str(p.get('ca_title', ''))}
-    events = []
+    # Only a right on the cash-dividend list is a dividend (a split or other right also
+    # appears among period rights). The list can repeat a record date with several pay
+    # dates; the earliest on or after the record date is taken.
+    pay_by_record = {}
+    for p in pays:
+        if '현금배당' not in str(p.get('ca_title', '')): continue
+        record, pay = _day(p.get('record_dt'), '%Y%m%d'), _day(p.get('pay_dt'), '%Y%m%d')
+        if record is None: continue
+        if pay is not None and pay < record: pay = None
+        known = pay_by_record.get(record, None)
+        pay_by_record[record] = pay if known is None else min(known, pay) if pay else known
+    amounts = {}
     for r in rights:
         record, per_share = _day(r.get('acpl_bass_dt'), '%Y%m%d'), _amount(r.get('alct_frcr_unpr'))
-        if record and per_share and str(r.get('pdno', '')).upper() == symbol and r.get('crcy_cd', 'USD') == 'USD':
-            events.append({'record_date': record, 'pay_date': pay_by_record.get(record), 'per_share': per_share,
-                           'currency': 'USD', 'source': 'KIS 해외 권리'})
-    return events
+        if record in pay_by_record and per_share and str(r.get('pdno', '')).upper() == symbol and r.get('crcy_cd', 'USD') == 'USD':
+            amounts[record] = amounts.get(record, Decimal(0)) + per_share   # e.g. a regular dividend and a special one
+    return [{'record_date': record, 'pay_date': pay_by_record[record], 'per_share': amount, 'currency': 'USD', 'source': 'KIS 해외 권리'}
+            for record, amount in sorted(amounts.items())]
 
 
 def tracked_symbols(db, now):
@@ -132,7 +152,15 @@ def sync(kis, symbols, now=None):
             if '한도' in str(exc): break
             done.append(symbol); continue
         done.append(symbol)
+        start, end = today - timedelta(days=LOOKBACK_DAYS), today + timedelta(days=LOOKAHEAD_DAYS)
         with Session.begin() as db:
+            # An unpaid dividend the provider no longer lists in the window read was a
+            # mistake or was withdrawn; paid ones stay as history.
+            fresh = {e['record_date'] for e in events}
+            for row in db.scalars(select(DividendEvent).where(DividendEvent.symbol == symbol, DividendEvent.paid_at.is_(None),
+                                                              DividendEvent.record_date >= start, DividendEvent.record_date <= end)):
+                if row.record_date not in fresh: db.delete(row)
+            db.flush()
             for e in events:
                 row = db.scalar(select(DividendEvent).where(DividendEvent.symbol == symbol, DividendEvent.record_date == e['record_date']))
                 if row is None:
