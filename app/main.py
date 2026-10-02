@@ -242,19 +242,44 @@ def _versioned(match):
     if not path.is_file(): return match[0]
     return f'{match[1]}?v={_asset_version(match[2], path.stat().st_mtime_ns)}'
 
-def _page(name):
+SHARE_DESCRIPTION = '가상 자금으로 미국·한국 주식, 채권 ETF, 금 ETF를 거래하고 회원끼리 수익률 순위를 겨루는 모의투자 서비스입니다.'
+SHARE_HOST = re.compile(r'[A-Za-z0-9.-]+(:[0-9]{1,5})?')
+
+def site_url(request):
+    """Absolute origin for link previews: KakaoTalk and others need full image URLs."""
+    configured = os.getenv('PUBLIC_URL', '').strip().rstrip('/')
+    if configured: return configured
+    host = request.headers.get('host', '')
+    if not SHARE_HOST.fullmatch(host): host = 'localhost'
+    # Behind nginx the app sees plain HTTP; COOKIE_SECURE marks an HTTPS deployment.
+    scheme = 'https' if os.getenv('COOKIE_SECURE', 'false').lower() == 'true' else request.url.scheme
+    return f'{scheme}://{host}'
+
+def share_meta(request, path, title):
+    """Open Graph tags, so a shared link shows the title, summary and image."""
+    from html import escape
+    origin = site_url(request)
+    tags = [('name', 'description', SHARE_DESCRIPTION), ('property', 'og:type', 'website'), ('property', 'og:site_name', BRAND_NAME),
+            ('property', 'og:locale', 'ko_KR'), ('property', 'og:title', title), ('property', 'og:description', SHARE_DESCRIPTION),
+            ('property', 'og:url', origin + path), ('property', 'og:image', origin + '/static/brand/og.png'),
+            ('property', 'og:image:width', '1200'), ('property', 'og:image:height', '630'),
+            ('property', 'og:image:alt', f'{BRAND_NAME} 모의투자'), ('name', 'twitter:card', 'summary_large_image')]
+    return '\n  '.join(f'<meta {kind}="{key}" content="{escape(value)}">' for kind, key, value in tags)
+
+def _page(name, request, path, title):
     html = STATIC_REF.sub(_versioned, Path('app/static', name).read_text())
+    html = html.replace('{{SHARE_META}}', share_meta(request, path, title))
     return HTMLResponse(html.replace('{{BRAND_NAME}}', BRAND_NAME).replace('{{STORAGE_NAMESPACE}}', STORAGE_NAMESPACE), headers={'Cache-Control':'no-cache'})
 
 @app.get('/')
-def index(): return _page('index.html')
+def index(request: Request): return _page('index.html', request, '/', f'{BRAND_NAME} · 모의투자')
 
 # Readable without an account, linked from every page footer and the sign-up form.
 @app.get('/privacy')
-def privacy_policy(): return _page('privacy.html')
+def privacy_policy(request: Request): return _page('privacy.html', request, '/privacy', f'개인정보 처리방침 · {BRAND_NAME}')
 
 @app.get('/terms')
-def terms(): return _page('terms.html')
+def terms(request: Request): return _page('terms.html', request, '/terms', f'이용약관 · {BRAND_NAME}')
 
 @app.get('/health')
 def health():

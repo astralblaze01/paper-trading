@@ -59,6 +59,7 @@ services:
       KR_SELL_FEE_BPS: ${KR_SELL_FEE_BPS:-1.5}
       KR_SELL_TAX_BPS: ${KR_SELL_TAX_BPS:-20}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      PUBLIC_URL: ${PUBLIC_URL:-}
       # web has no published port; nginx overwrites X-Real-IP on every route.
       TRUST_PROXY_HEADERS: 'true'
       QUOTE_TTL: ${QUOTE_TTL:-15}
