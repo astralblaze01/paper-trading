@@ -704,9 +704,10 @@ docker compose -p paper-sse-test -f compose.sse-test.yaml restart browserweb
 
 처리방침에 적은 운영 규칙:
 
-- **DB 백업:** `backups/`의 덤프는 장애 복구용이며 만든 지 30일이 지나면 삭제합니다. 백업을 복원하면 그사이 탈퇴한 회원을 다시 삭제합니다. 삭제는 `scripts/prune_backups.py`가 호스트 cron으로 매일 04:17에 자동으로 합니다. 대상은 `backups/` 바로 아래의 덤프 파일(`.dump`, `.sql`, `.dump.gz`, `.sql.gz`)뿐이며 소스 보관 파일은 건드리지 않습니다. 삭제 기록은 `~/.local/state/paper-trading-prune.log`에 남습니다. 서버를 옮기면 cron 등록도 다시 합니다.
+- **DB 백업:** `scripts/backup_db.py`가 호스트 cron으로 매일 04:07에 `backups/daily-YYYYMMDD.dump`를 만듭니다(`pg_dump -Fc`, 임시 파일에 쓰고 `pg_restore --list`로 확인한 뒤에만 이름을 바꾸므로 실패한 덤프는 남지 않음, 권한 0600, 기록은 `~/.local/state/paper-trading-backup.log`). 백업은 같은 SD카드에 있으므로 카드 고장에 대비하려면 주기적으로 다른 기기로 복사하세요. `backups/`의 덤프는 장애 복구용이며 만든 지 30일이 지나면 삭제합니다. 백업을 복원하면 그사이 탈퇴한 회원을 다시 삭제합니다. 삭제는 `scripts/prune_backups.py`가 호스트 cron으로 매일 04:17에 자동으로 합니다. 대상은 `backups/` 바로 아래의 덤프 파일(`.dump`, `.sql`, `.dump.gz`, `.sql.gz`)뿐이며 소스 보관 파일은 건드리지 않습니다. 삭제 기록은 `~/.local/state/paper-trading-prune.log`에 남습니다. 서버를 옮기면 cron 등록도 다시 합니다.
 
   ```bash
+  (crontab -l 2>/dev/null; echo '7 4 * * * /usr/bin/python3 /home/ubuntu/paper-trading/scripts/backup_db.py >> /home/ubuntu/.local/state/paper-trading-backup.log 2>&1') | crontab -
   (crontab -l 2>/dev/null; echo '17 4 * * * /usr/bin/python3 /home/ubuntu/paper-trading/scripts/prune_backups.py >> /home/ubuntu/.local/state/paper-trading-prune.log 2>&1') | crontab -
   ```
 - **로그:** 서비스별로 최대 약 30MB(10MB × 3개 파일)까지 순환 보관되고, 재배포하면 해당 컨테이너 로그가 함께 삭제됩니다.
