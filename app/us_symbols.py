@@ -20,7 +20,7 @@ MASTER_URLS = (
 MASTER_KEY = 'market:symbols:us'
 HANGUL = re.compile('[가-힣ㄱ-ㅎㅏ-ㅣ]')
 _loaded = (0.0, [])  # ~13k rows; parsed once per process for five minutes.
-_names = (None, {})  # (the _rows() list it was built from, {symbol: Korean display name})
+_names = (None, {}, {})  # see _index()
 
 
 def _rows():
@@ -31,24 +31,34 @@ def _rows():
 
 
 
+def _index():
+    """(rows, {symbol: row}, {symbol: Korean name}) for the current master list.
+
+    Rebuilt only when _rows() hands back a newly loaded list. Names are rendered on
+    first use: rendering all 12k at once (5.6k ETF names) took most of a second."""
+    global _names
+    rows = _rows()
+    if _names[0] is not rows:
+        _names = (rows, {row['symbol']: row for row in rows}, {})
+    return _names
+
+
 def name_of(symbol):
     """The Korean display name of a US listing (see us_names), or None when unknown.
 
-    instrument() calls this on every quote; the map is rebuilt only when
-    _rows() hands back a newly loaded list."""
-    global _names
+    instrument() calls this on every quote."""
     from .us_names import POPULAR, korean_name
-    rows = _rows()
-    if _names[0] is not rows:
-        _names = (rows, {row['symbol']: korean_name(row) for row in rows})
-    return _names[1].get(symbol) or POPULAR.get(symbol)
+    _, by_symbol, names = _index()
+    if symbol not in names:
+        row = by_symbol.get(symbol)
+        names[symbol] = (korean_name(row) if row else None) or POPULAR.get(symbol)
+    return names[symbol]
 
 
 def exchange_of(symbol):
     """'NAS', 'NYS' or 'AMS' from the KIS master, or None when the master lacks the listing."""
-    for row in _rows():
-        if row['symbol'] == symbol: return row.get('exchange')
-    return None
+    row = _index()[1].get(symbol)
+    return row.get('exchange') if row else None
 
 
 def _search_text(value):
