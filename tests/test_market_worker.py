@@ -97,3 +97,30 @@ def test_a_symbol_opened_mid_pass_is_collected_next_not_after_the_pass(monkeypat
     with pytest.raises(Stop):
         mw.main()
     assert collected[:2] == ['AAA', 'NEW'], collected
+
+
+@pytest.mark.parametrize('session, retried_at', [('regular', [1000.0, 1040.0, 1080.0, 1310.0]), ('closed', [1000.0, 1310.0])])
+def test_a_failed_symbol_is_retried_slowly_while_its_market_is_closed(monkeypatch, tmp_path, session, retried_at):
+    """Before the KRX pre-market KIS errors on every quote; the worker retried each symbol
+    every 30 s for hours (hundreds of failures a night), spending the shared KIS budget."""
+    clock, tried, ticks = [0.0], [], iter([1000.0, 1040.0, 1080.0, 1310.0])  # one pass per tick
+    def collect(market, symbol, ttl):
+        tried.append(clock[0]); raise ValueError('KIS error')
+    def next_refresh(timeout=1):
+        try: clock[0] = next(ticks)
+        except StopIteration: raise Stop
+    monkeypatch.setenv('MARKET_WORKER_MODE', '')
+    monkeypatch.setattr(mw.time, 'monotonic', lambda: clock[0])
+    monkeypatch.setattr(mw, 'HEARTBEAT', tmp_path / 'heartbeat')
+    state = SimpleNamespace(session=lambda: session)
+    monkeypatch.setattr(mw, 'MultiMarket', lambda: SimpleNamespace(close=lambda: None, providers={'US': state, 'KR': state}))
+    monkeypatch.setattr(mw, 'refresh_master', lambda: 1)
+    monkeypatch.setattr(mw, 'refresh_us_master', lambda: 1)
+    monkeypatch.setattr(mw, 'collect_quote', collect)
+    monkeypatch.setattr(mw.redis_cache, 'next_refresh', next_refresh)
+    monkeypatch.setattr(mw.redis_cache, 'pop_refresh', lambda: None, raising=False)
+    monkeypatch.setattr(mw.redis_cache, 'requested_symbols', lambda: ['KR:005930'])
+    monkeypatch.setattr(mw.redis_cache, 'set_json', lambda *a, **k: None)
+    with pytest.raises(Stop):
+        mw.main()
+    assert tried == retried_at

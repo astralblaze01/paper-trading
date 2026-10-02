@@ -18,6 +18,9 @@ MASTER_REFRESH = 86400  # seconds between symbol-master downloads
 MASTER_RETRY = 3600     # a failed download is tried again after this instead
 
 
+CLOSED_RETRY = 300  # seconds before a symbol that failed while its market was closed is tried again
+
+
 def collect_quote(market, symbol, snapshot_ttl):
     quote = market.quote_direct(symbol)
     quote['_cached_at'] = time.time()
@@ -91,7 +94,11 @@ def main():
                     log.info('quote %s; quote_age_seconds=%s', state, round(time.time()-quote['timestamp'], 2), extra={'path': symbol})
                 except Exception as exc:
                     # Do not leak provider credentials or response bodies.
-                    retry_after[symbol] = time.monotonic() + retry_delay
+                    # A closed market keeps failing until it opens (KIS answers errors before the
+                    # 08:00 pre-market): retrying every 30 s only spends the shared KIS budget.
+                    try: closed = market.providers['KR' if symbol.startswith('KR:') else 'US'].session() == 'closed'
+                    except Exception: closed = False
+                    retry_after[symbol] = time.monotonic() + (CLOSED_RETRY if closed else retry_delay)
                     redis_cache.set_json(f'market:collection:{symbol}',
                                          {'state': 'failed', 'checked_at': time.time(), 'error': type(exc).__name__}, 7*86400)
                     log.warning('market refresh failed',extra={'path':symbol,'status_code':type(exc).__name__})
