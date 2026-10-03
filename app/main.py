@@ -242,7 +242,7 @@ def _versioned(match):
     if not path.is_file(): return match[0]
     return f'{match[1]}?v={_asset_version(match[2], path.stat().st_mtime_ns)}'
 
-SHARE_DESCRIPTION = '가상 자금으로 미국·한국 주식과 ETF를 거래하고, 실시간 수익률 랭킹에서 겨뤄 보세요.'
+SHARE_DESCRIPTION = '가상 자금으로 미국·한국 주식과 채권·금 ETF를 실전처럼 거래해 보세요.'
 SHARE_HOST = re.compile(r'[A-Za-z0-9.-]+(:[0-9]{1,5})?')
 
 def site_url(request):
@@ -272,7 +272,7 @@ def _page(name, request, path, title):
     return HTMLResponse(html.replace('{{BRAND_NAME}}', BRAND_NAME).replace('{{STORAGE_NAMESPACE}}', STORAGE_NAMESPACE), headers={'Cache-Control':'no-cache'})
 
 @app.get('/')
-def index(request: Request): return _page('index.html', request, '/', f'{BRAND_NAME} · 모의투자 수익률 랭킹')
+def index(request: Request): return _page('index.html', request, '/', f'{BRAND_NAME} · 모의투자')
 
 # Readable without an account, linked from every page footer and the sign-up form.
 @app.get('/privacy')
