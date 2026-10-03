@@ -700,7 +700,7 @@ def test_pages_carry_link_preview_tags(client, monkeypatch):
     monkeypatch.delenv('PUBLIC_URL', raising=False)
     monkeypatch.setenv('COOKIE_SECURE', 'true')
     html = client.get('/', headers={'host': 'alpharena.example'}).text
-    assert '<meta property="og:image" content="https://alpharena.example/static/brand/og.png">' in html
+    assert re.search(r'<meta property="og:image" content="https://alpharena.example/static/brand/og\.png\?v=[0-9a-f]{12}">', html)
     assert '<meta property="og:url" content="https://alpharena.example/">' in html
     assert '<meta name="twitter:card" content="summary_large_image">' in html
     assert '{{' not in html
@@ -708,6 +708,6 @@ def test_pages_carry_link_preview_tags(client, monkeypatch):
     html = client.get('/terms', headers={'host': 'evil"><script>'}).text
     assert '<script>"' not in html and 'content="https://localhost/terms"' in html
     monkeypatch.setenv('PUBLIC_URL', 'https://alpharena.kr/')
-    assert 'content="https://alpharena.kr/static/brand/og.png"' in client.get('/privacy').text
+    assert 'content="https://alpharena.kr/static/brand/og.png?v=' in client.get('/privacy').text
     image = client.get('/static/brand/og.png')
     assert image.status_code == 200 and image.headers['content-type'] == 'image/png'

@@ -242,7 +242,7 @@ def _versioned(match):
     if not path.is_file(): return match[0]
     return f'{match[1]}?v={_asset_version(match[2], path.stat().st_mtime_ns)}'
 
-SHARE_DESCRIPTION = '가상 자금으로 미국·한국 주식, 채권 ETF, 금 ETF를 거래하고 회원끼리 수익률 순위를 겨루는 모의투자 서비스입니다.'
+SHARE_DESCRIPTION = '가상 자금으로 미국·한국 주식과 ETF를 거래하고, 실시간 수익률 랭킹에서 겨뤄 보세요.'
 SHARE_HOST = re.compile(r'[A-Za-z0-9.-]+(:[0-9]{1,5})?')
 
 def site_url(request):
@@ -261,7 +261,7 @@ def share_meta(request, path, title):
     origin = site_url(request)
     tags = [('name', 'description', SHARE_DESCRIPTION), ('property', 'og:type', 'website'), ('property', 'og:site_name', BRAND_NAME),
             ('property', 'og:locale', 'ko_KR'), ('property', 'og:title', title), ('property', 'og:description', SHARE_DESCRIPTION),
-            ('property', 'og:url', origin + path), ('property', 'og:image', origin + '/static/brand/og.png'),
+            ('property', 'og:url', origin + path), ('property', 'og:image', origin + '/static/brand/og.png?v=' + _asset_version('brand/og.png', 0)),  # messengers cache previews by image URL
             ('property', 'og:image:width', '1200'), ('property', 'og:image:height', '630'),
             ('property', 'og:image:alt', f'{BRAND_NAME} 모의투자'), ('name', 'twitter:card', 'summary_large_image')]
     return '\n  '.join(f'<meta {kind}="{key}" content="{escape(value)}">' for kind, key, value in tags)
@@ -272,7 +272,7 @@ def _page(name, request, path, title):
     return HTMLResponse(html.replace('{{BRAND_NAME}}', BRAND_NAME).replace('{{STORAGE_NAMESPACE}}', STORAGE_NAMESPACE), headers={'Cache-Control':'no-cache'})
 
 @app.get('/')
-def index(request: Request): return _page('index.html', request, '/', f'{BRAND_NAME} · 모의투자')
+def index(request: Request): return _page('index.html', request, '/', f'{BRAND_NAME} · 모의투자 수익률 랭킹')
 
 # Readable without an account, linked from every page footer and the sign-up form.
 @app.get('/privacy')
