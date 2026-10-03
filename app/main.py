@@ -242,7 +242,7 @@ def _versioned(match):
     if not path.is_file(): return match[0]
     return f'{match[1]}?v={_asset_version(match[2], path.stat().st_mtime_ns)}'
 
-SHARE_DESCRIPTION = '가상 자금으로 미국·한국 주식과 채권·금 ETF를 실전처럼 거래해 보세요.'
+SHARE_DESCRIPTION = '10만 달러 가상 자금으로 미국·한국 주식과 ETF를 사고팔아 보세요. 진짜 돈은 0원.'
 SHARE_HOST = re.compile(r'[A-Za-z0-9.-]+(:[0-9]{1,5})?')
 
 def site_url(request):
