@@ -199,14 +199,17 @@ function table(target, headers, rows) {
   thead.append(head); t.append(thead, tbody);
   rows.forEach(row => { const tr = document.createElement('tr'); row.forEach(value => { const td = document.createElement('td'); if(value instanceof Node)td.append(value);else td.textContent = value; tr.append(td); }); tbody.append(tr); });
   target.replaceChildren(t);
-  if (!rows.length) { const p = document.createElement('p'); p.className = 'empty-state'; p.textContent = {positions:'아직 보유한 종목이 없습니다. 첫 주문을 시작해보세요.',publicPositions:'보유한 종목이 없습니다.',history:'아직 거래내역이 없습니다.',fxHistory:'아직 환전내역이 없습니다.',adminAudit:'관리자 작업 기록이 없습니다.'}[target.id] || '표시할 순위가 없습니다.'; target.append(p); }
+  if (!rows.length) { const p = document.createElement('p'); p.className = 'empty-state'; p.textContent = {positions:'아직 보유한 종목이 없습니다. 첫 주문을 시작해보세요.',publicPositions:'보유한 종목이 없습니다.',history:'아직 거래내역이 없습니다.',fxHistory:'아직 환전내역이 없습니다.',adminAudit:'관리자 작업 기록이 없습니다.',adminRecentAudit:'관리자 작업 기록이 없습니다.',adminArchives:'보관된 아카이브가 없습니다.'}[target.id] || '표시할 순위가 없습니다.'; target.append(p); }
 }
+// The admin pages name their section in the title; everyone else keeps the page's own.
+const PAGE_TITLE=document.title;
 async function boot() {
   window.disconnectQuoteStream?.();
   const s = await api('session'); csrf = s.csrf; window.noticeVersion = s.notice_version;
   window.quoteSseEnabled=!!s.quote_sse_enabled;window.quoteMaxAge=s.quote_max_age;
   window.sessionUsername=s.username; window.isAdmin=!!s.is_admin; $('auth').hidden = !!s.username; $('dashboard').hidden = !s.username; $('logout').hidden = !s.username; $('adminNav').hidden = !s.is_admin;
   if(!s.username)showAuthView();
+  if(!s.is_admin)document.title=PAGE_TITLE;
   // The header shows who is signed in; the photo version comes with the profile.
   window.renderHeaderUser?.();
   if(s.username&&!s.is_admin&&window.loadMyProfile)loadMyProfile().catch(()=>{});
@@ -221,7 +224,7 @@ async function boot() {
   if (unavailable.length) message(unavailable.join(' · ') + ' 서비스 연결이 필요합니다. 계좌 생성과 지원 종목 목록 조회는 이용할 수 있습니다.');
   if (s.username && s.password_temporary) { openPasswordDialog(true); return; }
   if (s.username) {
-    if(s.is_admin){if(location.hash!=='#admin')location.hash='admin';if(window.routePage)await routePage();}
+    if(s.is_admin){if(window.routePage)await routePage();}
     else {$('greeting').textContent = s.username + '님의 투자 현황'; await Promise.all([refresh(),refreshMarketSessions()]); if(window.renderRecentStocks)renderRecentStocks(); if(window.routePage) await routePage();}
   }
 }

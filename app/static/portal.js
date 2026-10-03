@@ -44,10 +44,13 @@ window.routePage = async function() {
   // #user/<id> is the public profile; #public/<id> is kept for old links.
   if(pageName==='user')pageName='public';
   if(pageName==='public'&&segment&&decodeURIComponent(segment).toLowerCase()===window.sessionUsername){location.replace('#portfolio');return;}
-  let selected=['explore','portfolio','history','fx','watchlist','ranking','admin','detail','public'].includes(pageName)?pageName:'explore';
-  if(window.isAdmin)selected='admin';
+  let selected=['explore','portfolio','history','fx','watchlist','ranking','detail','public'].includes(pageName)?pageName:'explore';
+  // Administrators only have the admin pages, addressed by path (/admin, /admin/users, ...);
+  // anything else, including the old #admin link, opens the dashboard. Members never see them.
+  if(window.isAdmin){selected='admin';if(!adminSection()||location.hash)history.replaceState(null,'',adminSection()?location.pathname:'/admin');}
+  else if(window.sessionUsername&&location.pathname!=='/')history.replaceState(null,'','/'+location.hash);
   document.querySelectorAll('[data-page]').forEach(el=>el.hidden=el.dataset.page!==selected);
-  document.querySelectorAll('.app-nav a').forEach(a=>a.setAttribute('aria-current',a.hash==='#'+selected?'page':'false'));
+  document.querySelectorAll('.app-nav a').forEach(a=>a.setAttribute('aria-current',(a.id==='adminNav'?selected==='admin':a.hash==='#'+selected)?'page':'false'));
   if($('dashboard').hidden)return;
   message('');
   try {
@@ -505,6 +508,26 @@ async function fxHistory(){
   const rows=await api('fx/history');
   table($('fxHistory'),['시각','보낸 금액','받은 금액','수수료','환율 기준일'],rows.map(r=>[new Date(r.created_at).toLocaleString(),nativeMoney(r.amount,r.source),nativeMoney(r.received,r.target),nativeMoney(r.fee,r.source),r.rate_date]));
 }
+// Administrator pages: /admin and /admin/<section>, one page per job. Links switch the
+// section in place (history.pushState); each section loads only what it shows.
+const ADMIN_SECTIONS={
+  dashboard:['대시보드','서비스 상태와 핵심 지표, 최근 운영 현황'],
+  users:['사용자 관리','사용자 검색과 목록, 계정 상태, 비밀번호 초기화, 관리자 메모'],
+  accounts:['계좌·자금 관리','지원금 지급, 수익률 기준 재설정, 계좌 초기화, 전체 지급'],
+  notices:['공지 관리','게시 중인 공지와 템플릿으로 새 공지 작성'],
+  system:['시장·시스템','DB·Redis·시세 공급자, 시장 상태, 일별 성과 기록'],
+  settings:['서비스 설정','새 계좌 초기 지급액과 수수료·세금 정책'],
+  audit:['감사·아카이브','관리자 작업 로그와 초기화·시즌 아카이브']};
+function adminSection(){const m=location.pathname.match(/^\/admin(?:\/(users|accounts|notices|system|settings|audit))?\/?$/);return m?m[1]||'dashboard':null;}
+document.addEventListener('click',e=>{
+  const a=e.target.closest?.('a[href^="/admin"]');
+  if(!a||!window.isAdmin||e.defaultPrevented||e.button!==0||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;
+  e.preventDefault();
+  if(location.pathname!==a.getAttribute('href')||location.hash)history.pushState(null,'',a.getAttribute('href'));
+  routePage();window.scrollTo(0,0);
+});
+// Back and forward between admin pages; other pages still route by their hash.
+window.addEventListener('popstate',()=>{if(window.isAdmin)routePage();});
 let adminUsers=[],adminSelectedId=null,adminPending=null,adminSearchTimer=null,adminSearchVersion=0;
 const adminLabel=u=>u.note?`${u.username} - ${u.note}`:u.username;
 function adminSelected(){return adminUsers.find(u=>u.id===adminSelectedId)||null;}
@@ -513,16 +536,23 @@ function adminMarketText(name,m){
  const st=m.stream,rest=Object.entries(m.rest).map(([k,v])=>`${k} ${v?(v.ok?'ok':'fail '+(v.error||'')):'no data'}`).join(', ');
  return `${name} Session: ${m.session} (${m.label}) · open ${m.open} · tradable ${m.tradable} · venue ${m.venue||'—'}${m.venues_open?.length?' ['+m.venues_open.join('+')+']':''} · Price mode: ${m.price_mode} · Stream: ${st.state}${st.healthy?' (healthy)':''} · Last message: ${st.last_message_age==null?'—':st.last_message_age+'s ago'} · Subscribed: ${st.subscribed.join(' ')||'—'} (전체 ${st.all_subscribed.length} / ${st.limit??'—'}) · REST: ${rest}`;
 }
-// Dashboard status: health as dots, one line per market, the raw diagnostics folded away.
+// Status: health as dots on every admin page, one line per market, the raw diagnostics folded away.
 const SESSION_KO={regular:'정규장',pre_market:'프리장',after_hours:'애프터장',overnight:'데이마켓',closed:'장 마감',unknown:'확인 불가'};
+const ADMIN_STATE_KO={ok:'정상',warn:'일부 지연',bad:'확인 필요'};
 function adminStateSpan(text,ok){const n=node('span',text,'admin-state '+(ok==null?'':ok?'ok':'bad'));return n;}
-function renderAdminStatus(r){
+function adminServices(r){
  // 'ok' green, 'warn' amber (degraded), 'bad' red.
- const level=ok=>ok?'ok':'bad';
- const items=[['DB',level(r.health.database==='ok')],['Redis',level(r.health.redis==='ok')],['국내 시세',level(!!r.providers.kr)],['미국 시세',level(!!r.providers.us)]];
- if(r.quotes)items.push(['가격 저장',{ok:'ok',idle:'ok',degraded:'warn'}[r.quotes.state]||'bad']);
- $('adminHealth').replaceChildren(...items.map(([label,state])=>{const li=node('li',label);if(state!=='ok')li.className=state;li.title={ok:'정상',warn:'일부 지연',bad:'확인 필요'}[state];return li;}));
- const rows=[['한국',r.kr_market],['미국',r.us_market]].filter(([,m])=>m).map(([name,m])=>{
+ const level=ok=>ok?'ok':'bad',q=r.quotes;
+ const items=[['DB','데이터베이스',level(r.health.database==='ok'),r.health.database==='ok'?'연결됨':'연결 실패'],
+  ['Redis','Redis 캐시',level(r.health.redis==='ok'),r.health.redis==='ok'?'연결됨':'연결 안 됨 · 시세와 랭킹을 직접 계산합니다'],
+  ['국내 시세','국내 시세 공급자',level(!!r.providers.kr),r.providers.kr?'설정됨':'설정 필요'],
+  ['미국 시세','미국 시세 공급자',level(!!r.providers.us),r.providers.us?'설정됨':'설정 필요']];
+ if(q)items.push(['가격 저장','가격 저장',{ok:'ok',idle:'ok',degraded:'warn'}[q.state]||'bad',
+  {ok:'정상',idle:'대기 · 최근 요청 종목 없음',degraded:'일부 수집 실패',unavailable:'확인 불가'}[q.state]||q.state]);
+ return items;
+}
+function adminMarketRows(r){
+ return [['한국',r.kr_market],['미국',r.us_market]].filter(([,m])=>m).map(([name,m])=>{
   const row=node('div',null,'admin-market-row'),st=m.stream||{};
   // Same rule as the market dots in the header: open, and not flagged untradable.
   const canTrade=marketIsOpen(m)&&m.tradable!==false;
@@ -531,22 +561,28 @@ function renderAdminStatus(r){
   row.append(node('strong',name),line,node('small',`스트림 ${st.healthy?'정상':st.state||'—'} · 마지막 체결 ${age} · 구독 ${(st.subscribed||[]).length}종목 · 가격 ${m.price_mode||'—'}`));
   return row;
  });
- const box=$('adminMarket');box.replaceChildren(...rows);
+}
+function renderAdminStatus(r){
+ const services=adminServices(r);
+ $('adminHealth').replaceChildren(...services.map(([label,,state])=>{const li=node('li',label);if(state!=='ok')li.className=state;li.title=ADMIN_STATE_KO[state];return li;}));
+ $('adminServices').replaceChildren(...services.flatMap(([,name,state,detail])=>{const dd=node('dd');dd.append(node('span',ADMIN_STATE_KO[state],'admin-state '+state),node('small',detail));return [node('dt',name),dd];}));
+ $('adminDashMarket').replaceChildren(...adminMarketRows(r));
+ const box=$('adminMarket');box.replaceChildren(...adminMarketRows(r));
  if(r.quotes){const q=r.quotes;box.append(node('p',`가격 저장 ${q.state} · 요청 ${q.requested??'—'} · 보존 ${q.available??'—'} · 실패 ${q.failed??'—'}${q.last_saved?' · 마지막 수집 '+new Date(q.last_saved*1000).toLocaleTimeString('ko-KR'):''}`,'admin-quotes'));}
  const raw=node('details',null,'admin-raw');raw.append(node('summary','진단 원문'),node('pre',[adminMarketText('KR',r.kr_market),adminMarketText('US',r.us_market),r.us_market?`Queued: ${r.us_market.stream.queued.join(' ')||'—'} · Reconnects: ${r.us_market.stream.reconnects}${r.us_market.stream.last_error?' · Last error: '+r.us_market.stream.last_error:''}`:''].filter(Boolean).join('\n\n')));
  box.append(raw);
  const pct=b=>`${Number(b)/100}%`,f=r.fees;
  $('adminFees').replaceChildren(...[['미국 매수 / 매도',`${pct(f.US_BUY_FEE_BPS)} / ${pct(f.US_SELL_FEE_BPS)}`],['국내 매수 / 매도',`${pct(f.KR_BUY_FEE_BPS)} / ${pct(f.KR_SELL_FEE_BPS)}`],['국내 매도 세금',pct(f.KR_SELL_TAX_BPS)],['환전 수수료 + 스프레드',`${pct(f.FX_FEE_BPS)} + ${pct(f.FX_SPREAD_BPS)}`]].flatMap(([k,v])=>[node('dt',k),node('dd',v)]));
- $('initialAmount').value=r.initial_usd;
+ if(document.activeElement!==$('initialAmount'))$('initialAmount').value=r.initial_usd;
 }
 // Today's daily performance record, from the snapshot collector.
 async function renderAdminSnapshots(){
- const box=$('adminSnapshots');
+ const boxes=[$('adminSnapshots'),$('adminDashSnapshot')];
  try{
   const s=await api('admin/performance-snapshots'),run=s.today_run;
   const outcome={complete:'완료',partial:'일부 실패',missed:'놓침',running:'진행 중'}[run?.outcome]||run?.outcome||'대기';
-  box.replaceChildren(node('span','일별 성과 기록 '),node('strong',outcome),node('span',run?` · ${run.succeeded??0}/${run.eligible??0}개 계좌`:` · ${new Date(s.scheduled_for).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})} 예정`),node('span',s.last_snapshot_at?` · 마지막 ${new Date(s.last_snapshot_at).toLocaleString('ko-KR')}`:''));
- }catch(e){box.textContent='일별 성과 기록 상태를 불러오지 못했습니다.';}
+  for(const box of boxes)box.replaceChildren(node('span','일별 성과 기록 '),node('strong',outcome),node('span',run?` · ${run.succeeded??0}/${run.eligible??0}개 계좌`:` · ${new Date(s.scheduled_for).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})} 예정`),node('span',s.last_snapshot_at?` · 마지막 ${new Date(s.last_snapshot_at).toLocaleString('ko-KR')}`:''));
+ }catch(e){for(const box of boxes)box.textContent='일별 성과 기록 상태를 불러오지 못했습니다.';}
 }
 function renderAdminOverview(r){
  $('adminOverview').replaceChildren();
@@ -561,6 +597,10 @@ const adminUserSorts={
   'name-asc':(a,b)=>a.username.localeCompare(b.username,'ko'),
   'name-desc':(a,b)=>b.username.localeCompare(a.username,'ko'),
   'status':(a,b)=>Number(a.active)-Number(b.active)||a.username.localeCompare(b.username,'ko')};
+function selectAdminUser(id){
+ adminSelectedId=id;renderAdminSelected();
+ $('adminSearchResults').querySelectorAll('.admin-result').forEach(x=>x.setAttribute('aria-selected',String(Number(x.dataset.id)===id)));
+}
 function renderAdminUsers(){
  const rows=[...adminUsers].sort(adminUserSorts[$('adminUserSort').value]||adminUserSorts['joined-desc']);
  const pages=Math.max(1,Math.ceil(rows.length/ADMIN_USERS_PER_PAGE));adminUserPage=Math.min(Math.max(1,adminUserPage),pages);
@@ -569,8 +609,10 @@ function renderAdminUsers(){
  $('adminUsers').replaceChildren();
  for(const u of rows.slice(start,start+ADMIN_USERS_PER_PAGE)){
   const row=node('div',null,'watch-row admin-user-row'),status=node('button',u.active?'계정 정지':'계정 활성화','secondary');
-  const who=node('div',null,'admin-user-who');
+  // The name picks the account as the target of the actions above.
+  const who=node('button',null,'admin-user-who');who.type='button';who.title='대상 사용자로 선택';
   who.append(node('strong',`${adminLabel(u)} · ${u.admin?'관리자':'일반'} · ${u.active?'활성':'정지'}`),node('small',u.created_at?new Date(u.created_at).toLocaleDateString('ko-KR',{timeZone:'Asia/Seoul'})+' 가입':'가입일 정보 없음','field-help'));
+  who.addEventListener('click',()=>{selectAdminUser(u.id);$('adminManage').scrollIntoView({behavior:'smooth',block:'start'});});
   row.append(who,node('span',nativeMoney(u.wallets.USD,'USD')+' / '+nativeMoney(u.wallets.KRW,'KRW')),status);
   status.addEventListener('click',async()=>{try{await api(`admin/users/${u.id}/active`,{active:!u.active});await admin();}catch(e){toast(e.message,'error');}});
   $('adminUsers').append(row);
@@ -587,30 +629,62 @@ $('adminUserSort').addEventListener('change',()=>{adminUserPage=1;renderAdminUse
 // Audit action codes as the admin reads them.
 const ADMIN_ACTIONS={grant:'지원금 지급',bulk_grant:'전체 지원금',rebase:'기준 재설정',clear:'계정 초기화',delete:'계정 삭제',account_delete:'계정 삭제',
   account_status:'계정 정지/활성화',password_reset:'비밀번호 초기화',initial_amount:'초기 지급액 변경',season_reset:'시즌 초기화',notice_post:'공지 등록',notice_clear:'공지 내리기'};
-async function admin(){
- const r=await api('admin');adminUsers=r.users;
- renderAdminStatus(r);
- noticeTemplates=r.notice_templates||noticeTemplates;renderNoticeAdmin(r.notices||[]);
- renderAdminOverview(r);
- renderAdminUsers();
- renderAdminSnapshots();
- if(adminSelectedId!==null&&!adminSelected())adminSelectedId=null;
- await searchAdminUsers();renderAdminSelected();
+// The dashboard shows the newest few; the audit page shows all the server keeps listing (100).
+async function renderAdminAudit(limit){
  const rows=await api('admin/audit');
- table($('adminAudit'),['시각','운영자','대상','작업','사유'],rows.map(r=>[new Date(r.created_at).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}),r.actor||'삭제된 계정',r.target||'삭제된 계정',ADMIN_ACTIONS[r.action]||r.action,r.reason]));
+ table(limit?$('adminRecentAudit'):$('adminAudit'),['시각','운영자','대상','작업','사유'],(limit?rows.slice(0,limit):rows).map(r=>[new Date(r.created_at).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}),r.actor||'삭제된 계정',r.target||'삭제된 계정',ADMIN_ACTIONS[r.action]||r.action,r.reason]));
+}
+// What an archive kept: cash before the reset and how many records of each kind.
+const ARCHIVE_PARTS={positions:'보유 종목',transactions:'거래',fx_transactions:'환전',limit_orders:'예약 주문',watchlists:'관심종목',dividend_payments:'배당',split_applications:'분할',wallet_transfers:'송금',weekly_rows:'주간 순위',popularity_events:'조회 기록'};
+function archiveSummary(data){
+ const w=data?.wallets,cash=w?`현금 ${nativeMoney(w.USD??0,'USD')} / ${nativeMoney(w.KRW??0,'KRW')}`:'';
+ const parts=Object.entries(ARCHIVE_PARTS).filter(([k])=>Array.isArray(data?.[k])&&data[k].length).map(([k,label])=>`${label} ${data[k].length}`);
+ return [cash,...parts].filter(Boolean).join(' · ')||'보관한 기록 없음';
+}
+async function renderAdminArchives(){
+ const rows=await api('admin/archives');
+ table($('adminArchives'),['시각','대상','구분','보관 내용','원문'],rows.map(a=>{
+  // The JSON can be long: it is built only when the row is opened.
+  const raw=node('details',null,'admin-raw'),pre=node('pre');raw.append(node('summary','보기'),pre);
+  raw.addEventListener('toggle',()=>{if(raw.open&&!pre.textContent)pre.textContent=JSON.stringify(a.data,null,2);});
+  return [new Date(a.created_at).toLocaleString('ko-KR',{year:'numeric',month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}),a.username||'삭제된 계정',a.label,archiveSummary(a.data),raw];
+ }));
+}
+async function admin(){
+ const section=adminSection()||'dashboard',[title,lead]=ADMIN_SECTIONS[section];
+ document.querySelectorAll('[data-admin-section]').forEach(el=>el.hidden=!el.dataset.adminSection.split(' ').includes(section));
+ document.querySelector('.admin-shell').dataset.section=section;
+ document.querySelectorAll('[data-admin-link]').forEach(a=>a.setAttribute('aria-current',a.dataset.adminLink===section?'page':'false'));
+ // On a phone the menu is a sideways row: keep the current page's pill in view.
+ const current=document.querySelector('#adminMenu [aria-current="page"]'),menu=$('adminMenu');
+ if(menu.scrollWidth>menu.clientWidth)menu.scrollLeft=current.offsetLeft-(menu.clientWidth-current.offsetWidth)/2;
+ $('adminTitle').textContent=title;$('adminLead').textContent=lead;
+ document.title=`${title} · 관리자 · ${document.querySelector('.brand-logo').alt}`;
+ const r=await api('admin');adminUsers=r.users;
+ renderAdminStatus(r);renderAdminOverview(r);
+ noticeTemplates=r.notice_templates||noticeTemplates;renderNoticeAdmin(r.notices||[]);
+ renderAdminUsers();
+ if(adminSelectedId!==null&&!adminSelected())adminSelectedId=null;
+ renderAdminSelected();
+ const work=[];
+ if(section==='dashboard'||section==='system')work.push(renderAdminSnapshots());
+ if(section==='users'||section==='accounts')work.push(searchAdminUsers());
+ if(section==='dashboard'||section==='audit')work.push(renderAdminAudit(section==='dashboard'?6:0));
+ if(section==='audit')work.push(renderAdminArchives());
+ await Promise.all(work);
 }
 // Searches the server by ID or administrator memo.
 async function searchAdminUsers(){
  const version=++adminSearchVersion,q=$('adminTargetSearch').value.trim();
  const rows=await api('admin/users/search?'+new URLSearchParams({q}));if(version!==adminSearchVersion)return;
  const target=$('adminSearchResults');target.replaceChildren();
- for(const u of rows){const b=node('button',null,'admin-result');b.type='button';b.setAttribute('role','option');b.setAttribute('aria-selected',String(u.id===adminSelectedId));b.append(node('strong',u.username),node('span',u.note||'메모 없음','admin-result-note'),node('span',`${u.admin?'관리자':'일반'} · ${u.active?'활성':'정지'}`,'admin-result-meta'));b.addEventListener('click',()=>{adminSelectedId=u.id;renderAdminSelected();target.querySelectorAll('.admin-result').forEach(x=>x.setAttribute('aria-selected',String(x===b)));});target.append(b);}
+ for(const u of rows){const b=node('button',null,'admin-result');b.type='button';b.dataset.id=u.id;b.setAttribute('role','option');b.setAttribute('aria-selected',String(u.id===adminSelectedId));b.append(node('strong',u.username),node('span',u.note||'메모 없음','admin-result-note'),node('span',`${u.admin?'관리자':'일반'} · ${u.active?'활성':'정지'}`,'admin-result-meta'));b.addEventListener('click',()=>selectAdminUser(u.id));target.append(b);}
  if(!rows.length)target.append(node('p',q?'검색 결과가 없습니다. 아이디나 메모의 일부로 검색하세요.':'사용자가 없습니다.','field-help'));
 }
 $('adminTargetSearch').addEventListener('input',()=>{clearTimeout(adminSearchTimer);adminSearchTimer=setTimeout(()=>searchAdminUsers().catch(e=>toast(e.message,'error')),200);});
 let adminPasswordShownFor=null;
 function renderAdminSelected(){
- const u=adminSelected();$('adminSelected').hidden=!u;
+ const u=adminSelected();$('adminSelected').hidden=!u;$('adminPickHint').hidden=!!u;
  // A temporary password is shown only next to the account it was issued for.
  if(!u||adminPasswordShownFor!==u.id){$('adminPasswordResult').hidden=true;$('adminTempPassword').textContent='';}
  adminPasswordShownFor=u?.id??null;if(!u)return;
@@ -619,6 +693,8 @@ function renderAdminSelected(){
  $('adminNote').value=u.note||'';
  const self=u.username===window.sessionUsername;
  document.querySelector('[data-admin-action="delete"]').disabled=self;$('adminPasswordReset').disabled=self;
+ $('adminStatusToggle').textContent=u.active?'계정 정지':'계정 활성화';$('adminStatusToggle').disabled=self;
+ $('adminStatusHelp').textContent=self?'현재 로그인한 관리자 계정은 정지할 수 없습니다.':u.active?'정지하면 로그인해도 서비스를 이용할 수 없고, 랭킹과 일괄 지급에서 빠집니다.':'정지된 계정입니다. 활성화하면 다시 이용할 수 있습니다.';
 }
 handle('adminNoteForm','submit',async()=>{const u=adminSelected();if(!u)return;const r=await api(`admin/users/${u.id}/note`,{note:$('adminNote').value});toast(r.note?`${u.username} 메모를 저장했습니다.`:`${u.username} 메모를 지웠습니다.`,'success');await admin();});
 async function runAdminAction(action,extra={}){
@@ -632,13 +708,18 @@ async function runAdminAction(action,extra={}){
   if(action==='delete')adminSelectedId=null;await admin();
  }catch(e){toast(e.message,'error',7000);throw e;}finally{buttons.forEach(b=>b.disabled=false);renderAdminSelected();}
 }
+$('adminStatusToggle').addEventListener('click',async()=>{
+ const u=adminSelected();if(!u)return;
+ $('adminStatusToggle').disabled=true;
+ try{await api(`admin/users/${u.id}/active`,{active:!u.active});const done=u.active?'계정을 정지했습니다.':'계정을 활성화했습니다.';$('adminResult').textContent=`${u.username}: ${done}`;toast(`${u.username}: ${done}`,'success');await admin();}
+ catch(e){toast(e.message,'error',7000);}finally{renderAdminSelected();}
+});
 $('adminPasswordReset').addEventListener('click',async()=>{
  const u=adminSelected();if(!u)return;
  if(!confirm(`${u.username}의 비밀번호를 초기화할까요?\n임시 비밀번호가 발급되고 이 사용자의 모든 기기가 로그아웃됩니다.`))return;
  $('adminPasswordReset').disabled=true;
  try{const r=await api(`admin/users/${u.id}/password`,{});$('adminTempPassword').textContent=r.temporary_password;$('adminPasswordResult').hidden=false;
   toast(`${u.username}: 임시 비밀번호를 발급했습니다.`,'success');
-  const rows=await api('admin/audit');table($('adminAudit'),['시각','운영자','대상','작업','사유'],rows.map(r=>[new Date(r.created_at).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}),r.actor||'삭제된 계정',r.target||'삭제된 계정',ADMIN_ACTIONS[r.action]||r.action,r.reason]));
  }catch(e){toast(e.message,'error',7000);}finally{$('adminPasswordReset').disabled=false;renderAdminSelected();}
 });
 $('adminTempCopy').addEventListener('click',async()=>{try{await navigator.clipboard.writeText($('adminTempPassword').textContent);toast('복사했습니다.','success');}catch{toast('복사하지 못했습니다. 직접 선택해 복사하세요.','error');}});
@@ -656,6 +737,7 @@ function renderNoticeAdmin(notices){
   remove.addEventListener('click',async()=>{remove.disabled=true;try{const r=await api(`admin/notice/${n.id}/clear`,{});renderNoticeAdmin(r.notices);toast(`공지를 내렸습니다.\n${n.title}`,'success');}catch(err){remove.disabled=false;toast(err.message,'error');}});
   li.append(text,remove);return li;
  }));
+ $('adminDashNotices').replaceChildren(...(notices.length?notices.map(n=>{const li=node('li');li.append(node('span',n.label,'notice-item-kind'),node('strong',n.title),node('small',new Date(n.posted_at).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}),'field-help'));return li;}):[node('li','게시 중인 공지가 없습니다.','field-help')]));
  if(noticeKindShown===null)fillNoticeTemplate();
 }
 function fillNoticeTemplate(){
@@ -675,8 +757,11 @@ $('noticeForm').addEventListener('submit',async e=>{
 });
 handle('noticeClear','click',async()=>{$('noticeClear').disabled=true;try{await api('admin/notice/clear',{});renderNoticeAdmin([]);toast('모든 공지를 내렸습니다.','success');}catch(err){$('noticeClear').disabled=false;throw err;}});
 let adminBulkPending=null;
-handle('adminBulkForm','submit',async()=>{const body={action:'grant',currency:$('adminBulkCurrency').value,amount:$('adminBulkAmount').value,reason:$('adminReason').value.trim()},sig=JSON.stringify(body);adminBulkPending=reuseRequestId(adminBulkPending,sig);const r=await api('admin/users/manage-all',{...body,request_id:adminBulkPending.id});adminBulkPending=null;$('adminResult').textContent=`${r.count}명에게 지원금을 지급했습니다.`;toast(`${r.count}명에게 지원금을 지급했습니다.`,'success');await admin();});
-handle('initialForm','submit',async()=>{await api('admin/initial',{amount:$('initialAmount').value});message('이후 생성/초기화되는 계좌의 지급액을 저장했습니다.');});
+handle('adminBulkForm','submit',async()=>{
+ const body={action:'grant',currency:$('adminBulkCurrency').value,amount:$('adminBulkAmount').value,reason:$('adminBulkReason').value.trim()},sig=JSON.stringify(body);
+ adminBulkPending=reuseRequestId(adminBulkPending,sig);const r=await api('admin/users/manage-all',{...body,request_id:adminBulkPending.id});adminBulkPending=null;
+ $('adminBulkResult').textContent=`${r.count}명에게 지원금을 지급했습니다.`;toast(`${r.count}명에게 지원금을 지급했습니다.`,'success');$('adminBulkReason').value='';await admin();});
+handle('initialForm','submit',async()=>{await api('admin/initial',{amount:$('initialAmount').value});toast('이후 생성/초기화되는 계좌의 지급액을 저장했습니다.','success');});
 syncCurrency();routePage();
 
 // Reservation orders (예약 주문). The worker checks pending ones about once a minute

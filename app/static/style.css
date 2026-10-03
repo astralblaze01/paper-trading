@@ -1,7 +1,7 @@
 /* ALPHARENA — 트레이딩 데스크 stylesheet.
    Every color, font, radius and shadow is a token in :root below; components only reference tokens.
    Layout: 1 tokens · 2 base elements · 3 shell (header, main, footer) · 4 shared components ·
-   5 pages (auth, explore, detail + order, portfolio, ranking, history, fx, admin) · 6 overlays. */
+   5 pages (auth, explore, detail + order, portfolio, ranking, history, fx, admin with 7 sections) · 6 overlays. */
 
 /* ============================================================
    1. Tokens
@@ -987,10 +987,42 @@ footer { max-width: 1680px; margin: 0 auto; padding: 8px 32px 28px; display: fle
 #fxEstimate:empty { display: none; }
 @media (max-width: 1000px) { .fx-page { grid-template-columns: 1fr; } }
 
-/* ---- Administrator: a dashboard. Health and totals on top; the work (users, audit) on the
-   left; notices, market status and settings in a narrower column on the right. ---- */
+/* ---- Administrator: seven pages (/admin, /admin/users, ...). A menu on the left, on a phone
+   a row of pills that scrolls sideways; the page title and service health on top. ---- */
+.admin-shell:not([hidden]) { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 28px; align-items: start; }
+.admin-menu { position: sticky; top: 84px; display: grid; gap: 2px; }
+.admin-menu a { display: block; padding: 9px 12px; border-radius: var(--radius-control); color: var(--muted); text-decoration: none; font-size: var(--fs-md); font-weight: 500; white-space: nowrap; }
+.admin-menu a:hover { color: var(--ink); background: var(--surface-2); }
+.admin-menu a[aria-current="page"] { color: var(--accent); background: var(--surface); font-weight: 700; box-shadow: inset 3px 0 0 var(--accent); }
+.admin-main { min-width: 0; }
+@media (max-width: 1000px) {
+  .admin-shell:not([hidden]) { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .admin-menu { position: relative; top: auto; display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
+  .admin-menu a { flex-shrink: 0; padding: 7px 13px; border: 1px solid var(--border-strong); border-radius: var(--radius-pill); background: var(--surface); font-size: var(--fs-sm); }
+  .admin-menu a[aria-current="page"] { box-shadow: none; border-color: var(--accent); background: var(--accent-fill); color: var(--on-accent); }
+}
 .admin-top { display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 12px 24px; margin-bottom: 16px; }
 .admin-top h1 { margin: 0; }
+.admin-lead { margin: 4px 0 0; color: var(--muted); font-size: var(--fs-sm); }
+.admin-more { font-size: var(--fs-sm); color: var(--accent); text-decoration: none; white-space: nowrap; }
+.admin-more:hover { text-decoration: underline; }
+.admin-split:not([hidden]) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; align-items: start; }
+.admin-split > .panel, .admin-stack > .panel, .admin-grid > .panel { margin: 0; }
+.admin-stack:not([hidden]) { display: grid; gap: 20px; }
+@media (max-width: 1000px) { .admin-split:not([hidden]) { grid-template-columns: minmax(0, 1fr); } }
+/* Users: the list gets the wider column; accounts: the action cards do. */
+@media (min-width: 1001px) {
+  .admin-shell[data-section="users"] .admin-split:not([hidden]) { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); }
+  .admin-shell[data-section="accounts"] .admin-split:not([hidden]) { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); }
+}
+.admin-services { display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr); gap: 12px 16px; margin: 0; font-size: var(--fs-sm); }
+.admin-services dt { color: var(--muted); }
+.admin-services dd { margin: 0; display: grid; gap: 2px; }
+.admin-services dd small { color: var(--muted); font-size: var(--fs-xs); }
+.admin-dash-notices { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.admin-dash-notices li { display: grid; gap: 2px; min-width: 0; }
+.admin-dash-notices strong { overflow-wrap: anywhere; font-weight: 600; }
+.admin-dash-notices small { margin: 0; }
 .admin-health { list-style: none; display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; }
 .admin-health li { display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px; border: 1px solid var(--card-line); border-radius: var(--radius-pill); background: var(--surface); font-size: var(--fs-sm); color: var(--ink); }
 .admin-health li::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--up); }
@@ -1012,6 +1044,7 @@ footer { max-width: 1680px; margin: 0 auto; padding: 8px 32px 28px; display: fle
 .admin-state::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
 .admin-state.ok::before { background: var(--up); }
 .admin-state.bad::before { background: var(--danger); }
+.admin-state.warn::before { background: var(--warn-line); }
 .admin-quotes, .admin-snapshots { margin-top: 10px; font-size: var(--fs-sm); color: var(--muted); }
 .admin-snapshots strong { color: var(--ink); font-weight: 600; }
 .admin-raw { margin-top: 10px; }
@@ -1022,11 +1055,13 @@ footer { max-width: 1680px; margin: 0 auto; padding: 8px 32px 28px; display: fle
 .admin-fees { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 6px 12px; margin: 0 0 16px; font-size: var(--fs-sm); }
 .admin-fees dt { color: var(--muted); }
 .admin-fees dd { margin: 0; text-align: right; font-family: var(--font-num); color: var(--ink); }
-.admin-setting { padding-top: 14px; border-top: 1px solid var(--border); margin-top: 14px; }
-.admin-setting label { font-size: var(--fs-sm); }
+.admin-setting label, .admin-bulk label { font-size: var(--fs-sm); }
+.admin-setting .field-help, .admin-bulk .field-help { margin: 0 0 12px; }
 .admin-setting .symbol-row button { width: auto; }
 .admin-bulk .admin-grant-fields { margin-bottom: 8px; }
-.admin-bulk button { width: 100%; }
+.admin-bulk button { width: 100%; margin-top: 12px; }
+.admin-done:empty { display: none; }
+.admin-done { margin: 14px 0 0; font-size: var(--fs-sm); color: var(--success); }
 
 /* Notices. */
 .admin-notice-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
@@ -1059,7 +1094,7 @@ footer { max-width: 1680px; margin: 0 auto; padding: 8px 32px 28px; display: fle
 .admin-selected-head .field-help { margin-top: 2px; }
 .admin-note { margin: 4px 0 18px; }
 .admin-note label .unit { font-weight: 400; margin-left: 6px; }
-.admin-actions { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; margin: 16px 0 0; }
+.admin-actions { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 230px), 1fr)); gap: 12px; margin: 16px 0 0; }
 .admin-action { display: flex; flex-direction: column; gap: 8px; padding: 16px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-card); }
 .admin-action h4 { margin: 0; font-size: var(--fs-md); }
 .admin-action .field-help { margin: 0; flex: 1; }
@@ -1073,11 +1108,20 @@ footer { max-width: 1680px; margin: 0 auto; padding: 8px 32px 28px; display: fle
 .admin-user-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; margin: 0 0 10px; }
 .admin-user-tools label { display: inline-flex; align-items: center; gap: 8px; margin: 0; }
 .admin-user-tools select { width: auto; height: 38px; }
-.admin-user-who { display: grid; gap: 2px; min-width: 0; }
+/* Name, cash, status button on one line; on a phone the name takes its own line. */
+.admin-user-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px 16px; }
+.admin-user-row > button.secondary { width: auto; }
+@media (max-width: 600px) { .admin-user-row { grid-template-columns: minmax(0, 1fr) auto; } .admin-user-row .admin-user-who { grid-column: 1 / -1; } }
+.admin-user-who { display: grid; gap: 2px; min-width: 0; width: auto; padding: 0; border: 0; background: transparent; color: var(--ink); text-align: left; font-weight: 400; white-space: normal; cursor: pointer; }
+.admin-user-who:hover { background: transparent; }
+.admin-user-who:hover strong { color: var(--accent); text-decoration: underline; }
 .admin-user-who small { margin: 0; }
 .admin-audit { max-height: 420px; overflow-y: auto; }
-.admin-audit td:last-child, .admin-audit th:last-child { white-space: normal; text-align: left; min-width: 160px; }
-.admin-audit td:nth-child(4), .admin-audit th:nth-child(4) { text-align: left; }
+.admin-audit th, .admin-audit td { text-align: left; font-family: var(--font-sans); }
+.admin-audit td:last-child, .admin-audit th:last-child { white-space: normal; min-width: 160px; }
+#adminAudit, #adminArchives { max-height: 640px; }
+.admin-audit .admin-raw { margin: 0; }
+.admin-audit .admin-raw pre { max-height: 320px; overflow: auto; text-align: left; }
 @media (max-width: 600px) {
   .admin-actions { grid-template-columns: 1fr; }
   .admin-result { grid-template-columns: 1fr; }
