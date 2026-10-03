@@ -183,7 +183,7 @@ with sync_playwright() as p:
         expect(page.locator('#toasts')).to_contain_text('관심종목')
         expect(page.locator('#companyInfo')).to_contain_text('배당률')
         # Trade desk: watchlist | stock (chart, indicators) | order ticket. Phones: stock, then the ticket,
-        # with 매도 / 매수 fixed above the tab bar.
+        # with 매수 / 매도 fixed above the tab bar.
         chart_box,order_box,company_box=(page.locator(s).bounding_box() for s in ('.chart-panel','.order-panel','.company-panel'))
         assert abs(company_box['x']-chart_box['x'])<2, (chart_box,company_box)
         if width>=1300:
@@ -195,6 +195,10 @@ with sync_playwright() as p:
         else:
             assert order_box['y']>chart_box['y'], (chart_box,order_box)
             expect(page.locator('.mobile-trade-bar')).to_be_visible()
+            # Same order as the desktop side toggle: 매수 on the left, 매도 on the right.
+            expect(page.locator('.mobile-trade-bar button')).to_have_text(['매수','매도'])
+            buy_box,sell_box=(page.locator(f'.mobile-trade-bar [data-mobile-side="{s}"]').bounding_box() for s in ('buy','sell'))
+            assert buy_box['x']<sell_box['x'], (buy_box,sell_box)
         page.screenshot(path=f'/artifacts/detail-{width}.png',full_page=True)
         page.evaluate("location.hash='#watchlist'")
         expect(page.locator('#watchRows .watch-name')).to_contain_text('애플')

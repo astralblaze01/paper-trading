@@ -615,7 +615,7 @@ footer { max-width: 1680px; margin: 0 auto; padding: 8px 32px 28px; display: fle
 
 /* ---- 트레이드: a three-column desk. Watchlist and wallets on the left, the stock in the
    middle, the order ticket on the right. Laptops drop the sidebar; phones stack it all
-   and keep 매도 / 매수 at the bottom of the screen. ---- */
+   and keep 매수 / 매도 at the bottom of the screen. ---- */
 .trade-desk { display: grid; grid-template-columns: 272px minmax(0,1fr) 360px; grid-template-areas: "side main order"; gap: 20px; align-items: start; }
 .trade-desk > .desk-side { grid-area: side; }
 .trade-desk > .chart-panel { grid-area: main; min-width: 0; }
