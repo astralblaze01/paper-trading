@@ -153,7 +153,10 @@ def season_reset(actor,target,label,q):
         drop_from_baseline(db,target)
 
 def list_archives():
-    with Session() as db: return [{'id':a.id,'user_id':a.user_id,'label':a.label,'data':a.data,'created_at':a.created_at} for a in db.scalars(select(SeasonArchive).order_by(SeasonArchive.id.desc()).limit(100))]
+    """Newest 100 archives. username is the account's current name, None once it is deleted."""
+    with Session() as db:
+        names=dict(db.execute(select(User.id,User.username)).all())
+        return [{'id':a.id,'user_id':a.user_id,'label':a.label,'data':a.data,'created_at':a.created_at,'username':names.get(a.user_id)} for a in db.scalars(select(SeasonArchive).order_by(SeasonArchive.id.desc()).limit(100))]
 
 def install_admin_ops(app,ctx,admin,csrf):
     @app.get('/api/admin/audit')

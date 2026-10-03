@@ -274,6 +274,18 @@ def _page(name, request, path, title):
 @app.get('/')
 def index(request: Request): return _page('index.html', request, '/', f'{BRAND_NAME} · 모의투자')
 
+# The administrator's pages are the same app page; the script picks the section from the
+# path, and every admin API still checks the account. Unknown sections are not pages.
+ADMIN_SECTIONS = ('users', 'accounts', 'notices', 'system', 'settings', 'audit')
+
+@app.get('/admin')
+def admin_page(request: Request): return _page('index.html', request, '/admin', f'관리자 · {BRAND_NAME}')
+
+@app.get('/admin/{section}')
+def admin_section_page(section: str, request: Request):
+    if section not in ADMIN_SECTIONS: raise HTTPException(404, '페이지가 없습니다.')
+    return _page('index.html', request, f'/admin/{section}', f'관리자 · {BRAND_NAME}')
+
 # Readable without an account, linked from every page footer and the sign-up form.
 @app.get('/privacy')
 def privacy_policy(request: Request): return _page('privacy.html', request, '/privacy', f'개인정보 처리방침 · {BRAND_NAME}')
