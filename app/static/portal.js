@@ -56,7 +56,7 @@ window.routePage = async function() {
     if(selected==='detail' && segment)await openDetailPage(segment);
     if(selected==='fx'){await Promise.all([fxHistory(),loadFxRate()]);}
     if(selected==='watchlist')await watchlist();
-    if(selected==='history')await history();
+    if(selected==='history')await loadHistory();
     if(selected==='ranking')await refreshRankingOnly();
     if(selected==='admin')await admin();
     if(selected==='portfolio'){window.loadMyPerformance?.();loadFees().catch(e=>{$('feeRates').textContent=e.message;});loadDividends().catch(e=>{$('dividendNote').textContent=e.message;});if(window.loadMyProfile)await loadMyProfile();}

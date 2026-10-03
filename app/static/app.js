@@ -335,7 +335,7 @@ async function refresh() {
   applyPortfolio(p);
   if(p.positions.some(x=>x.value==null))retryMissingPrices(reloadPortfolioPrices);
   if (p.errors.length) message(p.errors.join('\n')); else if (p.stale) message('마지막 제공 시세 기준 평가입니다. 지연 시세 종목은 거래가 제한됩니다.');
-  await history(); if(window.loadLimits)await loadLimits(); await weekly(); const r = await api('ranking');
+  await loadHistory(); if(window.loadLimits)await loadLimits(); await weekly(); const r = await api('ranking');
   rankingCache=r;renderRanking(); rankingBucketSeen=seoulTenSecondKey();
   if (r.incomplete) message('시세를 조회할 수 없어 전체 랭킹을 잠시 표시하지 않습니다.');
 }
@@ -346,7 +346,7 @@ async function refreshRankingOnly(){
 }
 // History filters: side (all/buy/sell) and a Korea-time month; both are applied by the server.
 let historySide='',historyMonth='';
-async function history() {
+async function loadHistory() {
   const query=new URLSearchParams({page});if(historySide)query.set('side',historySide);if(historyMonth)query.set('month',historyMonth);
   const [rows,summary]=await Promise.all([api('transactions?'+query),api('transactions/summary'+(historyMonth?'?month='+historyMonth:'')),loadHistoryMonths()]);
   historyCache=rows;renderHistory();renderHistorySummary(summary);
@@ -409,7 +409,6 @@ function handle(id, event, fn) { $(id).addEventListener(event, async e => { e.pr
 // Signed-out pages: the start page logs in; #signup is the separate registration page.
 function showAuthView(){const signup=location.hash==='#signup';$('authForm').hidden=signup;$('registerForm').hidden=!signup;$('registerError').textContent='';(signup?$('registerUsername'):$('username')).focus({preventScroll:true});}
 window.addEventListener('hashchange',()=>{if(!window.sessionUsername)showAuthView();});
-// Note: the global history() below (transaction list) shadows window.history, so only the hash is used.
 $('showLogin').addEventListener('click',e=>{e.preventDefault();location.hash='';showAuthView();});
 handle('authForm', 'submit', async () => { $('loginSubmit').disabled=true; try { await api('login', {username: $('username').value, password: $('password').value}); } catch (err) { toast(`로그인하지 못했습니다.\n${err.message}`, 'error', 7000); return; } finally { $('loginSubmit').disabled=false; } $('password').value = ''; message(''); if(location.hash==='#signup')location.hash=''; await boot(); window.scrollTo(0,0); });
 function registerProblem(){
@@ -469,14 +468,14 @@ async function submitReservation() {
   } catch (err) { toast(`예약 ${sideName}를 등록하지 못했습니다.\n${err.message}`, 'error', 7000); }
   finally { $('submitOrder').disabled = false; }
 }
-handle('previous', 'click', async () => { page = Math.max(1, page - 1); await history(); });
-handle('next', 'click', async () => { page++; await history(); });
+handle('previous', 'click', async () => { page = Math.max(1, page - 1); await loadHistory(); });
+handle('next', 'click', async () => { page++; await loadHistory(); });
 document.querySelectorAll('#historySide button').forEach(b=>b.addEventListener('click',async()=>{
   historySide=b.dataset.side;page=1;
   document.querySelectorAll('#historySide button').forEach(x=>x.setAttribute('aria-pressed',String(x===b)));
-  try{await history();}catch(e){message(e.message);}
+  try{await loadHistory();}catch(e){message(e.message);}
 }));
-$('historyMonth').addEventListener('change',async e=>{historyMonth=e.target.value;page=1;try{await history();}catch(err){message(err.message);}});
+$('historyMonth').addEventListener('change',async e=>{historyMonth=e.target.value;page=1;try{await loadHistory();}catch(err){message(err.message);}});
 const reportDate = value => new Date(value).toLocaleString('ko-KR', {timeZone: 'Asia/Seoul', year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'});
 async function weekly() {
   weeklyCache = await api('weekly?page=' + weeklyPage);renderWeekly();
