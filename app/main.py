@@ -261,7 +261,7 @@ def share_meta(request, path, title):
     origin = site_url(request)
     tags = [('name', 'description', SHARE_DESCRIPTION), ('property', 'og:type', 'website'), ('property', 'og:site_name', BRAND_NAME),
             ('property', 'og:locale', 'ko_KR'), ('property', 'og:title', title), ('property', 'og:description', SHARE_DESCRIPTION),
-            ('property', 'og:url', origin + path), ('property', 'og:image', origin + '/static/brand/og.png?v=' + _asset_version('brand/og.png', 0)),  # messengers cache previews by image URL
+            ('property', 'og:url', origin + path), ('property', 'og:image', origin + '/static/brand/og.jpg?v=' + _asset_version('brand/og.jpg', 0)),  # messengers cache previews by image URL
             ('property', 'og:image:width', '1200'), ('property', 'og:image:height', '630'),
             ('property', 'og:image:alt', f'{BRAND_NAME} 모의투자'), ('name', 'twitter:card', 'summary_large_image')]
     return '\n  '.join(f'<meta {kind}="{key}" content="{escape(value)}">' for kind, key, value in tags)
