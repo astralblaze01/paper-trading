@@ -694,7 +694,10 @@ footer { max-width: 1344px; margin: 0 auto; padding: 16px 32px 28px; display: fl
   #exploreRows { overflow-x: visible; }
   #exploreRows .market-table, #exploreRows tbody { display: block; width: 100%; }
   #exploreRows thead { display: none; }
-  #exploreRows tbody tr { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; grid-template-areas: "name name name price" "turnover volume . change"; gap: 2px 12px; padding: 16px 0; border-bottom: 1px solid var(--border); }
+  /* Price over change on the right, as in brokerage apps; turnover and volume each get a
+     full-width line, so long figures never run into each other, the change or the price
+     (they did with four auto columns). */
+  #exploreRows tbody tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "name price" "name change" "turnover turnover" "volume volume"; gap: 2px 12px; padding: 16px 0; border-bottom: 1px solid var(--border); }
   #exploreRows tbody tr:hover td { background: transparent; }
   #exploreRows td { border: 0; padding: 0; width: auto; min-width: 0; white-space: normal; }
   #exploreRows td.stock-name { grid-area: name; display: grid; grid-template-columns: 36px minmax(0, 1fr); padding: 0; }
@@ -702,11 +705,11 @@ footer { max-width: 1344px; margin: 0 auto; padding: 16px 32px 28px; display: fl
   #exploreRows .stock-tools { display: flex; flex-direction: column; gap: 0; margin: 0; }
   #exploreRows .watch-toggle { min-height: 34px; }
   #exploreRows .mobile-rank { display: inline; color: var(--muted); font-size: var(--fs-xs); text-align: center; }
-  #exploreRows td.price-cell { grid-area: price; font-size: var(--fs-md); text-align: right; }
-  #exploreRows td.change-cell { grid-area: change; font-size: var(--fs-sm); text-align: right; }
+  #exploreRows td.price-cell { grid-area: price; font-size: var(--fs-md); text-align: right; white-space: nowrap; }
+  #exploreRows td.change-cell { grid-area: change; font-size: var(--fs-sm); text-align: right; white-space: nowrap; }
   #exploreRows .turnover-cell { grid-area: turnover; text-align: left; padding-left: 40px; }
-  #exploreRows .volume-cell { grid-area: volume; display: block; text-align: left; }
-  #exploreRows .turnover-cell, #exploreRows .volume-cell { font-size: var(--fs-xs); color: var(--muted); white-space: nowrap; }
+  #exploreRows .volume-cell { grid-area: volume; display: block; text-align: left; padding-left: 40px; }
+  #exploreRows .turnover-cell, #exploreRows .volume-cell { font-size: var(--fs-xs); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #exploreRows .turnover-cell::before { content: '거래대금 '; }
   #exploreRows .volume-cell::before { content: attr(data-label) ' '; }
   .market-table .market-cell, .market-table .rank-number { display: none; }

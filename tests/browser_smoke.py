@@ -110,6 +110,20 @@ with sync_playwright() as p:
         expect(page.locator('#exploreRows')).to_contain_text('억원')
         page.locator('[data-asset="kr"]').click()
         expect(page.locator('#exploreRows')).to_contain_text('삼성전자')
+        if width<900:
+            # Regression: on phones the second line put turnover, volume and change in four
+            # auto columns, so long real figures (a 4,145,527,462 volume) ran into each other.
+            long_row={'symbol':'KR:069500','name':'KODEX 200선물인버스2X 아주 긴 이름','price':'1234567','change_pct':'-104.37','volume':'4145527462','turnover':'288020000000000','market':'KR','currency':'KRW'}
+            page.route('**/api/explore?*',lambda route: route.fulfill(json={'rows':[long_row]*3,'scope':'테스트','notice':''}))
+            page.locator('[data-kind="shares"]').click(); page.locator('[data-kind="volume"]').click()
+            expect(page.locator('#exploreRows')).to_contain_text('4,145,527,462')
+            # The text, not the cell: with nowrap the figures overflowed cells that themselves fit.
+            clash=page.evaluate('''()=>[...document.querySelectorAll('#exploreRows tbody tr')].some(tr=>{const r=['.price-cell','.change-cell','.turnover-cell','.volume-cell'].map(s=>{const range=document.createRange();range.selectNodeContents(tr.querySelector(s));const box=range.getBoundingClientRect(),cell=tr.querySelector(s).getBoundingClientRect();
+                    // Text cut off with an ellipsis is drawn only inside its cell.
+                    return getComputedStyle(tr.querySelector(s)).textOverflow==='ellipsis'?{left:Math.max(box.left,cell.left),right:Math.min(box.right,cell.right),top:box.top,bottom:box.bottom}:box;});
+                return r.some((a,i)=>r.some((b,j)=>i<j&&Math.min(a.right,b.right)-Math.max(a.left,b.left)>1&&Math.min(a.bottom,b.bottom)-Math.max(a.top,b.top)>1))||r.some(x=>x.right>innerWidth+1);})''')
+            assert not clash, 'explore row figures overlap on a phone'
+            page.unroute('**/api/explore?*')
         page.locator('[data-asset="us"]').click()
         expect(page.locator('[data-asset="us"]')).to_have_attribute('aria-pressed','true')
         expect(page.locator('#exploreNotice')).to_contain_text('순위가 아닙니다')
