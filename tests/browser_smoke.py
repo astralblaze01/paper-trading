@@ -86,6 +86,10 @@ with sync_playwright() as p:
         expect(page.locator('#fxAmount')).to_have_value('99000')
         page.locator('.app-nav a[href="#explore"]').click()
         expect(page.locator('#exploreMarkets button')).to_have_count(5)
+        # Market chips and the search box: equally tall, and level when they share a row.
+        chip,query,search=(page.locator(q).first.bounding_box() for q in ('#exploreMarkets button','#discoveryQuery','#discoverySearch button'))
+        assert chip['height']==query['height']==search['height'],(chip,query,search)
+        if width>=1100: assert chip['y']==query['y']==search['y'],(chip,query,search)
         expect(page.locator('#exploreKinds button')).to_have_text(['거래량','거래대금','급상승','급하락','ALPHARENA 인기'])
         expect(page.locator('[data-kind="shares"]')).to_have_attribute('aria-pressed','true')
         page.locator('[data-kind="volume"]').click()

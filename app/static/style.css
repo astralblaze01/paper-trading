@@ -626,9 +626,12 @@ footer { max-width: 1344px; margin: 0 auto; padding: 16px 32px 28px; display: fl
 .explore-panel { padding: 24px 28px 22px; }
 .explore-side { display: grid; gap: 24px; min-width: 0; }
 .explore-options { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 20px; margin: 0 0 18px; }
-.explore-search { display: flex; gap: 6px; flex: 0 1 300px; margin: 0; padding: 0; border: 0; }
+.explore-search { display: flex; gap: 6px; flex: 0 1 300px; padding: 0; border: 0; }
+.search-form.explore-search { margin: 0; }
 .explore-search input { height: 44px; border-radius: var(--radius-pill); padding: 0 18px; }
 .explore-search button { min-height: 44px; padding: 8px 18px; border-radius: var(--radius-pill); }
+/* Market chips stand as tall as the search box beside them. */
+.explore-options .chip-row button { min-height: 44px; }
 /* Ranking basis: underlined tabs. */
 .tab-row { gap: 24px; border-bottom: 1px solid var(--border); margin-bottom: 8px; }
 .tab-row button { border: 0; border-radius: 0; background: transparent; color: var(--muted); padding: 8px 0 10px; font-size: var(--fs-base); font-weight: 500; }
