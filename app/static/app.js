@@ -103,9 +103,10 @@ function renderMetrics(target,p,{cash=true}={}){
   const total=['총 평가금액',equityTone(viewMoney(p.equity,'KRW'),pnl,basis==='USD'?.01:1)];
   const fields=cash?[total,['평가손익',nativeMoney(pnl,basis),pnl,basisLabel(basis)],
     ['평가 수익률',signedPctText(ret),ret,`${basisLabel(other)} ${signedPctText(otherRet)}`],['현금',cashLines(p.wallets)]]
-    :[total,[`평가손익 · ${basisLabel(basis)}`,nativeMoney(pnl,basis),pnl],[`평가 수익률 · ${basisLabel(basis)}`,signedPctText(ret),ret],[`평가 수익률 · ${basisLabel(other)}`,signedPctText(otherRet),otherRet]];
+    :[total,['평가손익',nativeMoney(pnl,basis),pnl,null,basisLabel(basis)],['평가 수익률',signedPctText(ret),ret,null,basisLabel(basis)],['평가 수익률',signedPctText(otherRet),otherRet,null,basisLabel(other)]];
   target.classList.toggle('metrics-total',!cash);
-  for(const [name,value,change,sub] of fields){const box=document.createElement('div');box.className='metric';const label=document.createElement('small');label.textContent=name;let v;if(value instanceof Node){v=document.createElement('span');v.append(value);}else v=signed(change,value);v.classList.add('metric-value');box.append(label,v);if(sub)box.append(node('small',sub,'metric-sub'));target.append(box);}
+  // The basis ('원화 기준') is its own span: after a '·' on wide screens, on its own line on phones.
+  for(const [name,value,change,sub,basisText] of fields){const box=document.createElement('div');box.className='metric';const label=document.createElement('small');label.textContent=name;if(basisText)label.append(node('span',basisText,'metric-basis'));let v;if(value instanceof Node){v=document.createElement('span');v.append(value);}else v=signed(change,value);v.classList.add('metric-value');box.append(label,v);if(sub)box.append(node('small',sub,'metric-sub'));target.append(box);}
   if(!cash)unitFigure(target.querySelector('.metric-value span'));
 }
 // Ranks 1-3 get a medal: ring, laurel wings, a star and a ribbon carrying 3/2/1 stars.
@@ -436,9 +437,12 @@ async function loadHistoryMonths(){
 function sideLabel(side){const n=document.createElement('span');n.className='trade-side '+(side==='buy'?'gain':'loss');n.textContent=side==='buy'?'매수':'매도';return n;}
 function renderHistory(){const rows=historyCache;
   // A sale shows what it made or lost against the cost sold, fees and taxes included.
-  const realized=t=>{if(t.side!=='sell'||t.realized_pnl==null)return '—';const v=Number(t.realized_pnl),cell=node('span',null,'realized-cell');
+  const realized=t=>{if(t.side!=='sell'||t.realized_pnl==null)return node('span','—','no-pnl');const v=Number(t.realized_pnl),cell=node('span',null,'realized-cell');
     cell.append(signed(v,(v>0?'+':'')+viewMoney(v,t.currency)));if(t.realized_pct!=null)cell.append(node('small',signedPctText(t.realized_pct),v>0?'gain':v<0?'loss':''));return cell;};
-  table($('history'), ['체결 시각', '종목', '매매', '수량', '체결가', '총액', '수수료 / 세금', '정산 금액', '실현 손익'], rows.map(t => [new Date(t.created_at).toLocaleString(), stockLink({symbol:t.symbol,name:t.name||t.symbol}), sideLabel(t.side), t.quantity, viewMoney(t.native_price,t.currency),viewMoney(t.gross_amount,t.currency),viewMoney(t.fee,t.currency)+' / '+viewMoney(t.tax,t.currency),viewMoney(t.net_amount,t.currency),realized(t)]));
+  // Korea time, short: '10. 04. 11:02' (the year only when it is not this one).
+  const when=iso=>{const d=new Date(iso),thisYear=d.getFullYear()===new Date().getFullYear();return d.toLocaleString('ko-KR',{...(thisYear?{}:{year:'numeric'}),month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false,timeZone:'Asia/Seoul'});};
+  // The last two cells ('3주 × 100,000원', time and fees) show only on phones, where rows become cards.
+  table($('history'), ['체결 시각', '종목', '매매', '수량', '체결가', '총액', '수수료 / 세금', '정산 금액', '실현 손익', '수량 × 체결가', '체결 정보'], rows.map(t => [when(t.created_at), stockLink({symbol:t.symbol,name:t.name||t.symbol}), sideLabel(t.side), t.quantity, viewMoney(t.native_price,t.currency),viewMoney(t.gross_amount,t.currency),viewMoney(t.fee,t.currency)+' / '+viewMoney(t.tax,t.currency),viewMoney(t.net_amount,t.currency),realized(t),`${Number(t.quantity).toLocaleString()}주 × ${viewMoney(t.native_price,t.currency)}`,`${when(t.created_at)} · 수수료·세금 ${viewMoney(t.fee,t.currency)} / ${viewMoney(t.tax,t.currency)}`]));
   $('page').textContent = page + ' 페이지'; $('previous').disabled = page === 1; $('next').disabled = rows.length < 50;
 }
 async function search() {

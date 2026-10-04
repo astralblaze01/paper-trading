@@ -208,7 +208,9 @@
    ============================================================ */
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
-body { margin: 0; font-size: var(--fs-base); line-height: 1.6; background: var(--bg); font-variant-numeric: tabular-nums; }
+/* Korean wraps between words (keep-all), never mid-word as in '원화 기 / 준'; a word too long
+   for its line (a 32-character username) still breaks rather than overflowing. */
+body { margin: 0; font-size: var(--fs-base); line-height: 1.6; background: var(--bg); font-variant-numeric: tabular-nums; word-break: keep-all; overflow-wrap: break-word; }
 h1, h2, h3, p { margin-top: 0; }
 h1 { font-size: var(--fs-2xl); letter-spacing: -.6px; line-height: 1.4; font-weight: 700; margin-bottom: 0; }
 h2 { font-size: var(--fs-lg); letter-spacing: -.3px; margin-bottom: 0; font-weight: 700; }
@@ -461,7 +463,8 @@ footer { max-width: 1344px; margin: 0 auto; padding: 16px 32px 28px; display: fl
 .loss { color: var(--loss); }
 .flat { color: var(--flat); }
 .scroll { overflow-x: auto; }
-.figure-unit { font-size: .5em; font-weight: 600; color: var(--ink-2); margin-left: 6px; letter-spacing: 0; }
+/* Inline beside its figure: '.metric small' (a label) is a block and pushed '원' onto its own line. */
+.figure-unit, .metric .figure-unit { display: inline; font-size: .5em; font-weight: 600; color: var(--ink-2); margin-left: 6px; letter-spacing: 0; }
 
 /* Stock tile: a rounded square with two letters, in front of names. */
 .stock-badge { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 44px; height: 44px; border-radius: 14px; font-size: var(--fs-sm); font-weight: 700; letter-spacing: -.3px; white-space: nowrap; overflow: hidden; }
@@ -474,6 +477,7 @@ footer { max-width: 1344px; margin: 0 auto; padding: 16px 32px 28px; display: fl
 .metric { padding: 0 26px; border-right: 1px solid var(--border); min-width: 0; }
 .metric:last-child { border: 0; }
 .metric small { color: var(--muted); font-size: var(--fs-sm); }
+.metric-basis::before { content: ' · '; }
 .metric strong { display: block; font-size: var(--fs-figure); letter-spacing: -.5px; font-weight: 700; margin-top: 6px; }
 .metric-value { display: block; font-size: var(--fs-figure); font-weight: 700; letter-spacing: -.4px; overflow-wrap: anywhere; }
 .metric .metric-sub { display: block; margin-top: 4px; font-size: var(--fs-xs); color: var(--muted); }
@@ -1034,8 +1038,13 @@ body:has(#dashboard[hidden]) .watch-strip { display: none; }
   .metrics-total .metric, .metrics-total .metric:nth-child(2) { padding: 14px 16px; border: 0; background: var(--surface-2); border-radius: var(--radius-inner); }
   .metrics-total .metric:first-child { padding: 0 0 4px; margin: 0; border: 0; background: transparent; border-radius: 0; }
   .metrics-total .metric:first-child small { display: block; padding: 10px 0 18px; }
+  .metrics-total .metric:first-child .metric-value .figure-unit { display: inline; padding: 0; }
+  .metrics-total .metric-basis { display: block; margin-top: 1px; color: var(--muted); }
+  .metrics-total .metric-basis::before { content: none; }
   .metrics-total .metric:first-child .metric-value { font-size: var(--fs-display); letter-spacing: -1px; white-space: nowrap; }
   .metrics-total .metric small { font-size: var(--fs-xs); }
+  /* An odd card out takes the whole row instead of leaving a hole beside it. */
+  .metrics-total .metric:last-child:nth-child(even) { grid-column: 1 / -1; }
   .holding-row { grid-template-columns: 40px minmax(0, 1fr); grid-template-areas: "tile main" ". figures"; gap: 6px 12px; }
   .holding-row .stock-badge { grid-area: tile; width: 40px; height: 40px; }
   .holding-main { grid-area: main; }
@@ -1063,6 +1072,13 @@ body:has(#dashboard[hidden]) .watch-strip { display: none; }
 .allocation-legend .legend-name { min-width: 0; display: flex; align-items: baseline; gap: 6px; }
 .allocation-legend .legend-name strong { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .allocation-legend .legend-name small { color: var(--muted); font-size: var(--fs-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Phones: a long fund name wraps (two lines at most) with its code after it, instead of
+   both being cut ('아이셰어즈 미국 단기 … S…'). */
+@media (max-width: 760px) {
+  .allocation-legend .legend-name { display: block; }
+  .allocation-legend .legend-name strong { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
+  .allocation-legend .legend-name small { white-space: nowrap; margin-left: 0; }
+}
 .allocation-legend .legend-value { color: var(--ink-2); font-size: var(--fs-sm); }
 .allocation-legend .legend-share { text-align: right; font-weight: 700; }
 .allocation-legend li.pending { color: var(--muted); }
@@ -1083,6 +1099,8 @@ body:has(#dashboard[hidden]) .watch-strip { display: none; }
 .fee-summary td:last-child, .fee-summary th:last-child { padding-right: 0; }
 .fee-summary td:first-child { font-weight: 500; }
 .fee-summary tr.fee-subtotal td { font-weight: 700; border-top: 1px solid var(--border-strong); }
+/* Narrow phones with large text: the headers wrap between words so the table fits its card. */
+@media (max-width: 760px) { .fee-summary th, .fee-summary td:first-child { white-space: normal; } .fee-summary td, .fee-summary th { padding: 10px 6px; } }
 /* Dividends: upcoming and received, one row each with the after-tax amount on the right. */
 .dividend-totals .fee-total { border-bottom: 0; padding-bottom: 6px; margin: 0; }
 .dividend-sub { margin: 16px 0 4px; font-size: var(--fs-sm); font-weight: 700; color: var(--muted); }
@@ -1234,6 +1252,30 @@ body:has(#dashboard[hidden]) .watch-strip { display: none; }
 .history-month select { width: auto; min-width: 170px; height: 40px; }
 .trade-side { font-weight: 700; }
 #history td:first-child { font-weight: 400; color: var(--ink-2); }
+#history th:nth-child(n+10), #history td:nth-child(n+10) { display: none; }
+/* Phones: each fill is a card instead of a nine-column table that scrolled sideways:
+   side, name and settled amount; quantity × price and realized P&L; time and fees on a
+   full-width line, so the right column never squeezes the name. */
+@media (max-width: 760px) {
+  #history table, #history tbody { display: block; width: 100%; }
+  #history thead { display: none; }
+  #history tbody tr { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "side name net" "side meta pnl" "side foot foot"; align-items: start; gap: 3px 12px; padding: 14px 0; border-bottom: 1px solid var(--border); }
+  #history td { display: block; padding: 0; border: 0; min-width: 0; white-space: nowrap; text-align: left; }
+  #history td:nth-child(2) { grid-area: name; overflow: hidden; }
+  #history td:nth-child(2) { white-space: normal; }
+  #history td:nth-child(2) .portfolio-stock-link { display: block; line-height: 1.35; }
+  #history td:nth-child(2) .portfolio-stock-link strong { font-size: var(--fs-md); }
+  #history td:nth-child(2) .portfolio-stock-link small { margin-left: 6px; white-space: nowrap; }
+  #history .no-pnl { display: none; }
+  #history td:nth-child(3) { grid-area: side; align-self: start; padding-top: 2px; }
+  #history td:nth-child(1), #history td:nth-child(4), #history td:nth-child(5), #history td:nth-child(6), #history td:nth-child(7) { display: none; }
+  #history td:nth-child(8) { grid-area: net; text-align: right; font-weight: 700; color: var(--ink-strong); }
+  #history td:nth-child(9) { grid-area: pnl; text-align: right; }
+  #history td:nth-child(9) .realized-cell { display: flex; gap: 6px; justify-content: flex-end; align-items: baseline; }
+  #history td:nth-child(10) { display: block; grid-area: meta; font-size: var(--fs-sm); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; }
+  #history td:nth-child(11) { display: block; grid-area: foot; font-size: var(--fs-xs); color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+  #ranking th { font-size: var(--fs-2xs); line-height: 1.35; }
+}
 
 /* ---- Virtual FX: the exchange card (rate, direction, amount, an itemized estimate) at 480px,
    the exchange log beside it. ---- */

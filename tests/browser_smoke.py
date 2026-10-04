@@ -235,6 +235,9 @@ with sync_playwright() as p:
         page.locator('.app-nav a[href="#portfolio"]').click()
         expect(page.locator('#positions')).to_contain_text('AAPL')
         expect(page.locator('#myProfile .profile-name')).to_have_text(name)
+        if width<900:
+            # The total's '원' stays on the figure's line (a label rule once made it a block).
+            assert page.evaluate("(()=>{const v=document.querySelector('.metrics-total .metric:first-child .metric-value'),u=v&&v.querySelector('.figure-unit');return !u||Math.abs(u.getBoundingClientRect().bottom-v.getBoundingClientRect().bottom)<12})()")
         expect(page.locator('#myProfile .member-days')).to_contain_text('가입 기간')
         expect(page.locator('#myProfile .member-days dd')).to_have_text('1일')
         # Header and phone tab bar alike: 시장 · 포트폴리오 · 랭킹 · 관심종목 · 환전; 내역 opens from the portfolio strip.
@@ -448,6 +451,10 @@ with sync_playwright() as p:
         expect(sale.locator('td').nth(1)).to_contain_text('애플')
         expect(page.locator('#historySummary')).to_contain_text('실현 손익 (매도)')
         expect(page.locator('#splitPanel')).to_be_hidden()   # no split touched this account
+        if width<900:
+            # Phones: fills are cards (no sideways-scrolling nine-column table).
+            assert page.evaluate("getComputedStyle(document.querySelector('#history tbody tr')).display")=='grid'
+            assert page.evaluate("document.querySelector('#history').scrollWidth<=document.querySelector('#history').clientWidth+1")
         page.locator('#historySide button[data-side="sell"]').click()
         expect(page.locator('#history .trade-side.gain')).to_have_count(0)
         expect(page.locator('#history .trade-side.loss').first).to_be_visible()
