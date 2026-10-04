@@ -54,34 +54,59 @@ function toast(text,kind='info',timeout=4500){
 }
 // Name over code, as a two-line cell.
 function stockLink(x){const a=document.createElement('a');a.href='#detail/'+encodeURIComponent(x.symbol);a.className='portfolio-stock-link';const n=document.createElement('strong');n.textContent=x.name;const c=document.createElement('small');c.textContent=x.symbol;a.append(n,c);return a;}
+// A small tinted tile in front of a stock name: 채권 and 금 for those ETFs, the first two
+// letters of a Korean name, or of a US code ("NV"). Decorative; the name always follows.
+function stockBadge(x){
+  const c=x.category||(String(x.symbol).startsWith('KR:')?'kr':'us'),other=c==='gold'||/bond/.test(c);
+  const text=c==='gold'?'금':/bond/.test(c)?'채권':c==='kr'?[...String(x.name||x.symbol).replace(/\s/g,'')].slice(0,2).join(''):String(x.symbol).replace(/^KR:/,'').slice(0,2).toUpperCase();
+  const n=document.createElement('span');n.className='stock-badge stock-badge-'+(other?'etf':c);n.textContent=text;n.setAttribute('aria-hidden','true');return n;
+}
+// "71,800원" with the 원 a size smaller, for the big figures; dollars stay one string.
+function unitFigure(el){const t=el.textContent;if(el.children.length||!/\d원$/.test(t))return el;const u=document.createElement('small');u.className='figure-unit';u.textContent='원';el.replaceChildren(t.slice(0,-1),u);return el;}
 // 거래 통화: each holding in its own currency, no FX. 원화/달러: cost at each fill's rate
 // against today's value, so a US stock in KRW also carries the USD/KRW move.
+// One two-line row per holding: name and code, shares · cost · price; value and profit on the right.
 function renderPositions(target,p){
   const mode=displayMode==='native'?null:displayMode;
-  // The basis goes in the section header ("수익률: 원화 기준"), keeping the columns short.
+  // The basis goes in the section header ("수익률: 원화 기준"), keeping the rows short.
   const basis=target.closest('section')?.querySelector('.positions-basis');if(basis)basis.textContent=`수익률: ${mode?basisLabel(mode):'거래 통화 기준'}`;
-  table(target,['종목','수량','평균 단가','현재가','평가액','평가손익','수익률'],p.positions.map(x=>{
-    const now=x.quote?.native_price??x.quote?.price;
-    if(!mode)return [stockLink(x),x.quantity,nativeMoney(x.average_cost,x.currency),nativeMoney(now,x.currency),nativeMoney(x.value,x.currency),signed(x.pnl,nativeMoney(x.pnl,x.currency)),signedPct(x.return_pct)];
-    const b=x.basis?.[mode]||{};
-    return [stockLink(x),x.quantity,nativeMoney(b.average_cost,mode),viewMoney(now,x.currency),viewMoney(x.value,x.currency),signed(b.pnl,nativeMoney(b.pnl,mode)),signedPct(b.return_pct)];
-  }));
+  const list=node('ul',null,'holding-list');
+  for(const x of p.positions){
+    const now=x.quote?.native_price??x.quote?.price,b=mode?x.basis?.[mode]||{}:null;
+    const cost=mode?nativeMoney(b.average_cost,mode):nativeMoney(x.average_cost,x.currency),price=mode?viewMoney(now,x.currency):nativeMoney(now,x.currency);
+    const value=mode?viewMoney(x.value,x.currency):nativeMoney(x.value,x.currency),pnl=mode?b.pnl:x.pnl,ret=mode?b.return_pct:x.return_pct;
+    const li=node('li',null,'holding-row'),main=node('div',null,'holding-main'),link=stockLink(x),figures=node('div',null,'holding-figures');
+    main.append(link,node('span',`${Number(x.quantity).toLocaleString()}주 · 평단 ${cost} · 현재가 ${price}`,'holding-meta'));
+    const change=node('span',null,'holding-change');change.append(signed(pnl,(Number(pnl)>0?'+':'')+nativeMoney(pnl,mode||x.currency)),' (',signedPct(ret),')');
+    figures.append(node('strong',value,'holding-value'),change);
+    li.append(stockBadge(x),main,figures);list.append(li);
+  }
+  target.replaceChildren(list);
+  if(!p.positions.length)target.append(node('p',target.id==='positions'?'아직 보유한 종목이 없습니다. 첫 주문을 시작해보세요.':'보유한 종목이 없습니다.','empty-state'));
 }
 function renderPortfolio(){const p=portfolioCache;if(!p)return;
   $('metrics').replaceChildren();
-  renderMetrics($('metrics'),p);
+  renderMetrics($('metrics'),p,{cash:false});
+  renderCash(p.wallets);
   renderPositions($('positions'),p);
   if(window.renderAllocation)renderAllocation($('allocation'),p);
   if(window.renderMyProfile)renderMyProfile();
 }
-function renderMetrics(target,p){
+// 현금: each wallet in its own currency, whatever the display currency.
+function renderCash(w){const box=$('cashWallets');if(!box)return;box.replaceChildren(...['USD','KRW'].flatMap(c=>[node('dt',c+' 지갑'),node('dd',nativeMoney(w?.[c],c))]));}
+// My portfolio: the total on top, then profit and the return in both bases; cash has its own card.
+// Public profiles keep the four-cell strip with cash.
+function renderMetrics(target,p,{cash=true}={}){
   target.replaceChildren();
   const basis=returnBasis(),other=basis==='USD'?'KRW':'USD';
   const pnl=basis==='USD'?p.pnl_usd:p.pnl,ret=accountReturn(p,basis),otherRet=accountReturn(p,other);
-  const fields=[['총 평가금액',equityTone(viewMoney(p.equity,'KRW'),pnl,basis==='USD'?.01:1)],
-    ['평가손익',nativeMoney(pnl,basis),pnl,basisLabel(basis)],
-    ['평가 수익률',signedPctText(ret),ret,`${basisLabel(other)} ${signedPctText(otherRet)}`],['현금',cashLines(p.wallets)]];
+  const total=['총 평가금액',equityTone(viewMoney(p.equity,'KRW'),pnl,basis==='USD'?.01:1)];
+  const fields=cash?[total,['평가손익',nativeMoney(pnl,basis),pnl,basisLabel(basis)],
+    ['평가 수익률',signedPctText(ret),ret,`${basisLabel(other)} ${signedPctText(otherRet)}`],['현금',cashLines(p.wallets)]]
+    :[total,[`평가손익 · ${basisLabel(basis)}`,nativeMoney(pnl,basis),pnl],[`평가 수익률 · ${basisLabel(basis)}`,signedPctText(ret),ret],[`평가 수익률 · ${basisLabel(other)}`,signedPctText(otherRet),otherRet]];
+  target.classList.toggle('metrics-total',!cash);
   for(const [name,value,change,sub] of fields){const box=document.createElement('div');box.className='metric';const label=document.createElement('small');label.textContent=name;let v;if(value instanceof Node){v=document.createElement('span');v.append(value);}else v=signed(change,value);v.classList.add('metric-value');box.append(label,v);if(sub)box.append(node('small',sub,'metric-sub'));target.append(box);}
+  if(!cash)unitFigure(target.querySelector('.metric-value span'));
 }
 // Ranks 1-3 get a medal: ring, laurel wings, a star and a ribbon carrying 3/2/1 stars.
 // Colors come from the --medal-* tokens in style.css, so both themes and any palette change follow.
@@ -119,13 +144,17 @@ function renderRanking(){if(!rankingCache)return;
         : `USD 환산 · 10초 단위 · ${asOf.split(' ').slice(-1)[0]}`);
     status.title=`기준 ${asOf} · 다음 갱신 ${next}${markets?' · '+markets:''}`;
   }
-  const person=x=>{const box=document.createElement('span');box.className='rank-user';if(x.tier)box.dataset.tier=x.tier;if(window.avatar)box.append(avatar(x.username,x.image_version,'small'));if(x.tier&&window.tierIcon)box.append(tierIcon(x.tier));const link=userLink(x.username);if(x.tier)link.classList.add('tier-text-'+x.tier);box.append(link);return box;};
+  // Photo in a ring of the tier color, the name in that color over the tier's gem and name.
+  const person=x=>{const box=document.createElement('span');box.className='rank-user';if(x.tier)box.dataset.tier=x.tier;if(window.avatar){const photo=avatar(x.username,x.image_version,'small');if(x.tier)photo.classList.add('ring-'+x.tier);box.append(photo);}
+    const who=node('span',null,'rank-who'),link=userLink(x.username);if(x.tier)link.classList.add('tier-text-'+x.tier);who.append(link);
+    if(x.tier&&window.tierIcon){const t=node('small',null,'rank-tier tier-text-'+x.tier);t.append(tierIcon(x.tier),window.TIER_LABELS?.[x.tier]||x.tier);who.append(t);}
+    box.append(who);return box;};
   // Ranked by USD value; shown in the selected display currency at the snapshot's rate.
   // Phones hide the 변화 column; the same change shows under the badge instead.
   const rankCell=x=>{const box=document.createElement('span'),stacked=change(x);box.className='rank-cell';stacked.classList.replace('rank-change','rank-change-stacked');box.append(rankBadge(x.rank),stacked);return box;};
   const change=x=>{const c=window.rankChange?rankChange(x.rank,x.previous_rank):document.createElement('span');if(!c.textContent){c.textContent='–';c.classList.add('same');}return c;};
   table($('ranking'),['순위','변화','사용자','총 자산 ('+viewCurrency('USD')+')','수익률 ('+basisLabel()+')'],rankingCache.rows.map(x=>[rankCell(x),change(x),person(x),equityTone(viewMoney(x.equity_usd,'USD',x.fx||viewFx),accountReturn(x),.01),signedPct(accountReturn(x))]));
-  $('ranking').querySelectorAll('tbody tr').forEach((tr,i)=>{const rank=rankingCache.rows[i].rank;if(rank<=3)tr.classList.add('top-rank','top-rank-'+rank);});
+  $('ranking').querySelectorAll('tbody tr').forEach((tr,i)=>{const row=rankingCache.rows[i];if(row.rank<=3)tr.classList.add('top-rank','top-rank-'+row.rank);if(row.username===window.sessionUsername)tr.classList.add('is-me');});
   if(window.renderMyProfile)renderMyProfile();
   window.renderHeaderUser?.();
   renderMyStanding();
@@ -140,22 +169,36 @@ function renderMyStanding(){
   const lastOf=t=>rows.filter(r=>r.tier===t).reduce((a,r)=>!a||r.rank>a.rank?r:a,null);
   const firstOf=t=>rows.filter(r=>r.tier===t).reduce((a,r)=>!a||r.rank<a.rank?r:a,null);
   const share=Math.max(1,Math.round(me.rank/rows.length*100));
-  let toNext='최고 티어',progress=1;
+  let toNext='최고 티어',within='',progress=1;
   if(up){const target=lastOf(up),floor=lastOf(me.tier);
-    if(target){const gap=Math.max(0,Number(target.equity_usd)-Number(me.equity_usd))+0.01;toNext=`${label[up]||up}까지 +${viewMoney(gap,'USD',me.fx||viewFx)}`;
+    if(target){const gap=Math.max(0,Number(target.equity_usd)-Number(me.equity_usd))+0.01;toNext=`${label[up]||up}까지 +${viewMoney(gap,'USD',me.fx||viewFx)}`;within=`${target.rank}위 이내`;
       const low=Number(floor.equity_usd),high=Number(target.equity_usd);progress=high>low?Math.min(1,Math.max(0,(Number(me.equity_usd)-low)/(high-low))):0;}}
   const head=document.createElement('div');head.className='standing-head';
-  if(window.tierIcon)head.append(tierIcon(me.tier,'medium'));
+  if(window.tierIcon){const gem=node('span',null,'standing-gem');gem.append(tierIcon(me.tier,'medium'));head.append(gem);}
   const text=document.createElement('div'),title=document.createElement('strong'),sub=document.createElement('small');
-  title.className='tier-text-'+me.tier;title.textContent=`${label[me.tier]||me.tier} · ${me.rank}위`;sub.textContent=`상위 ${share}% · ${toNext}`;
+  title.className='tier-text-'+me.tier;title.textContent=`${label[me.tier]||me.tier} · ${me.rank}위`;sub.append(`상위 ${share}% · 오늘 아침 대비 `);
+  const change=window.rankChange?rankChange(me.rank,me.previous_rank):null;if(change?.textContent)sub.append(change);else sub.append('변동 없음');
   text.append(title,sub);head.append(text);
+  const total=node('div',null,'standing-line');total.append(node('span','총 자산'),node('strong',viewMoney(me.equity_usd,'USD',me.fx||viewFx)));
+  const next=node('div',null,'standing-line standing-next');next.append(node('span',toNext),node('small',within));
   const bar=document.createElement('div');bar.className='standing-bar';const fill=document.createElement('span');fill.style.width=`${Math.round(progress*100)}%`;bar.append(fill);
-  bar.setAttribute('role','progressbar');bar.setAttribute('aria-valuenow',String(Math.round(progress*100)));bar.setAttribute('aria-valuemin','0');bar.setAttribute('aria-valuemax','100');
-  $('myStandingBody').replaceChildren(head,bar);
+  bar.setAttribute('role','progressbar');bar.setAttribute('aria-label',up?`${label[up]||up}까지 진행`:'최고 티어');bar.setAttribute('aria-valuenow',String(Math.round(progress*100)));bar.setAttribute('aria-valuemin','0');bar.setAttribute('aria-valuemax','100');
+  // The tier ladder by top share (app/tiers.py), mine in bold.
+  const ladder=node('div',null,'tier-ladder'),steps=node('div',null,'tier-ladder-bar'),names=node('ol',null,'tier-ladder-names');
+  const SHARES={grandmaster:1,master:2,diamond:5,platinum:20,gold:45,silver:75,bronze:100},SHORT={grandmaster:'GM',master:'마스터',diamond:'다이아',platinum:'플래',gold:'골드',silver:'실버',bronze:'브론즈'};
+  let prev=0;
+  for(const t of TIER_ORDER){
+    const seg=node('span',null,'tier-step tier-step-'+t+(t===me.tier?' current':''));seg.style.flexGrow=String(SHARES[t]-prev);prev=SHARES[t];steps.append(seg);
+    const item=node('li',t==='bronze'?SHORT[t]:`${SHORT[t]} ${SHARES[t]}%`);if(t===me.tier)item.className='current';names.append(item);
+  }
+  ladder.setAttribute('aria-hidden','true');ladder.append(steps,names);
+  $('myStandingBody').replaceChildren(head,total,next,bar,ladder);
 }
-function syncCurrency(){$('displayCurrency').value=displayMode;const note=$('displayRateNote');note.textContent=viewFx?`USD/KRW ${Number(viewFx.rate).toLocaleString('ko-KR',{minimumFractionDigits:2,maximumFractionDigits:2})}`:'USD/KRW —';note.title=viewFx?`${viewFx.date} ECB 기준환율 · 금액 표시에만 쓰입니다`:'';}
+function syncCurrency(){$('displayCurrency').value=displayMode;document.querySelectorAll('#currencySeg [data-currency]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.currency===displayMode)));const note=$('displayRateNote');note.textContent=viewFx?`USD/KRW ${Number(viewFx.rate).toLocaleString('ko-KR',{minimumFractionDigits:2,maximumFractionDigits:2})}`:'USD/KRW —';note.title=viewFx?`${viewFx.date} ECB 기준환율 · 금액 표시에만 쓰입니다`:'';}
 async function changeDisplayCurrency(value){displayMode=value;try{localStorage.setItem(storageNamespace+':currency',value);}catch{}syncCurrency();renderPortfolio();renderRanking();renderHistory();if(weeklyCache)renderWeekly();window.dispatchEvent(new Event('displaycurrencychange'));}
 $('displayCurrency').addEventListener('change',e=>changeDisplayCurrency(e.target.value));
+// The header's three pills drive the same select, so every listener stays on its change event.
+document.querySelectorAll('#currencySeg [data-currency]').forEach(b=>b.addEventListener('click',()=>{if($('displayCurrency').value===b.dataset.currency)return;$('displayCurrency').value=b.dataset.currency;$('displayCurrency').dispatchEvent(new Event('change'));}));
 // Theme: A 딥 틸 (light, default) or B 다크 아레나 (dark). Saved per browser; charts redraw.
 function themeColor(name){return getComputedStyle(document.documentElement).getPropertyValue(name).trim();}
 // Canvas text uses the same type tokens as the page: cssFont('--fs-xs','--font-num').
@@ -216,8 +259,9 @@ async function boot() {
   refreshNotice();
   document.querySelectorAll('.app-nav a').forEach(a=>{if(s.is_admin)a.hidden=a.id!=='adminNav';else if(a.id!=='adminNav')a.hidden=false;});
   // The header's app part (search, nav, market status) exists only while signed in.
-  const settings=document.querySelector('.view-settings');if(settings)settings.hidden=!s.username||!!s.is_admin;
-  $('headerSearch').hidden=!s.username||!!s.is_admin;document.querySelector('.app-nav').hidden=!s.username;
+  document.querySelectorAll('.view-settings').forEach(settings=>settings.hidden=!s.username||!!s.is_admin);
+  $('headerSearch').hidden=$('searchToggle').hidden=!s.username||!!s.is_admin;document.querySelector('.app-nav').hidden=!s.username;
+  document.body.classList.toggle('is-admin',!!s.is_admin);
   const unavailable = [];
   if (!s.providers.us) unavailable.push('미국 시세');
   if (!s.providers.kr) unavailable.push('한국 시세');
@@ -273,8 +317,8 @@ function renderMarketSessions(markets){
     const state=marketPriceText(x),open=marketIsOpen(x)&&x.tradable!==false,item=document.createElement('span');
     item.className='market-session '+(open?'is-open':'is-closed');item.dataset.code=x.market;
     const dot=document.createElement('i');dot.className='session-dot';dot.setAttribute('aria-hidden','true');
-    // Short in the header ("KR 정규장"); the price source and tradability go in the tooltip.
-    item.append(dot,`${x.market} ${x.label}`);
+    // Short in the notice row ("한국 정규장", on a phone just "한국"); the price source and tradability go in the tooltip.
+    item.append(dot,x.market==='KR'?'한국':'미국',node('span',' '+x.label,'session-label'));
     item.title=`${x.market==='KR'?'한국':'미국'} ${x.label}${state?' · '+state:''} · ${open?'지금 주문할 수 있습니다':'지금은 주문할 수 없습니다'}`;
     return item;
   }));
@@ -436,6 +480,8 @@ $('registerForm').addEventListener('submit',async e=>{
   }catch(err){$('registerError').textContent=err.message;}finally{$('registerSubmit').disabled=false;}
 });
 handle('logout', 'click', async () => { window.disconnectQuoteStream?.();await api('logout', {}); pendingOrder = null; message(''); await boot(); });
+// Phones keep 로그아웃 in 계정 설정 rather than in the header.
+$('accountLogout').addEventListener('click',()=>$('logout').click());
 handle('refresh', 'click', refresh);
 handle('searchForm', 'submit', search);
 handle('quote', 'click', async () => { if(window.openStock) openStock($('symbol').value); });

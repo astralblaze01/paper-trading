@@ -41,18 +41,33 @@ function realizedTotal(p){
 function profileStat(label,value){const d=node('div');d.append(node('dt',label));const v=node('dd');v.append(value instanceof Node?value:document.createTextNode(value));d.append(v);return d;}
 
 // Shared by the own portfolio (editable) and other users' profiles (read-only).
+// Photo in the tier ring, the name over the tier; photo and bio tools; the bio; then the stats.
+// On a phone the three tools fold into one 편집 button that opens them as a menu.
 window.renderProfileCard=function(target,p,editable){
   target.replaceChildren();
   const media=node('div',null,'profile-media'),photo=avatar(p.username,p.image_version,'large');
   media.append(p.tier?tierFrame(photo,p.tier):photo);
-  if(editable){
-    const tools=node('div',null,'profile-photo-tools');
+  const head=node('div',null,'profile-head'),title=node('div',null,'profile-title');
+  title.append(node('h2',p.username,'profile-name'));
+  if(p.tier){const v=node('span',null,'tier-value profile-tier');v.append(tierIcon(p.tier,'small'),node('span',TIER_LABELS[p.tier],'tier-name tier-text-'+p.tier));
+    // On a phone the rank and its change ride on the tier line.
+    const rankLine=node('span',null,'profile-rank-inline tier-text-'+p.tier);rankLine.append(p.rank?` · ${p.rank}위`:'');if(p.rank)rankLine.append(rankChange(p.rank,p.previous_rank));v.append(rankLine);title.append(v);}
+  head.append(media,title);
+  if(editable){const more=document.createElement('a');more.href='#ranking';more.className='profile-more';more.textContent='랭킹 보기';head.append(more);}
+  target.append(head);
+  if(editable&&!bioEditing){
+    const tools=node('div',null,'profile-tools'),menuId='profileTools';tools.id=menuId;
+    const toggle=node('button','편집','secondary profile-edit-toggle');toggle.type='button';toggle.setAttribute('aria-expanded','false');toggle.setAttribute('aria-controls',menuId);
+    toggle.addEventListener('click',()=>{const open=!target.classList.contains('tools-open');target.classList.toggle('tools-open',open);toggle.setAttribute('aria-expanded',String(open));});
     const pick=node('label','사진 변경','button-link secondary');pick.htmlFor='profileImageInput';
     tools.append(pick);
     if(p.image_version){const remove=node('button','사진 삭제','text-button');remove.type='button';remove.addEventListener('click',()=>{$('photoDeleteConfirm').disabled=false;$('photoDeleteDialog').showModal();$('photoDeleteCancel').focus();});tools.append(remove);}
-    media.append(tools);
+    const edit=node('button','소개 수정','text-button');edit.type='button';edit.addEventListener('click',()=>{bioEditing=true;bioDraft=myProfile?.bio||'';renderMyProfile();});tools.append(edit);
+    // Choosing a tool closes the phone menu.
+    tools.addEventListener('click',()=>{target.classList.remove('tools-open');toggle.setAttribute('aria-expanded','false');});
+    target.classList.remove('tools-open');head.append(toggle);target.append(tools);
   }
-  const info=node('div',null,'profile-info');info.append(node('h2',p.username,'profile-name'));
+  const info=node('div',null,'profile-info');
   if(editable&&bioEditing){
     const form=node('form',null,'bio-form'),area=node('textarea');area.id='bioInput';area.maxLength=myProfile?.bio_max_length||160;area.rows=3;area.value=bioDraft;area.setAttribute('aria-label','한 줄 소개');area.placeholder='예: 미국 성장주와 ETF 위주로 투자합니다.';
     const count=node('span',`${area.value.length}/${area.maxLength}`,'field-help bio-count');
@@ -64,19 +79,19 @@ window.renderProfileCard=function(target,p,editable){
     setTimeout(()=>area.focus({preventScroll:true}));
   }else{
     info.append(node('p',p.bio||(editable?'아직 소개가 없습니다. 나를 소개하는 한 줄을 남겨보세요.':'아직 소개가 없습니다.'),'profile-bio'+(p.bio?'':' empty')));
-    if(editable){const edit=node('button','소개 수정','text-button');edit.type='button';edit.addEventListener('click',()=>{bioEditing=true;bioDraft=myProfile?.bio||'';renderMyProfile();});info.append(edit);}
   }
   const stats=node('dl',null,'profile-stats');
-  if(p.tier){const v=node('span',null,'tier-value');v.append(tierIcon(p.tier,'medium'),node('span',TIER_LABELS[p.tier],'tier-name tier-text-'+p.tier));const t=profileStat('티어',v);t.classList.add('profile-tier');stats.append(t);}
   const rank=node('span');rank.append(p.rank?`${p.rank}위`:'—',rankChange(p.rank,p.previous_rank));
   const realized=realizedTotal(p);
-  stats.append(profileStat('랭킹',rank),profileStat(`평가 수익률 (${basisLabel()})`,signedPct(accountReturn(p))),
+  const rankStat=profileStat('랭킹',rank),returnStat=profileStat(`평가 수익률 (${basisLabel()})`,signedPct(accountReturn(p)));
+  rankStat.classList.add('profile-stat-rank');returnStat.classList.add('profile-stat-return');
+  stats.append(rankStat,returnStat,
     profileStat('실현 손익 (매도 확정)',realized==null?'—':signed(realized,(realized>0?'+':'')+nativeMoney(realized,returnBasis()))),
     profileStat('총 평가금액',viewMoney(p.equity_usd,'USD')));
   // Days since sign-up in Korea time, the sign-up day counting as day 1 (own and public profiles).
   if(p.member_days){const since=profileStat('가입 기간',`${p.member_days.toLocaleString()}일`);since.classList.add('member-days');if(p.member_since)since.title=new Date(p.member_since).toLocaleDateString('ko-KR',{timeZone:'Asia/Seoul'})+' 가입';stats.append(since);}
   info.append(stats);
-  target.append(media,info);
+  target.append(info);
 };
 
 // Who is signed in, left of 로그아웃: photo, tier icon and ID in the tier color, linking to my portfolio.

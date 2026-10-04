@@ -7,6 +7,14 @@ def png(width=64,height=64):
     chunk=lambda kind,data:struct.pack('>I',len(data))+kind+data+struct.pack('>I',zlib.crc32(kind+data))
     return b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',width,height,8,2,0,0,0))+chunk(b'IDAT',zlib.compress(raw))+chunk(b'IEND',b'')
 
+def profile_tool(page,label):
+    """Photo and bio tools: shown on a wide screen, behind the 편집 menu on a phone."""
+    tool=page.locator('#myProfile').get_by_text(label)
+    toggle=page.locator('#myProfile .profile-edit-toggle')
+    if toggle.is_visible() and not tool.is_visible():
+        toggle.click()
+    tool.click()
+
 with sync_playwright() as p:
     browser=p.chromium.launch(args=['--no-sandbox'])
     # This run's own second account: the ranking step opens another user's public
@@ -52,7 +60,7 @@ with sync_playwright() as p:
         if width>=900: assert page.locator('#headerUser').bounding_box()['x']<page.locator('#logout').bounding_box()['x']
         page.locator('.app-nav a[href="#portfolio"]').click()
         expect(page.locator('#metrics')).to_contain_text('100,000')
-        page.locator('a[href="#fx"]').click()
+        page.locator('.app-nav a[href="#fx"]').click()
         expect(page.locator('#fxRate')).to_contain_text('1 USD')
         expect(page.locator('#fxAmountUnit')).to_have_text('USD')
         expect(page.locator('#fxAvailable')).to_contain_text('100,000')
@@ -72,11 +80,11 @@ with sync_playwright() as p:
         expect(page.locator('#fxAvailable')).to_contain_text('998,500')
         page.locator('[data-fx-share="50"]').click()
         expect(page.locator('#fxAmount')).to_have_value('499250')
-        expect(page.locator('#fxEstimate')).to_contain_text('받는 금액')
+        expect(page.locator('#fxEstimate')).to_contain_text('예상 수령 금액')
         page.locator('#fxSource').select_option('USD')
         page.locator('[data-fx-share="100"]').click()
         expect(page.locator('#fxAmount')).to_have_value('99000')
-        page.locator('a[href="#explore"]').click()
+        page.locator('.app-nav a[href="#explore"]').click()
         expect(page.locator('#exploreMarkets button')).to_have_count(5)
         expect(page.locator('#exploreKinds button')).to_have_text(['거래량','거래대금','급상승','급하락','ALPHARENA 인기'])
         expect(page.locator('[data-kind="shares"]')).to_have_attribute('aria-pressed','true')
@@ -88,8 +96,8 @@ with sync_playwright() as p:
         page.locator('[data-asset="gold"]').click()
         expect(page.locator('#exploreRows')).to_contain_text('SPDR 금 ETF')
         expect(page.locator('#exploreRows')).to_contain_text('ACE KRX금현물')
-        expect(page.locator('#exploreRows td.gain').first).to_have_css('color','rgb(196, 47, 58)')
-        expect(page.locator('#exploreRows td.loss').first).to_have_css('color','rgb(31, 95, 209)')
+        expect(page.locator('#exploreRows td.gain').first).to_have_css('color','rgb(212, 47, 60)')
+        expect(page.locator('#exploreRows td.loss').first).to_have_css('color','rgb(37, 99, 235)')
         page.locator('#displayCurrency').select_option('KRW')
         expect(page.locator('#exploreFxNote')).to_contain_text('기준환율')
         expect(page.locator('#exploreRows')).to_contain_text('100,000원')
@@ -109,7 +117,7 @@ with sync_playwright() as p:
         page.screenshot(path=f'/artifacts/explore-{width}.png',full_page=True)
         page.locator('#exploreRows .stock-link').first.click()
         expect(page.locator('#detailPrice')).to_contain_text('100')
-        expect(page.locator('#detailPrice .gain').first).to_have_css('color','rgb(196, 47, 58)')
+        expect(page.locator('#detailPrice .gain').first).to_have_css('color','rgb(212, 47, 60)')
         expect(page.locator('#orderType')).to_have_count(0)
         expect(page.locator('#searchResults')).to_contain_text('최근 본 종목')
         expect(page.locator('#searchResults')).to_contain_text('AAPL')
@@ -134,8 +142,9 @@ with sync_playwright() as p:
         page.locator('[data-order-share="0.05"]').click()
         expect(page.locator('#quantity')).to_have_value('49')
         expect(page.locator('#orderEstimate')).to_contain_text('수수료')
-        expect(page.locator('.side-toggle [data-side="buy"]')).to_have_css('background-color','rgb(196, 47, 58)')
-        expect(page.locator('#submitOrder')).to_have_css('background-color','rgb(196, 47, 58)')
+        # 매수 / 매도 is a segmented control: the chosen side white on the track, in its own color.
+        expect(page.locator('.side-toggle [data-side="buy"]')).to_have_css('color','rgb(212, 47, 60)')
+        expect(page.locator('#submitOrder')).to_have_css('background-color','rgb(212, 47, 60)')
         page.locator('#quantity').fill('2')
         # The button carries the whole order once the preview is in.
         expect(page.locator('#submitOrder')).to_have_text(re.compile(r'^매수 · 2주 · '))
@@ -147,7 +156,7 @@ with sync_playwright() as p:
         expect(page.locator('#orderEstimate')).to_contain_text('보유 주식2주')
         page.locator('.side-toggle [data-side="sell"]').click()
         expect(page.locator('#side')).to_have_value('sell')
-        expect(page.locator('.side-toggle [data-side="sell"]')).to_have_css('background-color','rgb(31, 95, 209)')
+        expect(page.locator('.side-toggle [data-side="sell"]')).to_have_css('color','rgb(37, 99, 235)')
         expect(page.locator('#submitOrder')).to_have_text(re.compile(r'^매도'))
         page.locator('[data-order-share="0.05"]').click()
         expect(page.locator('#quantity')).to_have_value('0')
@@ -182,18 +191,18 @@ with sync_playwright() as p:
         page.locator('#watchAdd').click()
         expect(page.locator('#toasts')).to_contain_text('관심종목')
         expect(page.locator('#companyInfo')).to_contain_text('배당률')
-        # Trade desk: watchlist | stock (chart, indicators) | order ticket. Phones: stock, then the ticket,
-        # with 매수 / 매도 fixed above the tab bar.
-        chart_box,order_box,company_box=(page.locator(s).bounding_box() for s in ('.chart-panel','.order-panel','.company-panel'))
-        assert abs(company_box['x']-chart_box['x'])<2, (chart_box,company_box)
+        # Trade desk: the watchlist strip on top, the stock (price, chart, company) | the order ticket and wallets.
+        # Phones: price, chart, the ticket, then the company, with 매수 / 매도 fixed above the tab bar.
+        quote_box,chart_box,order_box,company_box=(page.locator(s).bounding_box() for s in ('.quote-card','.chart-card','.order-panel','.company-panel'))
+        assert abs(company_box['x']-chart_box['x'])<2 and quote_box['y']<chart_box['y']<company_box['y'], (quote_box,chart_box,company_box)
+        expect(page.locator('#tradeWatchRows .trade-watch-row[aria-current="true"]')).to_contain_text('애플')
+        expect(page.locator('#tradeWallets')).to_contain_text('USD 지갑')
         if width>=1300:
             side_box=page.locator('.desk-side').bounding_box()
-            assert side_box['x']<chart_box['x']<order_box['x'], (side_box,chart_box,order_box)
-            expect(page.locator('#tradeWatchRows .trade-watch-row[aria-current="true"]')).to_contain_text('애플')
-            expect(page.locator('#tradeWallets')).to_contain_text('USD 지갑')
+            assert side_box['y']<chart_box['y'] and chart_box['x']<order_box['x'], (side_box,chart_box,order_box)
         elif width>=900: assert chart_box['x']<order_box['x'], (chart_box,order_box)
         else:
-            assert order_box['y']>chart_box['y'], (chart_box,order_box)
+            assert chart_box['y']<order_box['y']<company_box['y'], (chart_box,order_box,company_box)
             expect(page.locator('.mobile-trade-bar')).to_be_visible()
             # Same order as the desktop side toggle: 매수 on the left, 매도 on the right.
             expect(page.locator('.mobile-trade-bar button')).to_have_text(['매수','매도'])
@@ -203,7 +212,7 @@ with sync_playwright() as p:
         page.evaluate("location.hash='#watchlist'")
         expect(page.locator('#watchRows .watch-name')).to_contain_text('애플')
         expect(page.locator('#watchRows .watch-price')).to_contain_text('100,000원')
-        expect(page.locator('#watchRows .watch-change .gain').first).to_have_css('color','rgb(196, 47, 58)')
+        expect(page.locator('#watchRows .watch-change .gain').first).to_have_css('color','rgb(212, 47, 60)')
         page.screenshot(path=f'/artifacts/watchlist-{width}.png',full_page=True)
         page.locator('.app-nav a[href="#portfolio"]').click()
         expect(page.locator('#positions')).to_contain_text('AAPL')
@@ -220,20 +229,22 @@ with sync_playwright() as p:
         expect(page.locator('#allocation .allocation-segment')).to_have_count(2)
         expect(page.locator('#allocation .allocation-legend')).to_contain_text('현금')
         expect(page.locator('#allocation .allocation-legend')).to_contain_text('애플')
-        # My profile (bio, tier, rank) comes first, above the summary strip; the allocation is a donut.
-        assert page.evaluate("[...document.querySelector('.portfolio-desk').children].filter(e=>e.id==='myProfile'||e.classList.contains('portfolio-strip')).map(e=>e.id||'strip')")==['myProfile','strip']
+        # My profile heads the right column on a wide screen and the page on a phone; the allocation is a donut.
+        profile_box,strip_box=page.locator('#myProfile').bounding_box(),page.locator('.portfolio-strip').bounding_box()
+        assert (profile_box['x']>strip_box['x'] and abs(profile_box['y']-strip_box['y'])<2) if width>=900 else profile_box['y']<strip_box['y'], (profile_box,strip_box)
         expect(page.locator('#allocation svg circle.allocation-segment')).to_have_count(2)
         expect(page.locator('#allocation .allocation-total-label')).to_have_text('총 자산')
         page.locator('#displayCurrency').select_option('USD')
-        expect(page.locator('#metrics')).to_contain_text('KRW: 998,500원')
+        # Cash has its own card, each wallet in its own currency whatever the display currency.
+        expect(page.locator('#cashWallets')).to_contain_text('998,500원')
         expect(page.locator('#myProfile .profile-stats')).to_contain_text('$')
         page.locator('#displayCurrency').select_option('KRW')
-        expect(page.locator('#metrics')).to_contain_text('USD: $')
-        for text in (page.locator('#metrics').inner_text(),page.locator('#allocation').inner_text(),page.locator('#positions').inner_text()):
+        expect(page.locator('#cashWallets dt')).to_have_text(['USD 지갑','KRW 지갑'])
+        for text in (page.locator('#metrics').inner_text(),page.locator('#cashWallets').inner_text(),page.locator('#allocation').inner_text(),page.locator('#positions').inner_text()):
             assert 'US$' not in text and '₩' not in text, text
-        assert re.search(r'USD: \$[0-9,]+\.[0-9]{2}',page.locator('#metrics').inner_text()) and re.search(r'KRW: [0-9,]+원',page.locator('#metrics').inner_text())
+        assert re.search(r'\$[0-9,]+\.[0-9]{2}',page.locator('#cashWallets dd').first.inner_text()) and re.search(r'^[0-9,]+원$',page.locator('#cashWallets dd').last.inner_text())
         expect(page.locator('#myProfile .profile-stats')).to_contain_text('원')
-        page.locator('#myProfile').get_by_text('소개 수정').click()
+        profile_tool(page,'소개 수정')
         page.locator('#bioInput').fill('장기 투자 위주로 하고 있습니다.')
         page.locator('#myProfile').get_by_text('소개 저장').click()
         expect(page.locator('#myProfile .profile-bio')).to_have_text('장기 투자 위주로 하고 있습니다.')
@@ -251,12 +262,12 @@ with sync_playwright() as p:
         expect(page.locator('#cropDialog')).to_be_hidden()
         expect(page.locator('#myProfile .avatar')).to_have_attribute('src',f'/api/users/{name}/avatar?v=1')
         # Deleting asks first; cancel keeps the photo, confirm removes it.
-        page.locator('#myProfile').get_by_text('사진 삭제').click()
+        profile_tool(page,'사진 삭제')
         expect(page.locator('#photoDeleteDialog')).to_contain_text('프로필 사진을 삭제하시겠습니까?')
         page.locator('#photoDeleteCancel').click()
         expect(page.locator('#photoDeleteDialog')).to_be_hidden()
         expect(page.locator('#myProfile .avatar')).to_have_attribute('src',f'/api/users/{name}/avatar?v=1')
-        page.locator('#myProfile').get_by_text('사진 삭제').click()
+        profile_tool(page,'사진 삭제')
         page.keyboard.press('Escape')
         expect(page.locator('#photoDeleteDialog')).to_be_hidden()
         assert page.evaluate("api('profile').then(p=>p.image_version)")==1
@@ -273,7 +284,7 @@ with sync_playwright() as p:
         expect(page.locator('#myProfile .avatar')).to_have_attribute('src',f'/api/users/{name}/avatar?v=2')
         pixels=page.evaluate('''async url=>{const b=await createImageBitmap(await (await fetch(url)).blob());const c=document.createElement('canvas');c.width=b.width;c.height=b.height;const x=c.getContext('2d');x.drawImage(b,0,0);const at=(px,py)=>[...x.getImageData(px,py,1,1).data].slice(0,3);return {top:at(256,30),center:at(256,256)};}''',f'/api/users/{name}/avatar?v=2')
         assert min(pixels['top'])>235 and min(pixels['center'])<200, pixels
-        page.locator('#myProfile').get_by_text('사진 삭제').click()
+        profile_tool(page,'사진 삭제')
         page.locator('#photoDeleteConfirm').click()
         expect(page.locator('#photoDeleteDialog')).to_be_hidden()
         expect(page.locator('#myProfile .avatar')).to_have_attribute('src','/static/avatar-default.svg')
@@ -288,11 +299,14 @@ with sync_playwright() as p:
         expect(page.locator('#metrics .metric').first.locator('.loss')).to_have_count(1)
         expect(page.locator('#metrics')).to_contain_text('원화 기준')
         expect(page.locator('#metrics')).to_contain_text('달러 기준')
-        expect(page.locator('#positions th').nth(5)).to_have_text('평가손익')
+        # Holdings: one two-line row each, value and profit (return) on the right.
+        expect(page.locator('#positions .holding-row')).to_have_count(1)
+        expect(page.locator('#positions .holding-meta')).to_contain_text('평단')
+        expect(page.locator('#positions .holding-value')).to_contain_text('원')
         expect(page.locator('.holdings-panel .positions-basis')).to_have_text('수익률: 원화 기준')
-        # Portfolio order: allocation, holdings, performance, then fees paid per currency.
+        # Portfolio order: performance, allocation, holdings; then cash and the fees paid per currency.
         order=page.evaluate("[...document.querySelectorAll('.portfolio-desk section.panel .section-heading h2')].map(h=>h.textContent)")
-        assert order[:4]==['자산 비중','보유 종목','내 성과','수수료'], order
+        assert order[:5]==['내 성과','자산 비중','보유 종목','현금','수수료'], order
         expect(page.locator('#feeSummary th')).to_have_text(['항목','달러 (USD)','원화 (KRW)'])
         expect(page.locator('#feeSummary .fee-total')).to_contain_text('총 수수료')
         expect(page.locator('#feeRates')).to_contain_text('토스증권 기준')
@@ -341,7 +355,7 @@ with sync_playwright() as p:
         page.evaluate("rankingCache={...rankingCache,rows:rankingCache.rows.map((r,i)=>i===0?{...r,previous_rank:3}:i===1?{...r,previous_rank:1}:r)};renderRanking()")
         expect(page.locator('#ranking tbody tr').first.locator('.rank-change .rank-arrow.up')).to_have_text('▲')
         expect(page.locator('#ranking tbody tr').first.locator('.rank-change')).to_have_text('▲2')
-        expect(page.locator('#ranking tbody tr').nth(1).locator('.rank-change .rank-arrow.down')).to_have_css('color','rgb(196, 47, 58)')
+        expect(page.locator('#ranking tbody tr').nth(1).locator('.rank-change .rank-arrow.down')).to_have_css('color','rgb(37, 99, 235)')
         expect(page.locator('#ranking tbody tr .rank-medal svg')).to_have_count(min(3,page.locator('#ranking tbody tr').count()))
         expect(page.locator('#ranking tbody tr').first.locator('.rank-medal')).to_have_attribute('aria-label','1위')
         # Phones: the change moves under the badge, and no figure runs past its cell into the next one.
@@ -407,7 +421,7 @@ with sync_playwright() as p:
         page.evaluate("api('orders',{symbol:'AAPL',side:'sell',quantity:1,request_id:uuid()})")
         page.goto('http://browserweb:8000/#history')
         expect(page.locator('#history .trade-side.gain').first).to_have_text('매수')
-        expect(page.locator('#history .trade-side.gain').first).to_have_css('color','rgb(196, 47, 58)')
+        expect(page.locator('#history .trade-side.gain').first).to_have_css('color','rgb(212, 47, 60)')
         expect(page.locator('#history .trade-side.loss').first).to_have_text('매도')
         # A sale shows its realized P&L (name, not code, in the stock column); a purchase shows none.
         expect(page.locator('#history th').nth(8)).to_have_text('실현 손익')
@@ -435,17 +449,17 @@ with sync_playwright() as p:
             page.locator('#headerQuery').fill('AAPL'); expect(page.locator('#headerResults .header-result').first).to_be_visible()
             page.keyboard.press('Enter'); expect(page.locator('#detailTitle')).to_contain_text('애플')
         # Theme: 딥 틸 by default, 다크 아레나 from the header switch, kept after a reload.
-        assert page.evaluate("getComputedStyle(document.documentElement).backgroundColor")=='rgb(243, 244, 243)'
+        assert page.evaluate("getComputedStyle(document.documentElement).backgroundColor")=='rgb(244, 245, 242)'
         expect(page.locator('.brand-logo-light')).to_be_visible(); expect(page.locator('.brand-logo-dark')).to_be_hidden()
         page.locator('#themeToggle').click()
         expect(page.locator('html')).to_have_attribute('data-theme','dark')
-        assert page.evaluate("getComputedStyle(document.documentElement).backgroundColor")=='rgb(18, 20, 23)'
+        assert page.evaluate("getComputedStyle(document.documentElement).backgroundColor")=='rgb(17, 17, 17)'
         expect(page.locator('.brand-logo-dark')).to_be_visible(); expect(page.locator('.brand-logo-light')).to_be_hidden()
         page.reload(); expect(page.locator('html')).to_have_attribute('data-theme','dark')
         for hash_,shot in (('#portfolio','portfolio'),('#ranking','ranking'),('#detail/AAPL','detail')):
             page.goto('http://browserweb:8000/'+hash_);page.wait_for_load_state('networkidle')
             page.screenshot(path=f'/artifacts/dark-{shot}-{width}.png',full_page=True)
-        expect(page.locator('#detailPrice .gain').first).to_have_css('color','rgb(240, 97, 109)')
+        expect(page.locator('#detailPrice .gain').first).to_have_css('color','rgb(255, 107, 116)')
         page.locator('#themeToggle').click()
         expect(page.locator('html')).not_to_have_attribute('data-theme','dark')
         # Every page follows one amount format: "$1,000.00" and "1,000원".
@@ -464,7 +478,8 @@ with sync_playwright() as p:
     page.locator('#username').fill('browser_admin')
     page.locator('#password').fill('browser-fixture-password')
     page.locator('#loginSubmit').click()
-    expect(page.locator('#adminNav')).to_be_visible()
+    # Phones: no tab bar for an administrator, the admin menu is the row of pills.
+    expect(page.locator('#adminNav')).to_be_hidden()
     expect(page.locator('[data-page="admin"]')).to_be_visible()
     # Signing in lands on the dashboard at /admin; each job has its own page and URL.
     page.wait_for_url('**/admin')
@@ -472,7 +487,7 @@ with sync_playwright() as p:
     expect(page.locator('#adminOverview')).to_contain_text('사용자')
     expect(page.locator('#adminRecentAudit')).to_be_visible()
     expect(page.locator('#adminDashMarket .admin-market-row').first).to_be_visible()
-    expect(page.locator('.app-nav a:visible')).to_have_count(1)
+    expect(page.locator('.app-nav a:visible')).to_have_count(0)
     expect(page.locator('#adminMenu a')).to_have_count(7)
     expect(page.locator('#adminManage')).to_be_hidden()
     page.locator('#adminMenu a[href="/admin/users"]').click()
@@ -678,10 +693,10 @@ with sync_playwright() as p:
         assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth+1')
         # One snapshot: the quote and chart above may still change the page height.
         grid,*boxes=page.evaluate("[document.querySelector('#companyInfo .valuation-grid'),...document.querySelectorAll('#companyInfo .valuation-item')].map(n=>{const r=n.getBoundingClientRect();return {y:r.y,width:r.width};})")
-        if width<600:   # three per row, as in the mobile design: 시가총액 PER PBR, then ROE PSR
+        if width<600:   # two per row on a phone: 시가총액 PER, PBR ROE, PSR 배당률
+            assert boxes[0]['y']==boxes[1]['y']<boxes[2]['y']==boxes[3]['y']<boxes[4]['y'],boxes
+        else:           # three per row: 시가총액 PER PBR, then ROE PSR 배당률
             assert boxes[0]['y']==boxes[1]['y']==boxes[2]['y']<boxes[3]['y']==boxes[4]['y'],boxes
-        else:
-            assert len({round(b['y']) for b in boxes})==1,boxes
         page.screenshot(path=f'/artifacts/valuation-{width}.png',full_page=True)
         # A late company answer for the previous symbol never replaces the current one.
         held=[]
