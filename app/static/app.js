@@ -94,6 +94,22 @@ function renderPortfolio(){const p=portfolioCache;if(!p)return;
 }
 // 현금: each wallet in its own currency, whatever the display currency.
 function renderCash(w){const box=$('cashWallets');if(!box)return;box.replaceChildren(...['USD','KRW'].flatMap(c=>[node('dt',c+' 지갑'),node('dd',nativeMoney(w?.[c],c))]));}
+// The KRW-basis profit in two parts: what investing made (at today's rate) and what the USD/KRW move
+// did to the dollar start money since the account's first rate. The parts add up to the profit.
+window.fxSplitText=function(p){
+  // Nothing to split while the rate is where the account started.
+  if(p.initial_fx_effect==null||p.other_pnl==null||!p.initial_usd||!p.initial_equity||!p.fx?.rate||Math.round(Number(p.initial_fx_effect))===0)return null;
+  const won=v=>(Math.round(Number(v))>0?'+':'')+nativeMoney(v,'KRW'),rate=v=>Number(v).toLocaleString('ko-KR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  return {invest:['투자 손익',won(p.other_pnl)],fx:['환율 영향',won(p.initial_fx_effect)],
+    title:`환율 영향: 시작 자금 ${nativeMoney(p.initial_usd,'USD')}을 처음 환율 ${rate(Number(p.initial_equity)/Number(p.initial_usd))}원${p.initial_fx_date?'('+p.initial_fx_date+')':''}과 지금 기준환율 ${rate(p.fx.rate)}원으로 원화 환산한 차이`};
+};
+function fxSplit(p){
+  const t=fxSplitText(p);if(!t)return null;
+  const box=node('small',null,'metric-sub metric-split');box.title=t.title;
+  const part=([label,text],value)=>{const s=node('span',null,'split-part');s.append(label+' ',signed(value,text));return s;};
+  box.append(part(t.invest,p.other_pnl),part(t.fx,p.initial_fx_effect));
+  return box;
+}
 // My portfolio: the total on top, then profit and the return in both bases; cash has its own card.
 // Public profiles keep the four-cell strip with cash.
 function renderMetrics(target,p,{cash=true}={}){
@@ -101,12 +117,14 @@ function renderMetrics(target,p,{cash=true}={}){
   const basis=returnBasis(),other=basis==='USD'?'KRW':'USD';
   const pnl=basis==='USD'?p.pnl_usd:p.pnl,ret=accountReturn(p,basis),otherRet=accountReturn(p,other);
   const total=['총 평가금액',equityTone(viewMoney(p.equity,'KRW'),pnl,basis==='USD'?.01:1)];
-  const fields=cash?[total,['평가손익',nativeMoney(pnl,basis),pnl,basisLabel(basis)],
+  // The KRW basis carries the USD/KRW move on the dollar start money; it is shown apart from investing.
+  const split=basis==='KRW'?fxSplit(p):null;
+  const fields=cash?[total,['평가손익',nativeMoney(pnl,basis),pnl,split||basisLabel(basis),split?basisLabel(basis):null],
     ['평가 수익률',signedPctText(ret),ret,`${basisLabel(other)} ${signedPctText(otherRet)}`],['현금',cashLines(p.wallets)]]
-    :[total,['평가손익',nativeMoney(pnl,basis),pnl,null,basisLabel(basis)],['평가 수익률',signedPctText(ret),ret,null,basisLabel(basis)],['평가 수익률',signedPctText(otherRet),otherRet,null,basisLabel(other)]];
+    :[total,['평가손익',nativeMoney(pnl,basis),pnl,split,basisLabel(basis)],['평가 수익률',signedPctText(ret),ret,null,basisLabel(basis)],['평가 수익률',signedPctText(otherRet),otherRet,null,basisLabel(other)]];
   target.classList.toggle('metrics-total',!cash);
   // The basis ('원화 기준') is its own span: after a '·' on wide screens, on its own line on phones.
-  for(const [name,value,change,sub,basisText] of fields){const box=document.createElement('div');box.className='metric';const label=document.createElement('small');label.textContent=name;if(basisText)label.append(node('span',basisText,'metric-basis'));let v;if(value instanceof Node){v=document.createElement('span');v.append(value);}else v=signed(change,value);v.classList.add('metric-value');box.append(label,v);if(sub)box.append(node('small',sub,'metric-sub'));target.append(box);}
+  for(const [name,value,change,sub,basisText] of fields){const box=document.createElement('div');box.className='metric';const label=document.createElement('small');label.textContent=name;if(basisText)label.append(node('span',basisText,'metric-basis'));let v;if(value instanceof Node){v=document.createElement('span');v.append(value);}else v=signed(change,value);v.classList.add('metric-value');box.append(label,v);if(sub)box.append(sub instanceof Node?sub:node('small',sub,'metric-sub'));target.append(box);}
   if(!cash)unitFigure(target.querySelector('.metric-value span'));
 }
 // Ranks 1-3 get a medal: ring, laurel wings, a star and a ribbon carrying 3/2/1 stars.
