@@ -78,7 +78,7 @@ async function openPublicPage(segment){
 }
 // The previous symbol's quote, company, preview and chart are cleared before anything loads.
 async function openDetailPage(segment){
-  currentSymbol=decodeURIComponent(segment);chartRows=[];drawChart();
+  currentSymbol=decodeURIComponent(segment);chartRows=[];drawChart();syncWatchStar();
   detailCompany=null;detailQuote=null;orderPreview=null;
   $('symbol').value=currentSymbol;maxMode=false;$('reservePrice').value='';
   loadCompany(currentSymbol);renderReserves();openTradeSide();
@@ -110,7 +110,7 @@ function stockTable(target,rows,popular=false){
  if(window.isAdmin)[['코드','admin-diagnostic'],['시세 시각','admin-diagnostic'],['데이터 상태','admin-diagnostic']].forEach(([label,cls])=>head.append(node('th',label,cls)));
  rows.forEach((r,i)=>{const tr=node('tr'),first=node('td',null,'stock-name'),b=node('button',r.name||r.symbol,'text-button stock-link');b.addEventListener('click',()=>openStock(r.symbol));
    const tools=node('div',null,'stock-tools'),watch=node('button',r.watchlisted?'★':'☆','watch-toggle');watch.type='button';watch.setAttribute('aria-label',(r.name||r.symbol)+' 관심종목');watch.setAttribute('aria-pressed',String(!!r.watchlisted));
-   watch.addEventListener('click',async()=>{watch.disabled=true;try{if(r.watchlisted)await removeWatch(r.symbol);else await api('watchlist',{symbol:r.symbol});r.watchlisted=!r.watchlisted;watch.textContent=r.watchlisted?'★':'☆';watch.setAttribute('aria-pressed',String(r.watchlisted));}catch(e){message(e.message);}finally{watch.disabled=false;}});
+   watch.addEventListener('click',async()=>{watch.disabled=true;try{if(r.watchlisted)await removeWatch(r.symbol);else await api('watchlist',{symbol:r.symbol});r.watchlisted=!r.watchlisted;watch.textContent=r.watchlisted?'★':'☆';watch.setAttribute('aria-pressed',String(r.watchlisted));watchlist().catch(()=>{});}catch(e){message(e.message);}finally{watch.disabled=false;}});
    tools.append(watch,node('span',i+1,'mobile-rank'));first.append(tools,b,node('small',r.symbol,'stock-code'));
    if(window.isAdmin){const meta=node('details',null,'admin-meta-mobile');meta.append(node('summary','시세 진단'),node('span',r.symbol),node('span',r.data_time?new Date(r.data_time).toLocaleString():'시각 없음'),node('span',r.data_status||'상태 없음'));first.append(meta);}
    tr.append(node('td',i+1,'rank-number'),first,node('td',displayedPrice(r),'price-cell'));const change=Number(r.change_pct);tr.append(node('td',r.change_pct==null?'—':`${change>0?'+':''}${pct(change)}`,'change-cell '+(change>0?'gain':change<0?'loss':'flat')),node('td',displayedTurnover(r),'turnover-cell'),node('td',popular?r.score:r.volume==null?'—':Number(r.volume).toLocaleString(),'volume-cell'),node('td',r.market==='KR'||r.currency==='KRW'?'한국':'미국','market-cell'));
@@ -434,9 +434,22 @@ document.querySelectorAll('.side-toggle [data-side]').forEach(b=>b.addEventListe
 $('side').addEventListener('change',()=>setSide($('side').value));
 window.orderSymbolLabel=function(){return detailCompany?.name||detailQuote?.name||$('symbol').value;};
 ['quantity','side','symbol'].forEach(id=>$(id).addEventListener('input',()=>{maxMode=false;++previewVersion;orderPreview=null;$('submitOrder').disabled=true;clearTimeout(previewTimer);previewTimer=setTimeout(()=>estimate(),200);}));
-handle('watchAdd','click',async()=>{await api('watchlist',{symbol:currentSymbol});toast('관심종목에 추가했습니다.','success');try{await watchlist();}catch{}});
+// The detail star shows whether this stock is in the watchlist, and toggles it.
+function watched(symbol){return watchCache.some(r=>r.symbol===symbol);}
+function syncWatchStar(){
+  const star=$('watchAdd'),on=watched(currentSymbol),label=on?'관심종목에서 삭제':'관심종목 추가';
+  star.setAttribute('aria-pressed',String(on));star.setAttribute('aria-label',label);star.title=label;
+}
+handle('watchAdd','click',async()=>{
+  const symbol=currentSymbol,on=watched(symbol);
+  if(on)await removeWatch(symbol);else await api('watchlist',{symbol});
+  watchCache=on?watchCache.filter(r=>r.symbol!==symbol):[...watchCache,{symbol}];syncWatchStar();
+  toast(on?'관심종목에서 삭제했습니다.':'관심종목에 추가했습니다.','success');
+  try{await watchlist();}catch{}
+});
 async function watchlist(){watchCache=await api('watchlist');renderWatchlist();}
 function renderWatchlist(){
+  syncWatchStar();
   window.renderTradeSide?.();
   $('watchRows').replaceChildren();
   const count=$('watchCount');count.replaceChildren(node('strong',String(watchCache.length)),' / 50종목');

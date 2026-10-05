@@ -206,8 +206,19 @@ with sync_playwright() as p:
         expect(page.locator('#reserveFields')).to_be_hidden()
         page.locator('.side-toggle [data-side="sell"]').click()
         expect(page.locator('#submitOrder')).to_have_text(re.compile(r'^매도'))
-        page.locator('#watchAdd').click()
-        expect(page.locator('#toasts')).to_contain_text('관심종목')
+        # The star is an outline until the stock is in the watchlist, like the market list's ☆/★, and toggles it.
+        star=page.locator('#watchAdd')
+        expect(star).to_have_attribute('aria-pressed','false')
+        assert page.evaluate("getComputedStyle(document.querySelector('#watchAdd svg')).fill")=='none'
+        star.click()
+        expect(star).to_have_attribute('aria-pressed','true')
+        expect(page.locator('#toasts')).to_contain_text('관심종목에 추가했습니다.')
+        assert page.evaluate("getComputedStyle(document.querySelector('#watchAdd svg')).fill")!='none'
+        star.click()
+        expect(star).to_have_attribute('aria-pressed','false')
+        expect(page.locator('#toasts')).to_contain_text('관심종목에서 삭제했습니다.')
+        star.click()
+        expect(star).to_have_attribute('aria-pressed','true')
         expect(page.locator('#companyInfo')).to_contain_text('배당률')
         # Trade desk: the watchlist strip on top, the stock (price, chart, company) | the order ticket and wallets.
         # Phones: price, chart, the ticket, then the company, with 매수 / 매도 fixed above the tab bar.

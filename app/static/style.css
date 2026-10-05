@@ -792,8 +792,12 @@ body:has(#dashboard[hidden]) .watch-strip { display: none; }
 .trade-title h1 { font-size: var(--fs-2xl); margin: 0; line-height: 1.3; overflow-wrap: anywhere; }
 .trade-code { font-size: var(--fs-sm); color: var(--muted); }
 .stock-badge-slot:empty { display: none; }
-.watch-star { color: var(--star); }
-.watch-star svg { fill: currentColor; stroke: currentColor; stroke-width: 1.2; width: 20px; height: 20px; }
+/* Like the market list: an outline star until the stock is in the watchlist, then a filled one. */
+.watch-star { color: var(--faint); }
+.watch-star:hover { color: var(--star); }
+.watch-star svg { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linejoin: round; width: 20px; height: 20px; }
+.watch-star[aria-pressed="true"] { color: var(--star); }
+.watch-star[aria-pressed="true"] svg { fill: currentColor; }
 .detail-price { margin: 18px 0 0; }
 .detail-price-head { display: flex; align-items: center; gap: 10px; color: var(--ink-2); font-size: var(--fs-base); font-weight: 600; }
 .detail-price-main { margin: 2px 0 0; }
