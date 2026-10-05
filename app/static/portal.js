@@ -1083,11 +1083,14 @@ function seoulTimeOf(hour,minute,zone){
   const target=Date.UTC(+parts.year,+parts.month-1,+parts.day,hour,minute)-offset;
   return new Date(target).toLocaleTimeString('ko-KR',{timeZone:'Asia/Seoul',hour:'2-digit',minute:'2-digit',hourCycle:'h23'});
 }
+// Every session orders can fill in (app/kr_session.py, app/us_session.py), in each market's own order.
+const MARKET_SESSIONS=[['한국','Asia/Seoul',[['프리장',8,0,8,50],['정규장',9,0,15,30],['애프터장',15,40,20,0]]],
+  ['미국','America/New_York',[['프리장',4,0,9,30],['정규장',9,30,16,0],['애프터장',16,0,20,0],['데이마켓',20,0,4,0]]]];
 function renderMarketHours(){
-  const rows=[['한국 정규장',`${seoulTimeOf(9,0,'Asia/Seoul')}–${seoulTimeOf(15,30,'Asia/Seoul')}`],
-    ['미국 정규장',`${seoulTimeOf(9,30,'America/New_York')}–${seoulTimeOf(16,0,'America/New_York')}`],
-    ['표시 통화',$('displayCurrency').selectedOptions[0]?.textContent||'']];
-  $('marketHours').replaceChildren(...rows.flatMap(([k,v])=>[node('dt',k),node('dd',v)]));
+  const range=(zone,[,h1,m1,h2,m2])=>`${seoulTimeOf(h1,m1,zone)}–${seoulTimeOf(h2,m2,zone)}`;
+  $('marketHours').replaceChildren(...MARKET_SESSIONS.flatMap(([market,zone,sessions])=>[node('dt',market,'market-hours-group'),
+    ...sessions.flatMap(x=>[node('dt',x[0]),node('dd',range(zone,x))])]),
+    node('dt','표시 통화','market-hours-currency'),node('dd',$('displayCurrency').selectedOptions[0]?.textContent||'','market-hours-currency'));
 }
 window.addEventListener('displaycurrencychange',()=>{if($('marketHours'))renderMarketHours();});
 
