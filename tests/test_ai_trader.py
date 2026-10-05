@@ -125,3 +125,19 @@ def test_gemini_runs_through_agy_pinned_to_a_gemini_model(monkeypatch):
     # Antigravity also serves other vendors' models, so ai_gemini always names a Gemini one.
     assert cmd[0] == 'agy' and cmd[cmd.index('--model') + 1].startswith('gemini-') and cmd[-1].endswith('prompt')
     assert ai_trader.AGENTS['gemini']['username'] == 'ai_gemini'
+
+
+def test_claude_and_gpt_models_are_pinned_not_left_to_cli_defaults(monkeypatch, tmp_path):
+    seen = []
+    class Done:
+        returncode, stderr = 0, ''
+        stdout = json.dumps({'result': '{}', 'is_error': False})
+    def run(cmd, **kw):
+        seen.append(cmd)
+        if cmd[0] == 'codex': Path(cmd[cmd.index('-o') + 1]).write_text('{}')
+        return Done()
+    monkeypatch.setattr(ai_trader.subprocess, 'run', run)
+    ai_trader.ASK['claude']('p'); ai_trader.ASK['gpt']('p')
+    claude, codex = seen
+    assert claude[claude.index('--model') + 1] == 'claude-sonnet-5-5' and claude[claude.index('--effort') + 1] == 'medium'
+    assert codex[codex.index('-m') + 1] == 'gpt-6.1-sol' and 'model_reasoning_effort="medium"' in codex

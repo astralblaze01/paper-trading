@@ -67,6 +67,12 @@ AGENTS = {
     'gemini': {'username': 'ai_gemini', 'name': 'Gemini',
                'bio': '🤖 Gemini 기반 AI 트레이더 · 매시간 스스로 시장을 분석해 사고팝니다. 사람의 개입 없이 운용됩니다.'},
 }
+# Each AI's model is pinned here, not left to the CLI's defaults or the user's own config,
+# so the three compete on a known footing. Override with the environment variables.
+CLAUDE_MODEL = os.getenv('AI_CLAUDE_MODEL', 'claude-sonnet-5-5')
+CLAUDE_EFFORT = os.getenv('AI_CLAUDE_EFFORT', 'medium')
+GPT_MODEL = os.getenv('AI_GPT_MODEL', 'gpt-6.1-sol')   # needs codex-cli 0.160+
+GPT_EFFORT = os.getenv('AI_GPT_EFFORT', 'medium')
 GEMINI_MODEL = os.getenv('AI_GEMINI_MODEL', 'gemini-3.1-pro-high')
 SYMBOL = re.compile(r'^(KR:\d{6}|[A-Z][A-Z0-9.\-]{0,9})$')
 RESEARCH_ROUNDS = 2      # rounds of "show me more" before the AI must decide
@@ -293,7 +299,8 @@ SYSTEM = 'You are an autonomous trading agent. Answer with exactly one JSON obje
 
 
 def ask_claude(prompt):
-    out = subprocess.run(['claude', '-p', '--output-format', 'json', '--tools', '', '--system-prompt', SYSTEM,
+    out = subprocess.run(['claude', '-p', '--output-format', 'json', '--model', CLAUDE_MODEL, '--effort', CLAUDE_EFFORT,
+                          '--tools', '', '--system-prompt', SYSTEM,
                           '--no-session-persistence', '--setting-sources', ''],
                          input=prompt, capture_output=True, text=True, timeout=AI_TIMEOUT, cwd=tempfile.gettempdir())
     if out.returncode: raise RuntimeError(f'claude failed: {(out.stderr or out.stdout)[-500:]}')
@@ -306,6 +313,7 @@ def ask_gpt(prompt):
     with tempfile.TemporaryDirectory() as work:
         answer = Path(work) / 'answer.txt'
         out = subprocess.run(['codex', 'exec', '--skip-git-repo-check', '--ephemeral', '-s', 'read-only', '-C', work,
+                              '-m', GPT_MODEL, '-c', f'model_reasoning_effort="{GPT_EFFORT}"',
                               '--color', 'never', '-o', str(answer), '-'],
                              input=SYSTEM + '\n\n' + prompt, capture_output=True, text=True, timeout=AI_TIMEOUT)
         if out.returncode: raise RuntimeError(f'codex failed: {(out.stderr or out.stdout)[-500:]}')
