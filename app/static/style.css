@@ -94,10 +94,7 @@
   --medal-3-rim: #b56a2e;  --medal-3-face: #efcaa6;  --medal-3-ink: #7a4219;  --medal-3-leaf: #cf8b50;
   --medal-ribbon: var(--accent-fill);
   --medal-gold: var(--medal-1-rim);  --medal-silver: var(--medal-2-rim);  --medal-bronze: var(--medal-3-rim);
-  --top1-wash: linear-gradient(90deg, #fbeccb 0%, #fdf6e6 38%, rgba(255,255,255,0) 82%);
-  --top2-wash: linear-gradient(90deg, #e7ebf0 0%, #f3f5f8 38%, rgba(255,255,255,0) 82%);
-  --top3-wash: linear-gradient(90deg, #f5e2d2 0%, #fbf1e9 38%, rgba(255,255,255,0) 82%);
-  --top-hover: rgba(255,255,255,.35);
+  --top1-tint: #fcf3dc;  --top2-tint: #f0f3f5;  --top3-tint: #f9ece1;   /* flat row fills for 1–3 */
   --leader-bg: #fffbf1;  --leader-edge: #f3dfae;
   --tier-bronze: #ad5600;  --tier-silver: #435f7a;  --tier-gold: #d38a00;  --tier-platinum: #1ca77a;
   --tier-diamond: #0092d6;  --tier-master: #9433e0;  --tier-grandmaster: #d4143c;
@@ -172,10 +169,7 @@
   --badge-kr-bg: #1e2638;  --badge-kr-ink: #9db8ff;
   --badge-us-bg: #17301f;  --badge-us-ink: #7ddca6;
   --badge-etf-bg: #33291a; --badge-etf-ink: #f0c77a;
-  --top1-wash: linear-gradient(90deg, rgba(242,163,27,.22) 0%, rgba(242,163,27,.08) 38%, rgba(0,0,0,0) 82%);
-  --top2-wash: linear-gradient(90deg, rgba(174,182,191,.2) 0%, rgba(174,182,191,.07) 38%, rgba(0,0,0,0) 82%);
-  --top3-wash: linear-gradient(90deg, rgba(200,105,28,.22) 0%, rgba(200,105,28,.08) 38%, rgba(0,0,0,0) 82%);
-  --top-hover: rgba(255,255,255,.04);
+  --top1-tint: rgba(242,163,27,.14);  --top2-tint: rgba(174,182,191,.12);  --top3-tint: rgba(200,105,28,.15);
   --leader-bg: #2a2414;  --leader-edge: #5a4722;
   --tier-bronze: #e59a5c;  --tier-silver: #9fb4c9;
   --chart-grid: #333333;
@@ -1130,7 +1124,8 @@ body:has(#dashboard[hidden]) .watch-strip { display: none; }
 .public-page .profile-card .avatar-large, .public-page .profile-card .profile-media > .avatar-large { width: 88px; height: 88px; }
 
 /* ---- Ranking: the asset ranking (rank, change, user, total, return) beside the weekly
-   report and 내 위치. Ranks 1–3 carry a medal and a wash of its metal; my row is tinted. ---- */
+   report and 내 위치. Fill means medal, line means me: ranks 1–3 carry a medal and a flat tint of
+   its metal; my row, at any rank, is outlined in the accent with a 나 tag, so the two never replace each other. ---- */
 .ranking-desk { display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 32px; align-items: start; }
 .ranking-desk .panel { margin: 0; }
 .ranking-side { display: grid; gap: 24px; min-width: 0; }
@@ -1138,13 +1133,22 @@ body:has(#dashboard[hidden]) .watch-strip { display: none; }
 .ranking-panel .section-heading { margin: 0 0 6px; }
 .ranking-panel #rankingStatus { font-size: var(--fs-sm); color: var(--ink-2); }
 .ranking-foot { margin: 0; padding: 14px 0; border-top: 1px solid var(--border); font-size: var(--fs-xs); color: var(--muted); }
+/* The table reaches 12px into the panel padding on each side, so tinted and outlined rows get an inner edge
+   while every column keeps the panel's alignment. Separate borders keep a small gap between tinted rows. */
+#ranking { --rank-edge: 12px; margin: 0 calc(-1 * var(--rank-edge)); }
+#ranking table { border-collapse: separate; border-spacing: 0 4px; }
 #ranking td, #ranking th { padding: 10px 10px; }
-#ranking th:first-child, #ranking td:first-child { padding-left: 0; }
-#ranking th:last-child, #ranking td:last-child { padding-right: 0; }
+#ranking th:first-child, #ranking td:first-child { padding-left: var(--rank-edge); }
+#ranking th:last-child, #ranking td:last-child { padding-right: var(--rank-edge); }
 #ranking tbody td { font-size: var(--fs-md); font-weight: 700; }
-#ranking tr.is-me td { background: var(--accent-soft); }
-#ranking tr.is-me td:first-child { box-shadow: -12px 0 0 var(--accent-soft); }
-#ranking tr.is-me td:last-child { box-shadow: 12px 0 0 var(--accent-soft); }
+#ranking tr.top-rank td, #ranking tr.is-me td { border-bottom-color: transparent; }
+#ranking tr.top-rank td:first-child, #ranking tr.is-me td:first-child { border-radius: 16px 0 0 16px; }
+#ranking tr.top-rank td:last-child, #ranking tr.is-me td:last-child { border-radius: 0 16px 16px 0; }
+#ranking tr.is-me td { box-shadow: inset 0 2px 0 var(--accent), inset 0 -2px 0 var(--accent); }
+#ranking tr.is-me td:first-child { box-shadow: inset 2px 0 0 var(--accent), inset 0 2px 0 var(--accent), inset 0 -2px 0 var(--accent); }
+#ranking tr.is-me td:last-child { box-shadow: inset -2px 0 0 var(--accent), inset 0 2px 0 var(--accent), inset 0 -2px 0 var(--accent); }
+.rank-name { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 2px 6px; min-width: 0; }
+.me-tag { display: inline-flex; align-items: center; padding: 1px 8px; border-radius: var(--radius-pill); background: var(--accent-fill); color: var(--on-accent); font-size: var(--fs-2xs); font-weight: 700; line-height: 1.5; }
 /* 내 위치: a soft mint card with the tier ladder. */
 .my-standing { background: var(--standing-bg); }
 .my-standing .section-heading { margin-bottom: 12px; }
@@ -1183,12 +1187,10 @@ body:has(#dashboard[hidden]) .watch-strip { display: none; }
 .rank-badge.rank-medal { width: 40px; height: 46px; }
 .rank-medal svg { width: 100%; height: 100%; display: block; }
 .rank-medal text { font-family: var(--font-sans); }   /* in CSS, not a style attribute: CSP style-src 'self' */
-.top-rank-1 { --rank-tone: var(--medal-gold); --rank-wash: var(--top1-wash); }
-.top-rank-2 { --rank-tone: var(--medal-silver); --rank-wash: var(--top2-wash); }
-.top-rank-3 { --rank-tone: var(--medal-bronze); --rank-wash: var(--top3-wash); }
-#ranking tr.top-rank { background: var(--rank-wash); }
-#ranking tr.top-rank td { background: transparent; }
-#ranking tr.top-rank:hover td { background: var(--top-hover); }
+.top-rank-1 { --rank-tone: var(--medal-gold); --rank-tint: var(--top1-tint); }
+.top-rank-2 { --rank-tone: var(--medal-silver); --rank-tint: var(--top2-tint); }
+.top-rank-3 { --rank-tone: var(--medal-bronze); --rank-tint: var(--top3-tint); }
+#ranking tr.top-rank td, #ranking tr.top-rank:hover td { background: var(--rank-tint); }
 #ranking .user-link { font-size: var(--fs-md); overflow-wrap: anywhere; white-space: normal; text-decoration: none; }
 #ranking .user-link:hover { text-decoration: underline; }
 #ranking .avatar-small { width: 44px; height: 44px; }
@@ -1208,7 +1210,10 @@ body:has(#dashboard[hidden]) .watch-strip { display: none; }
 @media (max-width: 600px) {
   /* Figures keep their full width and never wrap; the user column takes what is left. */
   .ranking-panel { padding: 20px 16px 4px; }
+  #ranking { --rank-edge: 8px; }
   #ranking td, #ranking th { padding: 12px 4px; white-space: normal; font-size: var(--fs-sm); }
+  #ranking th:first-child, #ranking td:first-child { padding-left: var(--rank-edge); }
+  #ranking th:last-child, #ranking td:last-child { padding-right: var(--rank-edge); }
   #ranking td:nth-child(n+4) { white-space: nowrap; }
   #ranking th:first-child { width: 36px; }
   #ranking td:nth-child(2), #ranking th:nth-child(2) { display: none; }

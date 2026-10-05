@@ -394,7 +394,10 @@ with sync_playwright() as p:
         expect(page.locator('#ranking tbody tr').first).to_have_class(re.compile(r'\btop-rank-1\b'))
         expect(page.locator('#ranking tbody tr').first.locator('.tier-icon')).to_have_attribute('src','/static/tiers/icons/grandmaster.svg')
         expect(page.locator('#ranking tbody tr').first.locator('.user-link')).to_have_css('color','rgb(212, 20, 60)')
-        expect(page.locator('#ranking tbody tr').first).not_to_have_css('background-image','none')
+        expect(page.locator('#ranking tbody tr').first.locator('td').first).not_to_have_css('background-color','rgba(0, 0, 0, 0)')
+        # My row: outlined with a 나 tag at any rank, and only there.
+        assert page.locator('#ranking .me-tag').count()==page.locator('#ranking tbody tr.is-me').count()
+        assert page.locator('#ranking tbody tr:not(.is-me) .me-tag').count()==0
         # The daily arrow: rendered from the row's morning place.
         page.evaluate("rankingCache={...rankingCache,rows:rankingCache.rows.map((r,i)=>i===0?{...r,previous_rank:3}:i===1?{...r,previous_rank:1}:r)};renderRanking()")
         expect(page.locator('#ranking tbody tr').first.locator('.rank-change .rank-arrow.up')).to_have_text('▲')

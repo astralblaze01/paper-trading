@@ -147,7 +147,7 @@ function renderRanking(){if(!rankingCache)return;
   }
   // Photo in a ring of the tier color, the name in that color over the tier's gem and name.
   const person=x=>{const box=document.createElement('span');box.className='rank-user';if(x.tier)box.dataset.tier=x.tier;if(window.avatar){const photo=avatar(x.username,x.image_version,'small');if(x.tier)photo.classList.add('ring-'+x.tier);box.append(photo);}
-    const who=node('span',null,'rank-who'),link=userLink(x.username);if(x.tier)link.classList.add('tier-text-'+x.tier);who.append(link);
+    const who=node('span',null,'rank-who'),name=node('span',null,'rank-name'),link=userLink(x.username);if(x.tier)link.classList.add('tier-text-'+x.tier);name.append(link);if(x.username===window.sessionUsername)name.append(node('span','나','me-tag'));who.append(name);
     if(x.tier&&window.tierIcon){const t=node('small',null,'rank-tier tier-text-'+x.tier);t.append(tierIcon(x.tier),window.TIER_LABELS?.[x.tier]||x.tier);who.append(t);}
     box.append(who);return box;};
   // Ranked by USD value; shown in the selected display currency at the snapshot's rate.
