@@ -77,10 +77,6 @@ def download(url):
     return payload
 
 
-class ArticleParser(ET.XMLParser):
-    pass
-
-
 class TextExtractor:
     """Small HTML parser that keeps readable paragraphs without executing HTML."""
     from html.parser import HTMLParser
