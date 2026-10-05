@@ -108,6 +108,18 @@ with sync_playwright() as p:
         page.locator('[data-asset="kr_bond"]').click()
         expect(page.locator('#exploreRows')).to_contain_text('Kodex 국고채3년')
         expect(page.locator('#exploreRows')).to_contain_text('억원')
+        if width>=900:
+            # Regression: the name cell was itself a grid, so it stopped being a table cell and
+            # the hovered row's tint broke off in a white gap between the name and the price.
+            row=page.locator('#exploreRows tbody tr').first
+            row.hover()
+            cells=row.evaluate("""tr=>[...tr.cells].map(td=>{const b=td.getBoundingClientRect();
+              return {display:getComputedStyle(td).display,bg:getComputedStyle(td).backgroundColor,left:b.left,right:b.right};})""")
+            assert all(c['display']=='table-cell' for c in cells),cells
+            assert len({c['bg'] for c in cells})==1 and cells[0]['bg'] not in ('rgba(0, 0, 0, 0)','transparent'),cells
+            box=row.bounding_box()
+            assert all(abs(a['right']-b['left'])<1 for a,b in zip(cells,cells[1:])),cells
+            assert abs(cells[0]['left']-box['x'])<1 and abs(cells[-1]['right']-box['x']-box['width'])<1,(cells,box)
         page.locator('[data-asset="kr"]').click()
         expect(page.locator('#exploreRows')).to_contain_text('삼성전자')
         if width<900:

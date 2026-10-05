@@ -681,8 +681,9 @@ footer { max-width: 1344px; margin: 0 auto; padding: 16px 32px 28px; display: fl
 #exploreRows td.turnover-cell, #exploreRows td.volume-cell, #exploreRows td.market-cell { color: var(--ink-2); }
 #exploreRows td.status-cell { font-size: var(--fs-2xs); color: var(--muted); }
 #exploreRows .text-button { text-align: left; white-space: normal; line-height: 1.3; color: var(--ink-strong); font-size: var(--fs-md); font-weight: 700; padding: 0; }
-/* Name cell: the star, then the name over its code. */
-#exploreRows td.stock-name { display: grid; grid-template-columns: 40px minmax(0, 1fr); align-items: center; column-gap: 4px; }
+/* Name cell: the star, then the name over its code. The grid sits inside the cell: a td
+   that is itself a grid stops being a table cell, and the hovered row's tint breaks off. */
+#exploreRows .stock-name-box { display: grid; grid-template-columns: 40px minmax(0, 1fr); align-items: center; column-gap: 4px; }
 #exploreRows .stock-tools { grid-row: span 2; }
 .stock-code { display: block; color: var(--muted); font-size: var(--fs-xs); font-weight: 400; line-height: 1.3; }
 .stock-tools { display: inline-flex; align-items: center; }
@@ -704,7 +705,8 @@ footer { max-width: 1344px; margin: 0 auto; padding: 16px 32px 28px; display: fl
   #exploreRows tbody tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "name price" "name change" "turnover turnover" "volume volume"; gap: 2px 12px; padding: 16px 0; border-bottom: 1px solid var(--border); }
   #exploreRows tbody tr:hover td { background: transparent; }
   #exploreRows td { border: 0; padding: 0; width: auto; min-width: 0; white-space: normal; }
-  #exploreRows td.stock-name { grid-area: name; display: grid; grid-template-columns: 36px minmax(0, 1fr); padding: 0; }
+  #exploreRows td.stock-name { grid-area: name; padding: 0; }
+  #exploreRows .stock-name-box { grid-template-columns: 36px minmax(0, 1fr); }
   #exploreRows .stock-link { display: block; font-size: var(--fs-md); line-height: 1.4; font-weight: 700; padding: 2px 0; }
   #exploreRows .stock-tools { display: flex; flex-direction: column; gap: 0; margin: 0; }
   #exploreRows .watch-toggle { min-height: 34px; }
