@@ -85,7 +85,7 @@ with sync_playwright() as p:
         page.locator('[data-fx-share="100"]').click()
         expect(page.locator('#fxAmount')).to_have_value('99000')
         page.locator('.app-nav a[href="#explore"]').click()
-        expect(page.locator('#exploreMarkets button')).to_have_count(5)
+        expect(page.locator('#exploreMarkets button')).to_have_text(['국내주식','해외주식','국내채권 ETF','해외채권 ETF','금 ETF','배당주'])
         # Market chips and the search box: equally tall, and level when they share a row.
         chip,query,search=(page.locator(q).first.bounding_box() for q in ('#exploreMarkets button','#discoveryQuery','#discoverySearch button'))
         assert chip['height']==query['height']==search['height'],(chip,query,search)
@@ -914,6 +914,15 @@ with sync_playwright() as p:
         page.locator('#exploreMarkets [data-asset="us"]').click()
     assert ticks(10500)==0 and ticks(5000)==1   # US: 15 s
     expect(page.locator('#exploreNotice')).to_contain_text('15초마다 갱신')
+    # 배당주: one list by dividend yield, so the ranking tabs step aside and the last column is the yield.
+    with page.expect_response(lambda r:'/api/explore' in r.url and 'asset=dividend' in r.url):
+        page.locator('#exploreMarkets [data-asset="dividend"]').click()
+    expect(page.locator('#exploreKinds')).to_be_hidden()
+    expect(page.locator('#exploreRows thead')).to_contain_text('배당수익률')
+    expect(page.locator('#exploreNotice')).to_contain_text('배당수익률 높은 순')
+    with page.expect_response(lambda r:'/api/explore' in r.url):
+        page.locator('#exploreMarkets [data-asset="us"]').click()
+    expect(page.locator('#exploreKinds')).to_be_visible()
     page.locator('#logout').click()
     expect(page.locator('#auth')).to_be_visible()
     assert ticks(61000)==0   # signed out again

@@ -1,3 +1,4 @@
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
@@ -8,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select, func, delete
 from sqlalchemy.dialects.postgresql import insert
 from .db import Session, User, FxTransaction, Watchlist, PopularityEvent, LimitOrder, lock_user
-from .instruments import SYMBOL_PATTERN, valid_symbol, instrument, CATALOG, market_of
+from .instruments import SYMBOL_PATTERN, valid_symbol, instrument, CATALOG, DIVIDEND_SYMBOLS, market_of
 from .market import MarketError, QuotePending
 from .fx import preview, exchange
 from .money import MAX_ORDER_QUANTITY, wallets, rounded
@@ -59,6 +60,57 @@ def quotes_for(market, symbols):
         try: out[symbol]=market.quote(symbol)
         except MarketError as exc: out[symbol]=exc
     return out
+
+# A yield moves with the price, but slowly; one provider round per symbol every few hours is enough.
+# A failed lookup is retried sooner, so a provider hiccup does not hide a yield for hours.
+DIVIDEND_YIELD_TTL=6*3600; DIVIDEND_RETRY_TTL=600
+dividend_yields={}           # symbol -> (expires at, dividend_info result)
+dividend_refresh=None        # the background thread looking yields up, while it runs
+dividend_lock=threading.Lock()
+
+def refresh_dividends(market, symbols):
+    """Look the yields up one symbol after another. Cold, that is about a minute of provider calls."""
+    from .company import dividend_info
+    for symbol in symbols:
+        info=dividend_info(symbol,market)
+        ttl=DIVIDEND_RETRY_TTL if info.get('status')=='unavailable' else DIVIDEND_YIELD_TTL
+        dividend_yields[symbol]=(time.monotonic()+ttl,info)
+
+def known_dividends(market):
+    """{symbol: (yield or None, looked up yet)} from what is known now, never waiting on a provider.
+
+    Missing or expired symbols are looked up by one background thread; an expired
+    yield is still shown until its new one arrives."""
+    global dividend_refresh
+    now=time.monotonic()
+    due=[s for s in DIVIDEND_SYMBOLS if s not in dividend_yields or dividend_yields[s][0]<=now]
+    with dividend_lock:
+        if due and not (dividend_refresh and dividend_refresh.is_alive()):
+            dividend_refresh=threading.Thread(target=refresh_dividends,args=(market,due),daemon=True,name='dividend-yields')
+            dividend_refresh.start()
+    known=dict(dividend_yields)  # one snapshot, while the thread keeps adding
+    return {s:(known[s][1].get('yield'),True) if s in known else (None,False) for s in DIVIDEND_SYMBOLS}
+
+def dividend_rows(market):
+    """The 배당주 list: DIVIDEND_SYMBOLS with live quotes, highest trailing dividend yield first."""
+    yields=known_dividends(market)
+    quotes=quotes_for(market,DIVIDEND_SYMBOLS)
+    rows=[]
+    for symbol in DIVIDEND_SYMBOLS:
+        row=instrument(symbol) | {'market':market_of(symbol)}
+        q=quotes[symbol]
+        if isinstance(q,MarketError): row |= {'price':None,'change_pct':None,'volume':None,'turnover':None,'data_time':None,'data_status':str(q)}
+        else: row |= quote_fields(q)
+        value,looked_up=yields[symbol]
+        # Not looked up yet (the page shows 확인 중), as opposed to looked up and unknown (—).
+        row['dividend_yield']=value; row['dividend_pending']=not looked_up
+        rows.append(row)
+    # Unknown yields go last; ties keep the list order.
+    rows.sort(key=lambda r:(r['dividend_yield'] is None,-(r['dividend_yield'] or 0)))
+    known=sum(r['dividend_yield'] is not None for r in rows); pending=sum(r['dividend_pending'] for r in rows)
+    notice=f'최근 12개월 배당 기준 수익률 · 확인된 종목 {known}개 (시장 전체 순위가 아닙니다)'
+    if pending: notice+=f' · {pending}개 종목의 배당수익률을 확인하는 중입니다'
+    return {'rows':rows,'scope':f'대표 배당주·배당 ETF {len(rows)}개 · 배당수익률 높은 순','notice':notice}
 
 # Search results carry no prices; the list asks for the first few rows' quotes
 # in small batches so one search never fans out into dozens of provider calls.
@@ -119,7 +171,8 @@ def install(app,ctx):
             if '등록 종목' in result.get('scope',''):
                 clean['scope']='등록 종목'
                 clean['notice']=f'{count}개 · 전체 시장 순위가 아닙니다.'
-            elif '인기' not in result.get('scope',''):
+            # The popular and dividend lists carry this service's own wording, not provider notes.
+            elif '인기' not in result.get('scope','') and '배당수익률' not in result.get('scope',''):
                 clean['scope']='시장 순위'
                 clean['notice']=f'{count}개 종목'+(' · 거래대금 추정치' if any(r.get('turnover_estimated') for r in result.get('rows',[])) else '')
         clean['rows']=[{k:v for k,v in row.items() if is_admin or k not in ('data_time','data_status','source')} | {'watchlisted':row['symbol'] in watches} for row in result.get('rows',[])]
@@ -186,8 +239,9 @@ def install(app,ctx):
                             .group_by(PopularityEvent.symbol).order_by(func.count().desc(),PopularityEvent.symbol).limit(5)).all()
         return {'hours':hours,'rows':[{'symbol':symbol,'name':instrument(symbol)['name'],'score':score} for symbol,score in rows]}
     @app.get('/api/explore')
-    def explore(market:Literal['US','KR']='US',asset:Literal['kr','us','kr_bond','us_bond','gold']|None=None,kind:Literal['volume','shares','up','down','popular']='volume',hours:Literal[1,24]=24,uid=Depends(user)):
+    def explore(market:Literal['US','KR']='US',asset:Literal['kr','us','kr_bond','us_bond','gold','dividend']|None=None,kind:Literal['volume','shares','up','down','popular']='volume',hours:Literal[1,24]=24,uid=Depends(user)):
         asset=asset or ('kr' if market=='KR' else 'us')
+        if asset=='dividend': return market_result(dividend_rows(ctx.market),uid)
         market='KR' if asset in ('kr','kr_bond') else 'US'
         if kind=='popular':
             with Session() as db:

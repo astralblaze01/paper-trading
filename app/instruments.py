@@ -30,6 +30,17 @@ CATALOG = [
     ('KR:411060', 'ACE KRX금현물 ETF', 'gold', 'KRW'),
 ]
 
+# The 배당주 list in 시장: well-known dividend payers and dividend ETFs in both markets,
+# ranked by their trailing yield. A disclosed list, not a full-market screen: the
+# providers have no market-wide dividend-yield ranking (KIS ranks by yield on par value).
+DIVIDEND_SYMBOLS = [
+    'KR:105560', 'KR:055550', 'KR:086790', 'KR:316140', 'KR:024110', 'KR:138040', 'KR:071050', 'KR:139130', 'KR:175330',
+    'KR:033780', 'KR:030200', 'KR:017670', 'KR:032640', 'KR:000810', 'KR:005830', 'KR:088980', 'KR:016360', 'KR:005940',
+    'KR:029780', 'KR:005935', 'KR:010950', 'KR:078930', 'KR:458730', 'KR:161510', 'KR:279530', 'KR:211560', 'KR:329200',
+    'KO', 'PEP', 'JNJ', 'PG', 'PFE', 'VZ', 'T', 'MO', 'PM', 'XOM', 'CVX', 'ABBV', 'MRK', 'IBM', 'O', 'MAIN', 'JPM', 'HD',
+    'KMI', 'BTI', 'UPS', 'CSCO', 'TXN', 'SCHD', 'VYM', 'JEPI', 'JEPQ', 'DVY', 'HDV', 'SPYD', 'DGRO', 'NOBL', 'QYLD',
+]
+
 ALIASES = {
     'AAPL': ('Apple',), 'MSFT': ('Microsoft',), 'NVDA': ('NVIDIA',),
     'KR:005930': ('삼성 전자',), 'KR:000660': ('에스케이하이닉스','SK 하이닉스'),

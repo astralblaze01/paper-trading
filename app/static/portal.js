@@ -19,7 +19,7 @@ function rememberStock(symbol,name){if(!window.sessionUsername)return;try{let ro
 // caches each list for the same time and shares it with every viewer, so provider
 // calls do not grow with users. US is slower because its three exchange calls
 // share the KIS overseas spacing (1.1 s each).
-const EXPLORE_REFRESH_MS={kr:10000,kr_bond:10000,us:15000,us_bond:15000,gold:15000};
+const EXPLORE_REFRESH_MS={kr:10000,kr_bond:10000,us:15000,us_bond:15000,gold:15000,dividend:30000};
 function exploreRefreshMs(asset=$('exploreMarket').value){return EXPLORE_REFRESH_MS[asset]||15000;}
 let exploreTimer=null;
 function scheduleExplore(){
@@ -33,7 +33,8 @@ function scheduleExplore(){
 }
 let exploreVersion = 0;
 let exploreMode = 'ranking';
-let exploreRowsCache = [], explorePopular = false, displayFx = null;
+// The last column of the market table: 거래량, 인기 점수 ('popular') or 배당수익률 ('dividend').
+let exploreRowsCache = [], exploreColumn = 'volume', displayFx = null;
 function node(tag, text, cls) { const n = document.createElement(tag); if(text!=null)n.textContent=text; if(cls)n.className=cls; return n; }
 function uuid() { const b=crypto.getRandomValues(new Uint8Array(16)); b[6]=(b[6]&15)|64;b[8]=(b[8]&63)|128;const h=Array.from(b,x=>x.toString(16).padStart(2,'0')).join('');return `${h.slice(0,8)}-${h.slice(8,12)}-${h.slice(12,16)}-${h.slice(16,20)}-${h.slice(20)}`; }
 // A retry of the same payload keeps its request id, so the server applies it only once.
@@ -104,18 +105,19 @@ function displayedTurnover(r){
   const scaled=(value/(currency==='KRW'?1e8:1e6)).toLocaleString('ko-KR',{maximumFractionDigits:1});
   return `${currency==='KRW'?scaled+'억원':'$'+scaled+'백만'}${r.turnover_estimated?' (추정)':''}`;
 }
-function stockTable(target,rows,popular=false){
+function stockTable(target,rows,column='volume'){
+ const popular=column==='popular',lastLabel=popular?'인기 점수':column==='dividend'?'배당수익률':'거래량';
  target.replaceChildren();const t=node('table',null,'market-table'),head=node('tr');
- [['#','rank-number'],['종목','stock-name'],['현재가','price-cell'],['등락률','change-cell'],['거래대금','turnover-cell'],[popular?'인기 점수':'거래량','volume-cell'],['시장','market-cell']].forEach(([label,cls])=>head.append(node('th',label,cls)));const thead=node('thead');thead.append(head);t.append(thead);const body=node('tbody');
+ [['#','rank-number'],['종목','stock-name'],['현재가','price-cell'],['등락률','change-cell'],['거래대금','turnover-cell'],[lastLabel,'volume-cell'],['시장','market-cell']].forEach(([label,cls])=>head.append(node('th',label,cls)));const thead=node('thead');thead.append(head);t.append(thead);const body=node('tbody');
  if(window.isAdmin)[['코드','admin-diagnostic'],['시세 시각','admin-diagnostic'],['데이터 상태','admin-diagnostic']].forEach(([label,cls])=>head.append(node('th',label,cls)));
  rows.forEach((r,i)=>{const tr=node('tr'),first=node('td',null,'stock-name'),b=node('button',r.name||r.symbol,'text-button stock-link');b.addEventListener('click',()=>openStock(r.symbol));
    const tools=node('div',null,'stock-tools'),watch=node('button',r.watchlisted?'★':'☆','watch-toggle');watch.type='button';watch.setAttribute('aria-label',(r.name||r.symbol)+' 관심종목');watch.setAttribute('aria-pressed',String(!!r.watchlisted));
    watch.addEventListener('click',async()=>{watch.disabled=true;try{if(r.watchlisted)await removeWatch(r.symbol);else await api('watchlist',{symbol:r.symbol});r.watchlisted=!r.watchlisted;watch.textContent=r.watchlisted?'★':'☆';watch.setAttribute('aria-pressed',String(r.watchlisted));watchlist().catch(()=>{});}catch(e){message(e.message);}finally{watch.disabled=false;}});
    tools.append(watch,node('span',i+1,'mobile-rank'));first.append(tools,b,node('small',r.symbol,'stock-code'));
    if(window.isAdmin){const meta=node('details',null,'admin-meta-mobile');meta.append(node('summary','시세 진단'),node('span',r.symbol),node('span',r.data_time?new Date(r.data_time).toLocaleString():'시각 없음'),node('span',r.data_status||'상태 없음'));first.append(meta);}
-   tr.append(node('td',i+1,'rank-number'),first,node('td',displayedPrice(r),'price-cell'));const change=Number(r.change_pct);tr.append(node('td',r.change_pct==null?'—':`${change>0?'+':''}${pct(change)}`,'change-cell '+(change>0?'gain':change<0?'loss':'flat')),node('td',displayedTurnover(r),'turnover-cell'),node('td',popular?r.score:r.volume==null?'—':Number(r.volume).toLocaleString(),'volume-cell'),node('td',r.market==='KR'||r.currency==='KRW'?'한국':'미국','market-cell'));
+   tr.append(node('td',i+1,'rank-number'),first,node('td',displayedPrice(r),'price-cell'));const change=Number(r.change_pct);tr.append(node('td',r.change_pct==null?'—':`${change>0?'+':''}${pct(change)}`,'change-cell '+(change>0?'gain':change<0?'loss':'flat')),node('td',displayedTurnover(r),'turnover-cell'),node('td',popular?r.score:column==='dividend'?(r.dividend_yield!=null?pct(Number(r.dividend_yield)):r.dividend_pending?'확인 중':'—'):r.volume==null?'—':Number(r.volume).toLocaleString(),'volume-cell'),node('td',r.market==='KR'||r.currency==='KRW'?'한국':'미국','market-cell'));
    if(window.isAdmin){tr.append(node('td',r.symbol,'admin-diagnostic'),node('td',r.data_time?new Date(r.data_time).toLocaleString():'—','admin-diagnostic'),node('td',r.data_status||'—','admin-diagnostic status-cell'));}
-   tr.querySelector('.volume-cell').dataset.label=popular?'인기 점수':'거래량';
+   tr.querySelector('.volume-cell').dataset.label=lastLabel;
    body.append(tr);});t.append(body);target.append(t);if(!rows.length)target.append(node('p','표시할 종목이 없습니다.','empty-state'));
 }
 async function loadDisplayFx(){try{displayFx=await api('fx');viewFx=displayFx;syncCurrency();$('exploreFxNote').textContent=`환산 표시는 ${displayFx.date} ECB 일별 기준환율 (1 USD = ${Number(displayFx.rate).toLocaleString('ko-KR',{maximumFractionDigits:2})} KRW) 기준입니다. 실제 거래 통화와 주문 가격은 바뀌지 않습니다.`;}catch(e){displayFx=null;viewFx=null;syncCurrency();$('exploreFxNote').textContent='환율을 확인하지 못해 다른 통화로 환산한 가격을 표시할 수 없습니다.';}}
@@ -125,19 +127,21 @@ async function explore(silent=false) {
   scheduleExplore();
   document.querySelectorAll('[data-asset]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.asset===asset)));
   document.querySelectorAll('[data-kind]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.kind===kind)));
+  // 배당주 has one order, highest yield first, so the ranking tabs step aside.
+  $('exploreKinds').hidden=asset==='dividend';
   if(!silent){$('exploreNotice').textContent='목록을 불러오는 중입니다.';$('exploreRows').replaceChildren();}
   try{
     const [r]=await Promise.all([api('explore?'+new URLSearchParams({asset,kind})),loadDisplayFx()]);if(version!==exploreVersion)return;
     const every=exploreRefreshMs(asset),next=new Date(Date.now()+every).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
     $('exploreNotice').textContent=[r.scope,r.notice,`${every/1000}초마다 갱신`].filter(Boolean).join(' · ');
     if($('status').textContent==='입력값을 확인하세요.')$('status').textContent='';
-    exploreRowsCache=r.rows;explorePopular=kind==='popular';stockTable($('exploreRows'),r.rows,explorePopular);
+    exploreRowsCache=r.rows;exploreColumn=asset==='dividend'?'dividend':kind==='popular'?'popular':'volume';stockTable($('exploreRows'),r.rows,exploreColumn);
   }catch(e){if(version===exploreVersion){$('exploreNotice').textContent=e.message;stockTable($('exploreRows'),[]);}}
 }
 $('exploreMarkets').addEventListener('click',e=>{const b=e.target.closest('[data-asset]');if(!b)return;$('exploreMarket').value=b.dataset.asset;explore();});
 $('exploreKinds').addEventListener('click',e=>{const b=e.target.closest('[data-kind]');if(!b)return;$('exploreKind').value=b.dataset.kind;explore();});
 handle('exploreMarket','change',()=>explore());handle('exploreKind','change',()=>explore());
-window.addEventListener('displaycurrencychange',()=>{displayFx=viewFx;stockTable($('exploreRows'),exploreRowsCache,explorePopular);renderDetailQuote();renderOrderPreview();drawChart();renderPublic();renderWatchlist();renderValuation();});
+window.addEventListener('displaycurrencychange',()=>{displayFx=viewFx;stockTable($('exploreRows'),exploreRowsCache,exploreColumn);renderDetailQuote();renderOrderPreview();drawChart();renderPublic();renderWatchlist();renderValuation();});
 // Search rows arrive without prices; fill the top ones in batches of the server's limit.
 const SEARCH_QUOTE_ROWS=10, SEARCH_QUOTE_BATCH=5;
 // A price the collector has not fetched yet comes back pending; those rows are asked
@@ -156,7 +160,7 @@ async function fillSearchQuotes(rows,version){
     wanted=wanted.filter(r=>bySymbol.get(r.symbol)?.pending);
   }
 }
-handle('discoverySearch','submit',async()=>{exploreMode='search';const version=++exploreVersion;const query=$('discoveryQuery').value;const rows=await api('search?'+new URLSearchParams({q:query,category:$('exploreMarket').value}));if(version!==exploreVersion)return;exploreRowsCache=rows;explorePopular=false;stockTable($('exploreRows'),rows);$('exploreNotice').textContent=`검색 결과 · 상위 ${SEARCH_QUOTE_ROWS}개 종목의 시세를 표시합니다. 나머지는 종목 상세에서 확인합니다.`;if(rows.length===1)api('popularity',{symbol:rows[0].symbol,kind:'search'}).catch(()=>{});loadDisplayFx().catch(()=>{});await fillSearchQuotes(rows,version);});
+handle('discoverySearch','submit',async()=>{exploreMode='search';const version=++exploreVersion;const query=$('discoveryQuery').value;const rows=await api('search?'+new URLSearchParams({q:query,category:$('exploreMarket').value==='dividend'?'all':$('exploreMarket').value}));if(version!==exploreVersion)return;exploreRowsCache=rows;exploreColumn='volume';stockTable($('exploreRows'),rows);$('exploreNotice').textContent=`검색 결과 · 상위 ${SEARCH_QUOTE_ROWS}개 종목의 시세를 표시합니다. 나머지는 종목 상세에서 확인합니다.`;if(rows.length===1)api('popularity',{symbol:rows[0].symbol,kind:'search'}).catch(()=>{});loadDisplayFx().catch(()=>{});await fillSearchQuotes(rows,version);});
 // Keep REST_QUOTE_MS in step with the REST fallback's '30초 간격' status line.
 const MARKET_STATUS_MS=60000, REST_QUOTE_MS=30000;
 let quoteSource=null, quoteRetry=null, quoteWatch=null, marketTimer=null, restTimer=null;
