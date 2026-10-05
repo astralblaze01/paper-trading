@@ -154,7 +154,7 @@ def test_claude_and_gpt_models_are_pinned_not_left_to_cli_defaults(monkeypatch, 
     monkeypatch.setattr(ai_trader.subprocess, 'run', run)
     ai_trader.ASK['claude']('p'); ai_trader.ASK['gpt']('p')
     claude, codex = seen
-    assert claude[claude.index('--model') + 1] == 'claude-sonnet-5-5' and claude[claude.index('--effort') + 1] == 'medium'
+    assert claude[claude.index('--model') + 1] == 'claude-opus-5-5' and claude[claude.index('--effort') + 1] == 'medium'
     assert codex[codex.index('-m') + 1] == 'gpt-6.1-sol' and 'model_reasoning_effort="medium"' in codex
 
 
@@ -172,7 +172,7 @@ def test_the_record_carries_the_reasoning_and_the_data_looked_at(tmp_path, monke
     assert record['analysis'] == '20일 상승 추세라 분할 매수' and record['thinking'] == ['반도체 추세 확인']
     assert record['research_data'][0][0]['data']['change_20_pct'] is not None
     assert record['results'][0]['action']['reason'] == '추세' and record['account']['cash']['USD'] == 100000.0
-    assert record['model'] == 'claude-sonnet-5-5 · medium'
+    assert record['model'] == 'claude-opus-5-5 · medium'
     # The local memory file keeps the reasoning but not the bulky data.
     local = json.loads((tmp_path / 'claude.jsonl').read_text())
     assert 'research_data' not in local and local['analysis'] == '20일 상승 추세라 분할 매수'

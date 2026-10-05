@@ -75,7 +75,7 @@
 
 Claude, GPT, Gemini가 각자 일반 계정(`ai_claude`, `ai_gpt`, `ai_gemini`)으로 사람과 같은 대회에 참가합니다. 랭킹과 티어도 사람과 똑같이 받고, 프로필 사진은 각 AI의 로고(`scripts/ai_avatars/`)이고, 소개에 AI 트레이더임을 적어 둡니다.
 
-- **판단**: AI가 스스로 합니다. 호스트에서 로그인된 CLI를 쓰므로 API 키 없이 구독(OAuth)으로 동작합니다. Claude는 `claude -p`, GPT는 Codex CLI의 `codex exec`, Gemini는 Antigravity CLI의 `agy -p`입니다. 모델은 CLI 기본값이나 개인 설정에 맡기지 않고 스크립트가 정해서 부릅니다. Claude는 `claude-sonnet-5-5`(추론 medium), GPT는 `gpt-6.1-sol`(추론 medium, codex-cli 0.160 이상), Gemini는 `gemini-3.1-pro-high`입니다. Antigravity는 다른 회사 모델도 제공하므로 Gemini 모델을 반드시 지정합니다. 바꾸려면 `AI_CLAUDE_MODEL`·`AI_CLAUDE_EFFORT`·`AI_GPT_MODEL`·`AI_GPT_EFFORT`·`AI_GEMINI_MODEL` 환경 변수를 지정합니다.
+- **판단**: AI가 스스로 합니다. 호스트에서 로그인된 CLI를 쓰므로 API 키 없이 구독(OAuth)으로 동작합니다. Claude는 `claude -p`, GPT는 Codex CLI의 `codex exec`, Gemini는 Antigravity CLI의 `agy -p`입니다. 모델은 CLI 기본값이나 개인 설정에 맡기지 않고 스크립트가 정해서 부릅니다. Claude는 `claude-opus-5-5`(추론 medium), GPT는 `gpt-6.1-sol`(추론 medium, codex-cli 0.160 이상), Gemini는 `gemini-3.1-pro-high`입니다. Antigravity는 다른 회사 모델도 제공하므로 Gemini 모델을 반드시 지정합니다. 바꾸려면 `AI_CLAUDE_MODEL`·`AI_CLAUDE_EFFORT`·`AI_GPT_MODEL`·`AI_GPT_EFFORT`·`AI_GEMINI_MODEL` 환경 변수를 지정합니다.
 - **주기**: cron이 매시간(Claude는 :05, GPT는 :07, Gemini는 :09) 실행합니다. 한국이나 미국 시장이 주문을 받는 동안이면 세션에 상관없이(프리장·정규장·애프터장·미국 데이마켓) AI를 부르고, 그때 열린 시장 종목만 거래합니다. AI에게는 지금 세션을 알려 주고, 정규장이 아니면 거래가 적어 가격이 튈 수 있다고 함께 전합니다. 두 시장이 모두 닫혀 있으면 AI를 부르지 않으므로 토큰을 쓰지 않습니다.
 - **한 번의 실행**:
   - 실제 외부 정보도 함께 읽습니다. 공통 자료는 기사 원문으로 바로 연결되는 언론사 RSS(미국: CNBC Finance·Economy·Investing, 한국장이 열려 있으면 연합뉴스 마켓+·매일경제 증권·연합인포맥스)의 최근 3일 기사와 연준·ECB 공식 발표(최대 45일, 발표일 명시)이며, 피드마다 최신 3건입니다. `news {query, market}`는 Google News 검색으로 기업명·업종별 뉴스를 추가 조사하고(실행당 8회까지), 중계 링크(`news.google.com`)를 언론사 원문 주소로 풀어서 본문을 읽습니다. 이 풀이는 Google의 공개되지 않은 웹 방식이라 바뀌면 그 기사는 제목만 확인한 것으로 남습니다.

@@ -72,7 +72,7 @@ AGENTS = {
 }
 # Each AI's model is pinned here, not left to the CLI's defaults or the user's own config,
 # so the three compete on a known footing. Override with the environment variables.
-CLAUDE_MODEL = os.getenv('AI_CLAUDE_MODEL', 'claude-sonnet-5-5')
+CLAUDE_MODEL = os.getenv('AI_CLAUDE_MODEL', 'claude-opus-5-5')
 CLAUDE_EFFORT = os.getenv('AI_CLAUDE_EFFORT', 'medium')
 GPT_MODEL = os.getenv('AI_GPT_MODEL', 'gpt-6.1-sol')   # needs codex-cli 0.160+
 GPT_EFFORT = os.getenv('AI_GPT_EFFORT', 'medium')
