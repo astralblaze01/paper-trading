@@ -30,7 +30,7 @@ from .migrations import migrate
 from .trading import execute_order, filled_replay
 from .money import MAX_ORDER_QUANTITY, wallets, initial_amount
 from .fx import FxService
-from .portfolio import portfolio as wallet_portfolio, initialize_equity, RETURN_BASIS, AccountGone
+from .portfolio import portfolio as wallet_portfolio, initialize_equity, RETURN_BASIS, AccountGone, ranking_values
 from .weekly import report_list, tick
 from .limits import process as process_limit_orders
 from .accounts import PRIVACY_NOTICE_VERSION, membership_days, profile_of, profile_versions, record_consent
@@ -57,10 +57,27 @@ dummy_hash = hasher.hash(secrets.token_urlsafe(32))
 RANKING_INTERVAL_SECONDS = 10
 RANKING_INTERVAL = timedelta(seconds=RANKING_INTERVAL_SECONDS)
 _ranking_lock = RLock()
-# Ranking is deliberately process-local. The response is a view of the
-# database, and the ten-second boundary keeps browser polling from turning
-# into an external-provider call for every request.
+# The response is a view of the database, and the ten-second boundary keeps
+# browser polling from turning into an external-provider call for every
+# request. Each process keeps its snapshot here and shares it through Redis,
+# so every web process serves the same ranking within a window.
 _ranking_cache = {}
+RANKING_SHARED_KEY = 'ranking:snapshot'
+
+def _ranking_entry(cache_key):
+    """This process's snapshot, or another process's if that one was written later."""
+    local = _ranking_cache.get(cache_key)
+    if cache_key is market:
+        shared = redis_cache.get_typed(RANKING_SHARED_KEY)
+        if shared and (local is None or shared.get('written', 0) > local.get('written', 0)):
+            _ranking_cache[cache_key] = local = shared
+    return local
+
+def _store_ranking(cache_key, entry):
+    entry['written'] = time.time()
+    _ranking_cache[cache_key] = entry
+    # Kept a week: a closed market keeps serving the last snapshot, also after a restart.
+    if cache_key is market: redis_cache.set_typed(RANKING_SHARED_KEY, entry, 7 * 86400)
 
 # Sessions this service can model for new market orders. Being listed is not
 # enough to fill: the market must be open and tradable, and the quote must be
@@ -585,7 +602,7 @@ def ranking(uid=Depends(current_user)):
     # fixture) never serves a snapshot valued by another market.
     cache_key = market
     with _ranking_lock:
-        cached = _ranking_cache.get(cache_key)
+        cached = _ranking_entry(cache_key)
         with Session() as db:
             eligible=list(db.execute(select(User.id,User.username).where(User.active.is_(True),User.is_admin.is_(False),User.ranking_public.is_(True))))
             public_names=set(db.scalars(select(User.username).where(User.profile_public.is_(True))))
@@ -606,21 +623,18 @@ def ranking(uid=Depends(current_user)):
             return _ranking_response(cached['payload'], state, next_boundary, False,
                                      errors=[RANKING_HOLD], incomplete=True, stale=True)
 
-        ids=[user_id for user_id,_ in eligible]
-        # An account withdrawn after the eligibility query is dropped, not a 500 for everyone.
-        valued=[]
-        for i in ids:
-            try: valued.append((i,wallet_portfolio(i,market,fx)))
-            except AccountGone: continue
-        ids=[i for i,_ in valued]; values=[v for _,v in valued]
+        # An account withdrawn after the eligibility query is simply not in the result.
+        valued=ranking_values([user_id for user_id,_ in eligible],market,fx)
+        ids=list(valued); values=list(valued.values())
         if any(v['return_pct'] is None or v.get('equity_usd') is None for v in values):
             if cached:
                 # Keep serving the last good rows; remember the failure for this window.
                 cached['failed_bucket'] = bucket
+                _store_ranking(cache_key, cached)
                 return _ranking_response(cached['payload'], state, next_boundary, False,
                                          errors=[RANKING_HOLD], incomplete=True, stale=True)
             payload=_ranking_payload([], [RANKING_HOLD], incomplete=True, updated_at=None, stale=True)
-            _ranking_cache[cache_key] = {'bucket': bucket, 'payload': payload}
+            _store_ranking(cache_key, {'bucket': bucket, 'payload': payload})
             return _ranking_response(payload, state, next_boundary, True)
         # Rank by total value in USD; the cumulative return is display only.
         ranked=sorted(zip(ids,values),key=lambda pair:(-pair[1]['equity_usd'],pair[1]['username']))
@@ -633,7 +647,7 @@ def ranking(uid=Depends(current_user)):
                'image_version':versions.get(i_id,0) if v['username'] in public_names else 0,'tier':tier_for(i+1,len(ranked)),'previous_rank':before.get(i_id)}
               for i,(i_id,v) in enumerate(ranked)]
         payload=_ranking_payload(rows, [], incomplete=False, updated_at=now.isoformat(), stale=any(v['stale'] for v in values))
-        _ranking_cache[cache_key] = {'bucket': bucket, 'payload': payload}
+        _store_ranking(cache_key, {'bucket': bucket, 'payload': payload})
         return _ranking_response(payload, state, next_boundary, True)
 
 

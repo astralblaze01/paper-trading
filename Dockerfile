@@ -8,4 +8,7 @@ COPY tests ./tests
 COPY scripts ./scripts
 USER app
 EXPOSE 8000
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--no-proxy-headers"]
+# uvicorn starts WEB_CONCURRENCY processes. More than one needs Redis, where rate
+# limits, the ranking snapshot and SSE connection counts are shared.
+ENV WEB_CONCURRENCY=1
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-proxy-headers"]

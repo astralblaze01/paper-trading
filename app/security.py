@@ -17,8 +17,15 @@ def client_ip(request):
     return peer
 
 class RateLimiter:
+    """Per-key sliding window. With Redis the window is shared by every web process,
+    so running more processes does not multiply the limits; without it (or while
+    Redis is unreachable) each process counts on its own."""
     def __init__(self): self.entries={}; self.lock=Lock()
     def allow(self,key,limit,seconds=60):
+        # Imported here: the scheduler container imports this module with only SESSION_SECRET.
+        from .redis_cache import redis_cache
+        shared=redis_cache.allow_window(hashlib.sha256(repr(key).encode()).hexdigest(),limit,seconds)
+        if shared is not None: return shared
         with self.lock:
             now=time.monotonic()
             if len(self.entries)>20000:
@@ -28,6 +35,8 @@ class RateLimiter:
             if len(values)>=limit: return False
             values.append(now); return True
     def clear(self):
+        from .redis_cache import redis_cache
+        redis_cache.clear_windows()
         with self.lock: self.entries.clear()
 
 limiter=RateLimiter()
