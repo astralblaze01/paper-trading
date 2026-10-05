@@ -105,7 +105,10 @@ def day_fields(q, snapshot, high=None, low=None):
     day = lambda stamp: datetime.fromtimestamp(float(stamp), NEW_YORK).date()
     if day(snapshot['timestamp']) != day(q['timestamp']):
         return q
-    price = q['native_price']
+    # The market-worker passes a trade read back from Redis, where Decimals are strings.
+    price = _number(q['native_price'])
+    if price is None:
+        return q
     base, change = _number(snapshot.get('native_price', snapshot.get('price'))), _number(snapshot.get('change'))
     if base is not None and change is not None and base - change > 0:
         close = base - change

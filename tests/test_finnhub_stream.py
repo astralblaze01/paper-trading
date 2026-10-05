@@ -210,12 +210,13 @@ def test_a_newer_finnhub_trade_keeps_the_rest_day_change(monkeypatch):
     rest = {'symbol': 'AAPL', 'price': Decimal('230'), 'native_price': Decimal('230'), 'currency': 'USD', 'fx_rate': 1,
             'timestamp': int(ny('2026-10-05T09:59:30')), 'change': Decimal('2'), 'high': Decimal('231'), 'low': Decimal('229'),
             'stale': False, 'origin': 'rest', 'valid_sessions': ['regular']}
-    streamed = fs.trade_quote(trade(price=232), 'AAPL', 'f1', now=now)
+    # Read back from Redis, as the worker does: Decimals come back as strings.
+    streamed = json.loads(json.dumps(fs.trade_quote(trade(price=232), 'AAPL', 'f1', now=now), default=str))
     stored = []
     monkeypatch.setattr(mw.redis_cache, 'get_json', lambda key: streamed if key == 'market:trade:AAPL' else None)
     monkeypatch.setattr(mw.redis_cache, 'store_quote', lambda symbol, q, ttl: stored.append(q) or True)
     monkeypatch.setattr(mw.redis_cache, 'set_json', lambda *a, **k: True)
     market = SimpleNamespace(quote_direct=lambda symbol: dict(rest))
     quote, state = mw.collect_quote(market, 'AAPL', 120)
-    assert state == 'stored' and quote['native_price'] == Decimal('232') and quote['change'] == Decimal('4')
+    assert state == 'stored' and Decimal(quote['native_price']) == 232 and quote['change'] == Decimal('4')
     assert quote['origin'] == 'stream' and stored == [quote]
