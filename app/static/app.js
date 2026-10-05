@@ -137,11 +137,14 @@ window.rankingStatusText=function(r){
   const stamp=value=>new Date(value).toLocaleString('ko-KR',{timeZone:'Asia/Seoul',hour12:false});
   const asOf=r.updated_at?stamp(r.updated_at):'아직 없음';
   const next=r.next_refresh_at?stamp(r.next_refresh_at):'다음 경계 시각';
+  // HH:MM:SS from the parts: browsers write ko-KR times as '22시 50분 40초' or '오후 10:50:40'.
+  const clock=value=>(p=>`${p.hour}:${p.minute}:${p.second}`)(Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Seoul',hourCycle:'h23',hour:'2-digit',minute:'2-digit',second:'2-digit'})
+    .formatToParts(new Date(value)).map(p=>[p.type,p.value])));
   const text=r.incomplete
     ? `마지막 정상 갱신: ${asOf} · `+(r.errors||[]).join(' ')
     : (r.market_open===false
       ? `장이 닫혀 마지막 랭킹을 유지합니다 · 기준 ${asOf}${markets?' · '+markets:''}`
-      : `USD 환산 · 10초 단위 · ${asOf.split(' ').slice(-1)[0]}`);
+      : `USD 환산 · 10초 단위 · ${r.updated_at?clock(r.updated_at)+' 기준':asOf}`);
   return [text,`기준 ${asOf} · 다음 갱신 ${next}${markets?' · '+markets:''}`];
 };
 function renderRanking(){if(!rankingCache)return;
