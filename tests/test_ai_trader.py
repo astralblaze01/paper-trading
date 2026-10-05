@@ -70,7 +70,7 @@ def test_extended_sessions_count_as_open(tmp_path, monkeypatch):
     ask, prompts = scripted(json.dumps({'step': 'decide', 'actions': [{'type': 'buy', 'symbol': 'AAPL', 'quantity': 1}]}))
     entry = ai_trader.run('gpt', client=client, ask=ask)
     assert entry['markets'] == ['US'] and 'US(overnight)' in prompts[0]
-    assert client.posts == [('/api/orders', client.posts[0][1])] and client.posts[0][1]['symbol'] == 'AAPL'
+    assert [p for p, _ in client.posts] == ['/api/orders', '/api/ai/decisions'] and client.posts[0][1]['symbol'] == 'AAPL'
 
 
 def test_research_then_decide_places_the_orders_in_order(tmp_path, monkeypatch):
@@ -85,7 +85,8 @@ def test_research_then_decide_places_the_orders_in_order(tmp_path, monkeypatch):
     entry = ai_trader.run('claude', client=client, ask=ask)
     # The second prompt carries the chart the AI asked for.
     assert '"change_20_pct"' in prompts[1] and '"KR:005930"' in prompts[1]
-    assert [p for p, _ in client.posts] == ['/api/fx/exchange', '/api/orders', '/api/orders']
+    # The trades, then the run's record for the admin page.
+    assert [p for p, _ in client.posts] == ['/api/fx/exchange', '/api/orders', '/api/orders', '/api/ai/decisions']
     # A rejected order is logged and the run goes on.
     assert entry['results'][1]['error'] == '잔액이 부족합니다.' and entry['results'][2]['result']['quantity'] == 10
     # The next run remembers what was done.
@@ -100,7 +101,7 @@ def test_the_last_round_must_decide(tmp_path, monkeypatch):
     client.get = (lambda original: lambda path, **p: {'native_price': 1} if path.startswith('/api/quote/') else original(path, **p))(client.get)
     entry = ai_trader.run('gpt', client=client, ask=ask)
     assert len(prompts) == ai_trader.RESEARCH_ROUNDS + 1 and '남은 조사 횟수: 0' in prompts[-1]
-    assert entry['results'] == [] and client.posts == []
+    assert entry['results'] == [] and [p for p, _ in client.posts] == ['/api/ai/decisions']
 
 
 def test_dry_run_places_and_logs_nothing(tmp_path, monkeypatch):
@@ -141,3 +142,36 @@ def test_claude_and_gpt_models_are_pinned_not_left_to_cli_defaults(monkeypatch, 
     claude, codex = seen
     assert claude[claude.index('--model') + 1] == 'claude-sonnet-5-5' and claude[claude.index('--effort') + 1] == 'medium'
     assert codex[codex.index('-m') + 1] == 'gpt-6.1-sol' and 'model_reasoning_effort="medium"' in codex
+
+
+def test_the_record_carries_the_reasoning_and_the_data_looked_at(tmp_path, monkeypatch):
+    monkeypatch.setattr(ai_trader, 'STATE', tmp_path)
+    client = FakeClient()
+    ask, _ = scripted(
+        json.dumps({'step': 'research', 'thinking': '반도체 추세 확인', 'requests': [{'type': 'chart', 'symbol': 'KR:005930', 'range': '3M'}]}),
+        json.dumps({'step': 'decide', 'analysis': '20일 상승 추세라 분할 매수', 'summary': '삼성전자 소량 매수',
+                    'actions': [{'type': 'buy', 'symbol': 'KR:005930', 'quantity': 1, 'reason': '추세'}]}))
+    ai_trader.run('claude', client=client, ask=ask)
+    path, body = client.posts[-1]
+    record = body['data']
+    assert path == '/api/ai/decisions' and body['status'] == 'ok' and body['summary'] == '삼성전자 소량 매수'
+    assert record['analysis'] == '20일 상승 추세라 분할 매수' and record['thinking'] == ['반도체 추세 확인']
+    assert record['research_data'][0][0]['data']['change_20_pct'] is not None
+    assert record['results'][0]['action']['reason'] == '추세' and record['account']['cash']['USD'] == 100000.0
+    assert record['model'] == 'claude-sonnet-5-5 · medium'
+    # The local memory file keeps the reasoning but not the bulky data.
+    local = json.loads((tmp_path / 'claude.jsonl').read_text())
+    assert 'research_data' not in local and local['analysis'] == '20일 상승 추세라 분할 매수'
+
+
+def test_a_failed_ai_call_is_recorded_as_an_error_and_trades_nothing(tmp_path, monkeypatch):
+    monkeypatch.setattr(ai_trader, 'STATE', tmp_path)
+    client = FakeClient()
+    def broken(prompt): raise RuntimeError('codex failed: quota')
+    try:
+        ai_trader.run('gpt', client=client, ask=broken)
+        raise AssertionError('the run should fail')
+    except RuntimeError as exc:
+        assert 'quota' in str(exc)
+    (path, body), = client.posts
+    assert path == '/api/ai/decisions' and body['status'] == 'error' and 'quota' in body['data']['error']

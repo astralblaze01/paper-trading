@@ -267,7 +267,8 @@ RULES = """너는 ALPHARENA 모의투자 대회에 참가한 AI 트레이더 "{n
 
 반드시 아래 형식의 JSON 객체 하나로만 답하라. 다른 글은 쓰지 마라.
 조사: {{"step": "research", "thinking": "짧은 생각", "requests": [{{"type": "chart", "symbol": "NVDA", "range": "3M"}}]}}
-결정: {{"step": "decide", "summary": "이번 판단 요약(한국어, 200자 이내)", "actions": [
+결정: {{"step": "decide", "analysis": "시장 분석과 판단 근거(한국어, 800자 이내): 무엇을 보고 왜 이렇게 정했는지",
+  "summary": "이번 판단 요약(한국어, 200자 이내)", "actions": [
   {{"type": "exchange", "source": "USD", "amount": 5000, "reason": "..."}},
   {{"type": "sell", "symbol": "AAPL", "quantity": 3, "reason": "..."}},
   {{"type": "buy", "symbol": "KR:005930", "quantity": 10, "reason": "..."}}]}}
@@ -388,39 +389,79 @@ def memory(agent):
     return recent
 
 
+def model_of(agent):
+    return {'claude': f'{CLAUDE_MODEL} · {CLAUDE_EFFORT}', 'gpt': f'{GPT_MODEL} · {GPT_EFFORT}', 'gemini': GEMINI_MODEL}[agent]
+
+
+RESEARCH_LOG_BYTES = 150_000   # the site keeps records up to 200 KB
+
+
+def research_log(research):
+    """Each round's requests and the data that answered them, trimmed to fit the site's record limit."""
+    rounds, used = [], 0
+    for requests, answers in research:
+        items = []
+        for request, answer in zip(requests, answers):
+            text = json.dumps(answer, ensure_ascii=False)
+            used += len(text.encode())
+            items.append({'request': request, 'data': answer if used <= RESEARCH_LOG_BYTES else '(기록 용량 초과로 생략)'})
+        rounds.append(items)
+    return rounds
+
+
+def publish(client, entry):
+    """Send the run's record to the site, where administrators read it. A failure here never stops trading."""
+    try:
+        client.post('/api/ai/decisions', {'status': entry['status'], 'summary': entry['summary'][:400] or '(요약 없음)', 'data': entry})
+    except (ApiError, OSError) as exc:
+        print(f'decision log not sent: {exc}', file=sys.stderr)
+
+
 def run(agent, dry_run=False, base=BASE, ask=None, client=None, markets=None):
     """One decision: look, research, decide, act. Returns the log entry (or None when no market is open).
 
     `markets` overrides the open-market check, for trying the AI with --dry-run while markets are closed."""
+    started = time.time()
     ask = ask or ASK[agent]
     client = client or signed_in(agent, base)
     markets = {m: '가정' for m in markets} if markets else open_markets(client)
     if not markets: return None
     account = account_view(client.get('/api/portfolio'))
     market_lists = overview(client, markets)
-    research, decision = [], None
-    for rounds_left in range(RESEARCH_ROUNDS, -1, -1):
-        prompt = build_prompt(AGENTS[agent]['name'], markets, account, market_lists, memory(agent), research, rounds_left)
-        answer = extract_json(ask(prompt))
-        if answer.get('step') == 'research' and rounds_left and answer.get('requests'):
-            requests = [r for r in answer['requests'] if isinstance(r, dict)][:MAX_REQUESTS]
-            research.append((requests, [fetch(client, r) for r in requests]))
-            continue
-        decision = answer
-        break
-    decision = decision or {'summary': '조사만 하고 결정하지 않음', 'actions': []}
+    research, thinking, decision, error = [], [], None, None
+    try:
+        for rounds_left in range(RESEARCH_ROUNDS, -1, -1):
+            prompt = build_prompt(AGENTS[agent]['name'], markets, account, market_lists, memory(agent), research, rounds_left)
+            answer = extract_json(ask(prompt))
+            if answer.get('step') == 'research' and rounds_left and answer.get('requests'):
+                requests = [r for r in answer['requests'] if isinstance(r, dict)][:MAX_REQUESTS]
+                thinking.append(str(answer.get('thinking', ''))[:1000])
+                research.append((requests, [fetch(client, r) for r in requests]))
+                continue
+            decision = answer
+            break
+    except (RuntimeError, ValueError, subprocess.TimeoutExpired) as exc:
+        error = f'{type(exc).__name__}: {exc}'[:1000]
+    decision = decision or {'summary': 'AI 호출 실패로 이번 시간은 거래하지 않음' if error else '조사만 하고 결정하지 않음', 'actions': []}
     actions, dropped = checked_actions(decision.get('actions'), markets)
     results = []
     for action in actions:
         if dry_run: results.append({'action': action, 'dry_run': True}); continue
         try: results.append({'action': action, 'result': execute(client, action)})
         except ApiError as exc: results.append({'action': action, 'error': str(exc.detail)})
-    entry = {'time': datetime.now(timezone.utc).isoformat(timespec='seconds'), 'markets': list(markets), 'dry_run': dry_run,
-             'summary': str(decision.get('summary', ''))[:300], 'research': [r for r, _ in research],
-             'results': results, 'dropped': [{'action': a, 'why': why} for a, why in dropped]}
+    entry = {'time': datetime.now(timezone.utc).isoformat(timespec='seconds'), 'agent': agent, 'model': model_of(agent),
+             'status': 'error' if error else 'ok', 'error': error, 'markets': list(markets), 'sessions': dict(markets),
+             'dry_run': dry_run, 'seconds': round(time.time() - started),
+             'summary': str(decision.get('summary', ''))[:300], 'analysis': str(decision.get('analysis', ''))[:2000],
+             'thinking': thinking, 'research': [r for r, _ in research],
+             'results': results, 'dropped': [{'action': a, 'why': why} for a, why in dropped],
+             'account': account, 'research_data': research_log(research)}
     if not dry_run:
         STATE.mkdir(parents=True, exist_ok=True)
-        with open(log_path(agent), 'a') as out: out.write(json.dumps(entry, ensure_ascii=False) + '\n')
+        local = {k: v for k, v in entry.items() if k not in ('account', 'research_data')}
+        with open(log_path(agent), 'a') as out: out.write(json.dumps(local, ensure_ascii=False) + '\n')
+        publish(client, entry)
+    if error: raise RuntimeError(error)
     return entry
 
 
@@ -438,4 +479,6 @@ if __name__ == '__main__':
         entry = run(args.agent, dry_run=args.dry_run, markets=args.market)
         stamp = datetime.now(timezone.utc).isoformat(timespec='seconds')
         if entry is None: print(f'{stamp} {args.agent}: no market open, skipped')
-        else: print(f'{stamp} {args.agent} ({time.time() - started:.0f}s): ' + json.dumps(entry, ensure_ascii=False))
+        else:
+            brief = {k: v for k, v in entry.items() if k not in ('account', 'research_data')}
+            print(f'{stamp} {args.agent} ({time.time() - started:.0f}s): ' + json.dumps(brief, ensure_ascii=False))

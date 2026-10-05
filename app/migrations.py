@@ -165,6 +165,11 @@ def migrate(engine):
             db.execute(text('ALTER TABLE users ADD COLUMN IF NOT EXISTS password_temporary BOOLEAN NOT NULL DEFAULT false'))
             db.execute(text('INSERT INTO schema_migrations(version) VALUES (16)'))
 
+        if not db.scalar(text('SELECT 1 FROM schema_migrations WHERE version=17')):
+            # AI trader accounts; their decision log is the new ai_decisions table (create_all).
+            db.execute(text('ALTER TABLE users ADD COLUMN IF NOT EXISTS is_ai BOOLEAN NOT NULL DEFAULT false'))
+            db.execute(text('INSERT INTO schema_migrations(version) VALUES (17)'))
+
 
 def backfill_trade_rates(db):
     """Give older fills the reference rate the app itself was using then.

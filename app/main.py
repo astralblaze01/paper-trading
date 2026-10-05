@@ -196,10 +196,24 @@ def signed_in_user(request: Request):
         if not user.active: raise HTTPException(403, '정지된 계정입니다.')
         return user.id, user.password_temporary
 
+# An administrator reads an AI trader's account as its owner sees it by naming the
+# account in this header. Reads only: any other method is refused, so nothing can be
+# traded, exchanged or changed in the AI's name. Human accounts are never viewable.
+VIEW_AS_HEADER = 'x-view-as'
+
 def current_user(request: Request):
     uid, temporary = signed_in_user(request)
     if temporary: raise HTTPException(403, TEMPORARY_PASSWORD, headers={'X-Password-Change': '1'})
-    return uid
+    viewed = request.headers.get(VIEW_AS_HEADER)
+    return uid if viewed is None else view_as(uid, viewed, request.method)
+
+def view_as(uid, username, method):
+    if method not in ('GET', 'HEAD'): raise HTTPException(403, 'AI 계정 보기에서는 조회만 할 수 있습니다.')
+    with Session() as db:
+        if not db.scalar(select(User.is_admin).where(User.id == uid)): raise HTTPException(403, '관리자 권한이 필요합니다.')
+        target = db.scalar(select(User).where(User.username == username.lower(), User.is_ai.is_(True), User.is_admin.is_(False)))
+        if not target: raise HTTPException(404, 'AI 계정을 찾을 수 없습니다.')
+        return target.id
 
 class Credentials(BaseModel):
     model_config = ConfigDict(extra='forbid')
@@ -276,7 +290,7 @@ def index(request: Request): return _page('index.html', request, '/', f'{BRAND_N
 
 # The administrator's pages are the same app page; the script picks the section from the
 # path, and every admin API still checks the account. Unknown sections are not pages.
-ADMIN_SECTIONS = ('users', 'accounts', 'notices', 'system', 'settings', 'audit')
+ADMIN_SECTIONS = ('users', 'accounts', 'notices', 'system', 'settings', 'audit', 'ai')
 
 @app.get('/admin')
 def admin_page(request: Request): return _page('index.html', request, '/admin', f'관리자 · {BRAND_NAME}')
@@ -673,6 +687,8 @@ import sys
 install(app, sys.modules[__name__])
 from .accounts import install_accounts
 install_accounts(app, sys.modules[__name__])
+from .ai_agents import install_ai
+install_ai(app, sys.modules[__name__])
 
 
 @app.post('/internal/jobs')

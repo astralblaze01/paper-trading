@@ -546,8 +546,9 @@ const ADMIN_SECTIONS={
   notices:['공지 관리','게시 중인 공지와 템플릿으로 새 공지 작성'],
   system:['시장·시스템','DB·Redis·시세 공급자, 시장 상태, 일별 성과 기록'],
   settings:['서비스 설정','새 계좌 초기 지급액과 수수료·세금 정책'],
-  audit:['감사·아카이브','관리자 작업 로그와 초기화·시즌 아카이브']};
-function adminSection(){const m=location.pathname.match(/^\/admin(?:\/(users|accounts|notices|system|settings|audit))?\/?$/);return m?m[1]||'dashboard':null;}
+  audit:['감사·아카이브','관리자 작업 로그와 초기화·시즌 아카이브'],
+  ai:['AI 에이전트','AI 트레이더별 매시간 판단 기록과 포트폴리오 전체 (조회 전용)']};
+function adminSection(){const m=location.pathname.match(/^\/admin(?:\/(users|accounts|notices|system|settings|audit|ai))?\/?$/);return m?m[1]||'dashboard':null;}
 document.addEventListener('click',e=>{
   const a=e.target.closest?.('a[href^="/admin"]');
   if(!a||!window.isAdmin||e.defaultPrevented||e.button!==0||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;
@@ -704,6 +705,7 @@ async function admin(){
  if(section==='users'||section==='accounts')work.push(searchAdminUsers());
  if(section==='dashboard'||section==='audit')work.push(renderAdminAudit(section==='dashboard'?6:0));
  if(section==='audit')work.push(renderAdminArchives());
+ if(section==='ai')work.push(renderAdminAi());
  await Promise.all(work);
 }
 // Searches the server by ID or administrator memo.
@@ -1087,3 +1089,145 @@ window.addEventListener('displaycurrencychange',()=>{if($('marketHours'))renderM
 
 // USD → KRW / KRW → USD buttons drive the (visually hidden) currency select.
 document.querySelectorAll('[data-fx-source]').forEach(b=>b.addEventListener('click',()=>{if($('fxSource').value===b.dataset.fxSource)return;$('fxSource').value=b.dataset.fxSource;$('fxSource').dispatchEvent(new Event('change'));}));
+
+// ---- 관리자 › AI 에이전트 -------------------------------------------------------
+// An AI account's own pages, read through the x-view-as header: the server answers as if
+// the AI asked, for reads only (anything else is refused), and only for AI accounts.
+let adminAiAgent=null,adminAiTab='decisions',adminAiVersion=0;
+async function viewAs(path){
+ const r=await fetch('/api/'+path,{headers:{'X-View-As':adminAiAgent}});
+ let data;try{data=await r.json();}catch{throw Error(`요청 실패 (${r.status})`);}
+ if(!r.ok)throw Error(typeof data.detail==='string'?data.detail:`요청 실패 (${r.status})`);
+ return data;
+}
+const kst=v=>v?new Date(v).toLocaleString('ko-KR',{timeZone:'Asia/Seoul',month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}):'—';
+const AI_SESSION_LABEL={KR:'한국',US:'미국'};
+async function renderAdminAi(){
+ const agents=await api('admin/ai'),list=$('adminAiList');list.replaceChildren();
+ if(!agents.length){list.append(node('p','AI 계정이 없습니다. python -m app.admin_cli --ai 아이디 로 지정합니다.','empty-state'));$('adminAiDetail').hidden=true;return;}
+ if(!agents.some(a=>a.username===adminAiAgent))adminAiAgent=agents[0].username;
+ for(const a of agents){
+  const card=node('button',null,'ai-agent-card');card.type='button';card.setAttribute('aria-pressed',String(a.username===adminAiAgent));
+  const img=node('img',null,'ai-agent-photo');img.src=`/api/users/${encodeURIComponent(a.username)}/avatar`;img.alt='';img.addEventListener('error',()=>{img.src='/static/avatar-default.svg';},{once:true});
+  const text=node('div',null,'ai-agent-text');
+  text.append(node('strong',a.username),node('span',a.model||'모델 기록 없음','ai-agent-model'));
+  const stats=node('div',null,'ai-agent-stats');
+  stats.append(node('span',a.equity_usd==null?'총자산 —':`총자산 ${nativeMoney(a.equity_usd,'USD')}`),signedPct(a.return_pct),node('span',`판단 ${a.decisions}회`));
+  text.append(stats,node('span',a.last?`최근 ${kst(a.last.created_at)} · ${a.last.status==='error'?'오류 · ':''}${a.last.summary}`:'아직 판단 기록이 없습니다.','ai-agent-last'));
+  card.append(img,text);
+  card.addEventListener('click',()=>{adminAiAgent=a.username;renderAdminAi().catch(e=>toast(e.message,'error'));});
+  list.append(card);
+ }
+ const me=agents.find(a=>a.username===adminAiAgent);
+ $('adminAiDetail').hidden=false;$('adminAiName').textContent=me.username;
+ $('adminAiMeta').textContent=`${me.active?'활성':'정지'} · 가입 ${kst(me.created_at)} · ${me.model||''}`;
+ await renderAdminAiTab();
+}
+$('adminAiTabs').addEventListener('click',e=>{const b=e.target.closest('[data-ai-tab]');if(!b)return;adminAiTab=b.dataset.aiTab;renderAdminAiTab().catch(err=>toast(err.message,'error'));});
+async function renderAdminAiTab(){
+ const version=++adminAiVersion,body=$('adminAiBody');
+ document.querySelectorAll('[data-ai-tab]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.aiTab===adminAiTab)));
+ body.replaceChildren(node('p','불러오는 중입니다.','field-help'));
+ const view=node('div');
+ try{await AI_TAB_RENDER[adminAiTab](view);}catch(e){view.replaceChildren(node('p',e.message,'empty-state'));}
+ if(version===adminAiVersion)body.replaceChildren(view);
+}
+function aiTable(target,headers,rows,empty){const box=node('div',null,'scroll ai-table');target.append(box);table(box,headers,rows);if(!rows.length)box.replaceChildren(node('p',empty,'empty-state'));}
+function aiFacts(pairs){const dl=node('dl',null,'ai-facts');for(const [k,v] of pairs){const d=node('div');d.append(node('dt',k));const dd=node('dd');if(v instanceof Node)dd.append(v);else dd.textContent=v??'—';d.append(dd);dl.append(d);}return dl;}
+const AI_ACTION={buy:'매수',sell:'매도',exchange:'환전'};
+function aiActionText(a){return a.type==='exchange'?`${a.source} ${Number(a.amount).toLocaleString()} → ${a.source==='USD'?'KRW':'USD'}`:`${a.symbol} ${a.quantity}주`;}
+function aiResultText(r){
+ if(r.dry_run)return '미리보기(주문 안 함)';if(r.error)return '거절 · '+r.error;
+ const x=r.result||{};return x.received!=null?`받음 ${x.received}`:x.net_amount!=null?`체결 · ${nativeMoney(x.net_amount,x.currency||'USD')}`:'체결';
+}
+function aiDecision(d,open){
+ const box=node('details',null,'ai-run'+(d.status==='error'?' ai-run-error':''));box.open=open;
+ const sum=node('summary'),data=d.data||{};
+ const where=Object.entries(data.sessions||{}).map(([m,s])=>`${AI_SESSION_LABEL[m]||m} ${s}`).join(' · ')||(data.markets||[]).join(', ');
+ sum.append(node('span',kst(d.created_at),'ai-run-time'),node('span',where,'ai-run-market'),node('span',d.status==='error'?'오류':`행동 ${(data.results||[]).length}건`,'ai-run-badge'),node('span',d.summary,'ai-run-summary'));
+ box.append(sum);
+ const inner=node('div',null,'ai-run-body');
+ inner.append(aiFacts([['모델',data.model],['걸린 시간',data.seconds!=null?data.seconds+'초':null],['조사',`${(data.research||[]).length}회 · 요청 ${(data.research||[]).flat().length}건`]]));
+ if(data.error)inner.append(node('p','오류: '+data.error,'ai-error'));
+ if(data.analysis){inner.append(node('h4','판단 근거'),node('p',data.analysis,'ai-analysis'));}
+ (data.thinking||[]).forEach((t,i)=>{if(!t)return;inner.append(node('h4',`조사 ${i+1}단계 생각`));const p=node('p',t,'ai-thinking');inner.append(p);
+  const asked=(data.research||[])[i]||[];if(asked.length)inner.append(node('p','요청: '+asked.map(r=>[r.type,r.symbol||r.query||r.asset,r.range||r.kind].filter(Boolean).join(' ')).join(' · '),'field-help'));});
+ inner.append(node('h4','행동과 이유'));
+ aiTable(inner,['구분','대상','이유','결과'],(data.results||[]).map(r=>[AI_ACTION[r.action.type]||r.action.type,aiActionText(r.action),r.action.reason||'—',aiResultText(r)]),'이번 시간에는 거래하지 않았습니다.');
+ if((data.dropped||[]).length){inner.append(node('h4','실행하지 않은 행동'));aiTable(inner,['행동','이유'],data.dropped.map(x=>[JSON.stringify(x.action),x.why]),'');}
+ // The data the AI looked at and the account it saw: fetched only when opened.
+ const raw=node('details',null,'admin-raw'),pre=node('pre');raw.append(node('summary','AI가 본 계좌와 조사 데이터 원문'),pre);
+ raw.addEventListener('toggle',async()=>{if(!raw.open||pre.textContent)return;pre.textContent='불러오는 중…';
+  try{const full=await viewAs('ai/decisions/'+d.id);pre.textContent=JSON.stringify({account:full.data.account,research_data:full.data.research_data},null,2);}catch(e){pre.textContent=e.message;}});
+ inner.append(raw);box.append(inner);
+ return box;
+}
+const AI_TAB_RENDER={
+ async decisions(view){
+  let before=null;const list=node('div',null,'ai-runs'),more=node('button','이전 기록 더 보기','secondary');more.type='button';
+  async function page(){const r=await viewAs('ai/decisions'+(before?'?before='+before:''));
+   r.rows.forEach((d,i)=>list.append(aiDecision(d,!before&&i===0)));
+   if(r.rows.length)before=r.rows[r.rows.length-1].id;more.hidden=!r.more;
+   if(!list.children.length)list.append(node('p','아직 판단 기록이 없습니다. 장이 열려 있는 시간에 매시간 기록됩니다.','empty-state'));}
+  more.addEventListener('click',()=>page().catch(e=>toast(e.message,'error')));
+  await page();view.append(list,more);
+ },
+ async portfolio(view){
+  const p=await viewAs('portfolio');
+  view.append(aiFacts([['총 평가금액',p.equity==null?'—':nativeMoney(p.equity,'KRW')],['달러 환산',p.equity_usd==null?'—':nativeMoney(p.equity_usd,'USD')],
+   ['평가손익(원화)',p.pnl==null?'—':nativeMoney(p.pnl,'KRW')],['수익률(원화)',signedPct(p.return_pct)],['수익률(달러)',signedPct(p.return_pct_usd)],
+   ['USD 현금',nativeMoney(p.wallets.USD,'USD')],['KRW 현금',nativeMoney(p.wallets.KRW,'KRW')],
+   ['실현 손익',`${nativeMoney(p.realized_pnl?.USD||0,'USD')} / ${nativeMoney(p.realized_pnl?.KRW||0,'KRW')}`],['수익률 기준',p.return_basis]]));
+  view.append(node('h4','보유 종목'));
+  aiTable(view,['종목','수량','평균 단가','현재가','평가금액','평가손익','수익률'],p.positions.map(x=>[`${x.name||x.symbol} (${x.symbol})`,x.quantity,nativeMoney(x.average_cost,x.currency),
+   x.quote?nativeMoney(x.quote.native_price??x.quote.price,x.currency):'—',x.value==null?'—':nativeMoney(x.value,x.currency),x.pnl==null?'—':signed(x.pnl,nativeMoney(x.pnl,x.currency)),signedPct(x.return_pct)]),'보유한 종목이 없습니다.');
+  if(p.errors?.length)view.append(node('p',p.errors.join(' · '),'field-help'));
+ },
+ async history(view){
+  let pageNo=1;const box=node('div'),more=node('button','더 보기','secondary');more.type='button';const rows=[];
+  async function page(){const r=await viewAs('transactions?page='+pageNo);rows.push(...r);pageNo++;more.hidden=r.length<50;box.replaceChildren();
+   aiTable(box,['시각','종목','구분','수량','체결가','정산 금액','수수료·세금','실현 손익','세션'],rows.map(t=>[kst(t.created_at),`${t.name} (${t.symbol})`,t.side==='buy'?'매수':'매도',t.quantity,
+    nativeMoney(t.native_price??t.price,t.currency),nativeMoney(t.net_amount,t.currency),nativeMoney(Number(t.fee||0)+Number(t.tax||0),t.currency),
+    t.side==='sell'&&t.realized_pnl!=null?signed(t.realized_pnl,nativeMoney(t.realized_pnl,t.currency)):'—',t.market_session||'—']),'거래내역이 없습니다.');}
+  more.addEventListener('click',()=>page().catch(e=>toast(e.message,'error')));
+  const s=await viewAs('transactions/summary');
+  view.append(aiFacts(Object.entries(s.currencies).map(([c,v])=>[c,`매수 ${v.buy_count}건 ${nativeMoney(v.buy_gross,c)} · 매도 ${v.sell_count}건 ${nativeMoney(v.sell_gross,c)} · 실현 ${nativeMoney(v.realized_pnl,c)}`])));
+  await page();view.append(box,more);
+ },
+ async fx(view){
+  const r=await viewAs('fx/history');
+  aiTable(view,['시각','보낸 금액','받은 금액','수수료','환율'],r.map(x=>[kst(x.created_at),nativeMoney(x.amount,x.source),nativeMoney(x.received,x.target),nativeMoney(x.fee,x.source),Number(x.rate).toLocaleString('ko-KR',{maximumFractionDigits:6})]),'환전내역이 없습니다.');
+ },
+ async orders(view){
+  const r=await viewAs('limit-orders');
+  aiTable(view,['등록','종목','구분','수량','조건','상태','체결','사유'],r.map(o=>[kst(o.created_at),o.symbol,o.side==='buy'?'매수':'매도',o.use_max?'최대':o.quantity,
+   o.limit_price==null?'시장가':`${o.limit_price} ${o.trigger==='below'?'이하':'이상'}`,o.status,o.filled_at?`${kst(o.filled_at)} · ${o.filled_price}`:'—',o.reason||'—']),'예약 주문이 없습니다.');
+ },
+ async dividends(view){
+  const r=await viewAs('dividends');
+  view.append(aiFacts(Object.entries(r.totals).map(([c,v])=>[`받은 배당 (${c})`,`${v.count}건 · 세후 ${nativeMoney(v.net,c)}`])));
+  view.append(node('h4','보유 종목 배당 전망'));
+  aiTable(view,['종목','수량','주기','연간 세후','다음 배당'],r.holdings.map(h=>[`${h.name} (${h.symbol})`,h.quantity,h.frequency||'—',h.annual_net==null?'—':nativeMoney(h.annual_net,h.currency),
+   h.next?`${h.next.credit_date} 입금 · ${nativeMoney(h.next.net,h.currency)}${h.next.confirmed?'':' (예상)'}`:'—']),'배당 대상 보유 종목이 없습니다.');
+  view.append(node('h4','받은 배당'));
+  aiTable(view,['입금일','종목','세후'],(r.payments||[]).map(x=>[x.pay_date||kst(x.created_at),`${x.name} (${x.symbol}) · ${x.quantity}주`,nativeMoney(x.net,x.currency)]),'받은 배당이 없습니다.');
+ },
+ async fees(view){
+  const r=await viewAs('fees');
+  aiTable(view,['통화','매수 수수료','매도 수수료','매도 세금','환전 수수료','합계','거래·환전'],Object.entries(r.paid).map(([c,v])=>[c,nativeMoney(v.buy_fee,c),nativeMoney(v.sell_fee,c),nativeMoney(v.tax,c),nativeMoney(v.fx_fee,c),nativeMoney(v.total,c),`${v.trades}건 · ${v.exchanges}건`]),'');
+  view.append(node('p',r.total_krw==null?'':`원화 환산 합계 ${nativeMoney(r.total_krw,'KRW')}`,'field-help'));
+ },
+ async watchlist(view){
+  const r=await viewAs('watchlist');
+  aiTable(view,['종목','현재가','전일 대비'],r.map(w=>[`${w.name} (${w.symbol})`,w.quote?nativeMoney(w.quote.native_price,w.currency):'—',w.quote?signedPct(w.quote.change_pct):'—']),'관심종목이 없습니다.');
+ },
+ async performance(view){
+  const r=await viewAs('performance/me?period=ALL');
+  view.append(aiFacts([['기간',`${r.from||'—'} ~ ${r.to||'—'}`],['기간 수익률(원화)',signedPct(r.period_return_pct)],['기간 수익률(달러)',signedPct(r.period_return_usd_pct)],['기준',r.return_basis]]));
+  aiTable(view,['날짜','평가액(원화)','누적 수익률(원화)','누적 수익률(달러)'],(r.snapshots||[]).slice().reverse().map(x=>[x.date,x.equity_krw==null?'—':nativeMoney(x.equity_krw,'KRW'),signedPct(x.cumulative_return_pct),signedPct(x.cumulative_return_usd_pct)]),'아직 일별 성과 기록이 없습니다. 매일 아침 기록됩니다.');
+ },
+ async profile(view){
+  const r=await viewAs('profile');
+  view.append(aiFacts([['아이디',r.username],['소개',r.bio],['가입',kst(r.member_since)],['가입 일수',r.member_days+'일']]));
+ },
+};

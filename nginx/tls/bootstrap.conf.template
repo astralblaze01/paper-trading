@@ -40,6 +40,16 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Request-ID $request_id;
     }
+    # AI traders' hourly decision records carry the data they looked at; the app caps them at 200 KB.
+    location = /api/ai/decisions {
+        client_max_body_size 256k;
+        limit_req zone=api burst=10 nodelay;
+        limit_req_status 429;
+        proxy_pass $web_upstream;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Request-ID $request_id;
+    }
     location / {
         limit_req zone=api burst=30 nodelay;
         limit_req_status 429;

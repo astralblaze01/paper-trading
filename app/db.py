@@ -37,6 +37,9 @@ class User(Base):
     session_version: Mapped[int] = mapped_column(Integer, default=0, server_default='0')
     # Set by an administrator's reset: the account can do nothing but choose a new password.
     password_temporary: Mapped[bool] = mapped_column(Boolean, default=False, server_default='false')
+    # An AI trader's account (python -m app.admin_cli --ai): it may log its decisions, and
+    # administrators may read everything it owns. It still competes like any other account.
+    is_ai: Mapped[bool] = mapped_column(Boolean, default=False, server_default='false')
     __table_args__ = (CheckConstraint('cash >= 0'),)
 
 def lock_user(db, user_id):
@@ -391,3 +394,15 @@ class SplitApplication(Base):
     currency: Mapped[str] = mapped_column(String(3))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     __table_args__ = (UniqueConstraint('user_id','split_id'),)
+
+class AiDecision(Base):
+    """One hourly run of an AI trader: what it saw, asked for, decided and why, and what came of it.
+
+    Posted by the AI's own account (scripts/ai_trader.py); read by that account and by administrators."""
+    __tablename__ = 'ai_decisions'
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey('users.id', ondelete='CASCADE'), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    status: Mapped[str] = mapped_column(String(12))      # 'ok' or 'error'
+    summary: Mapped[str] = mapped_column(String(400))
+    data: Mapped[dict] = mapped_column(JSONB)
