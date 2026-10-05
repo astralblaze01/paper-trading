@@ -60,25 +60,26 @@ main.market=FixtureMarket();main.fx=FixtureFX()
 # Fixture administrator exists only in the explicitly isolated browser DB.
 from app.db import Base,Session,User,AiDecision
 from app.migrations import migrate
-from sqlalchemy import select
+from sqlalchemy import delete,select
 Base.metadata.create_all(main.engine)
 migrate(main.engine)
 with Session.begin() as db:
     admin=db.scalar(select(User).where(User.username=='browser_admin'))
     if admin is None:
         db.add(User(username='browser_admin',password_hash=main.hasher.hash('browser-fixture-password'),is_admin=True))
-    # An AI trader with one logged run, for the admin AI page.
+    # An AI trader with one logged run, for the admin AI page. The DB outlives runs, so every
+    # start replaces the run: one logged by an older fixture lacks fields the smoke now checks.
     bot=db.scalar(select(User).where(User.username=='browser_ai'))
     if bot is None:
         bot=User(username='browser_ai',password_hash=main.hasher.hash('browser-fixture-password'),is_ai=True);db.add(bot);db.flush()
-        from datetime import datetime,timezone
-        db.add(AiDecision(user_id=bot.id,created_at=datetime.now(timezone.utc),status='ok',summary='애플 소량 매수',
-                          data={'model':'fixture-model','sessions':{'US':'정규장'},'markets':['US'],'seconds':12,'analysis':'20일 추세가 오르고 있어 분할 매수한다.',
-                                'sources':[{'id':'fixture-news','title':'확인한 시장 뉴스','url':'https://example.org/market','publisher':'Fixture News','published_at':datetime.now(timezone.utc).isoformat(),'coverage':'headline_only'},
-                                           {'title':'위험한 링크','url':'javascript:alert(1)'}],
-                                'thinking':['기술주 흐름 확인'],'research':[[{'type':'chart','symbol':'AAPL','range':'3M'}]],
-                                'results':[{'action':{'type':'buy','symbol':'AAPL','quantity':1,'reason':'추세 상승'},'result':{'quantity':1,'currency':'USD','net_amount':'100'}}],
-                                'dropped':[],'account':{'cash':{'USD':100000}},'research_data':[[{'request':{'type':'chart'},'data':{'last':100}}]]}))
+    db.execute(delete(AiDecision).where(AiDecision.user_id==bot.id))
+    db.add(AiDecision(user_id=bot.id,created_at=datetime.now(timezone.utc),status='ok',summary='애플 소량 매수',
+                      data={'model':'fixture-model','sessions':{'US':'정규장'},'markets':['US'],'seconds':12,'analysis':'20일 추세가 오르고 있어 분할 매수한다.',
+                            'sources':[{'id':'fixture-news','title':'확인한 시장 뉴스','url':'https://example.org/market','publisher':'Fixture News','published_at':datetime.now(timezone.utc).isoformat(),'coverage':'headline_only'},
+                                       {'title':'위험한 링크','url':'javascript:alert(1)'}],
+                            'thinking':['기술주 흐름 확인'],'research':[[{'type':'chart','symbol':'AAPL','range':'3M'}]],
+                            'results':[{'action':{'type':'buy','symbol':'AAPL','quantity':1,'reason':'추세 상승'},'result':{'quantity':1,'currency':'USD','net_amount':'100'}}],
+                            'dropped':[],'account':{'cash':{'USD':100000}},'research_data':[[{'request':{'type':'chart'},'data':{'last':100}}]]}))
     # An account from before the sign-up agreement; every start puts it back in that state.
     for name in ('browser_legacy_1440','browser_legacy_390'):
         legacy=db.scalar(select(User).where(User.username==name))
