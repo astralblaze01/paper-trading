@@ -216,7 +216,7 @@ def test_ranking_keeps_last_snapshot_when_all_markets_are_closed(client, monkeyp
     assert first['market_open'] is False
     def should_not_revalue(*args, **kwargs):
         raise AssertionError('closed market must use the cached snapshot')
-    monkeypatch.setattr(main, 'wallet_portfolio', should_not_revalue)
+    monkeypatch.setattr(main, 'ranking_values', should_not_revalue)
     second=client.get('/api/ranking').json()
     assert second['rows']==first['rows']
     assert second['refreshed'] is False
@@ -230,7 +230,7 @@ def test_ranking_ten_second_boundary_and_last_good_snapshot(client,monkeypatch):
     assert main._next_ranking_boundary(stamp).second==20
     first=client.get('/api/ranking').json()
     main._ranking_cache[main.market]['bucket']-=timedelta(seconds=10)
-    monkeypatch.setattr(main,'wallet_portfolio',lambda *args:{'return_pct':None})
+    monkeypatch.setattr(main,'ranking_values',lambda ids,*rest:{i:{'return_pct':None} for i in ids})
     failed=client.get('/api/ranking').json()
     assert failed['rows']==first['rows'] and failed['updated_at']==first['updated_at']
     assert failed['stale'] and failed['incomplete']
@@ -375,6 +375,8 @@ class FakeRedis:
         import threading
         return threading.Lock()
     def pipeline(self): return FakePipeline(self)
+    # Shared call spacing (reserve_slot): no other process is waiting in these tests.
+    def eval(self, script, numkeys, *args): return '0'
 
 class FakePipeline:
     def __init__(self, redis): self.redis = redis; self.deletes = []

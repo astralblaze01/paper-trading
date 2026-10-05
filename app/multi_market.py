@@ -88,8 +88,12 @@ class KoreaPrices:
                     # 0.5s requests in live verification; serialize those at 1.1s.
                     # Domestic quotations are well inside the live limit (20/s per
                     # app key, shared with the workers) at 0.2s.
-                    gap=1.1 if path.startswith('/uapi/overseas-') else 0.2
-                    delay=gap-(time.monotonic()-self.last_call)
+                    overseas=path.startswith('/uapi/overseas-')
+                    gap=1.1 if overseas else 0.2
+                    # The web and worker processes share one app key, so the spacing is
+                    # kept on a clock they all see; this process's own gap still applies.
+                    shared=redis_cache.reserve_slot('kis:overseas' if overseas else 'kis:domestic',gap)
+                    delay=max(gap-(time.monotonic()-self.last_call),shared or 0)
                     if delay>0: time.sleep(delay)
                     self.last_call=time.monotonic()
                     headers={'authorization':'Bearer '+self.token,'appkey':self.key,'appsecret':self.secret,'tr_id':tr_id,'custtype':'P'}

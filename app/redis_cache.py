@@ -40,6 +40,24 @@ def _json_default(value):
     raise TypeError(f'Unsupported cache value: {type(value)!r}')
 
 
+def _typed_default(value):
+    from datetime import datetime
+    if isinstance(value, Decimal):
+        return {'$decimal': str(value)}
+    if isinstance(value, datetime):
+        return {'$datetime': value.isoformat()}
+    raise TypeError(f'Unsupported cache value: {type(value)!r}')
+
+
+def _typed_hook(value):
+    from datetime import datetime
+    if len(value) == 1 and '$decimal' in value:
+        return Decimal(value['$decimal'])
+    if len(value) == 1 and '$datetime' in value:
+        return datetime.fromisoformat(value['$datetime'])
+    return value
+
+
 class RedisCache:
     def __init__(self):
         self.url = os.getenv('REDIS_URL', '')
@@ -187,6 +205,74 @@ class RedisCache:
                 return value
         except RedisError:
             return load()
+
+    # Reserves the next free start time on a shared clock (Redis TIME), so processes
+    # on different hosts never disagree about who called last.
+    _SLOT = """
+local t = redis.call('TIME')
+local now = tonumber(t[1]) + tonumber(t[2]) / 1000000
+local start = math.max(now, tonumber(redis.call('GET', KEYS[1]) or '0'))
+redis.call('SET', KEYS[1], tostring(start + tonumber(ARGV[1])), 'EX', 60)
+return tostring(start - now)
+"""
+
+    def set_typed(self, key, value, ttl):
+        """Store a value whose Decimals and datetimes come back as the same types."""
+        if not self.client:
+            return False
+        try:
+            self.client.setex(key, max(1, int(ttl)), json.dumps(value, default=_typed_default, separators=(',', ':')))
+            return True
+        except (RedisError, TypeError, ValueError):
+            return False
+
+    def get_typed(self, key):
+        if not self.client:
+            return None
+        try:
+            raw = self.client.get(key)
+            return json.loads(raw, object_hook=_typed_hook) if raw else None
+        except (RedisError, ValueError, TypeError):
+            return None
+
+    # Sliding-window counter shared by every web process.
+    _WINDOW = """
+local t = redis.call('TIME')
+local now = tonumber(t[1]) + tonumber(t[2]) / 1000000
+redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', now - tonumber(ARGV[2]))
+if redis.call('ZCARD', KEYS[1]) >= tonumber(ARGV[1]) then return 0 end
+redis.call('ZADD', KEYS[1], now, t[1] .. t[2] .. ARGV[3])
+redis.call('EXPIRE', KEYS[1], tonumber(ARGV[2]) + 1)
+return 1
+"""
+
+    def allow_window(self, name, limit, seconds):
+        """True/False for one more event in the last `seconds`; None without Redis."""
+        if not self.client:
+            return None
+        try:
+            return bool(self.client.eval(self._WINDOW, 1, f'window:{name}', int(limit), int(seconds), uuid4().hex))
+        except (RedisError, ValueError, TypeError):
+            return None
+
+    def clear_windows(self):
+        if not self.client:
+            return
+        try:
+            for key in self.client.scan_iter('window:*'):
+                self.client.delete(key)
+        except RedisError:
+            pass
+
+    def reserve_slot(self, name, gap):
+        """Seconds to wait before a call that must be `gap` seconds after the previous
+        one made by any process; None without Redis (callers keep their own spacing)."""
+        if not self.client:
+            return None
+        try:
+            return max(0.0, float(self.client.eval(self._SLOT, 1, f'slot:{name}', gap)))
+        except (RedisError, ValueError, TypeError):
+            return None
 
     def allow_rate(self, name, limit, seconds=60):
         if not self.client:

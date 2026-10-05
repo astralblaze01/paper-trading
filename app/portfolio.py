@@ -1,6 +1,6 @@
 from decimal import Decimal
 from sqlalchemy import select, func
-from .db import Session, Position, Transaction, lock_user
+from .db import Session, Position, Transaction, User, Wallet, lock_user
 from .money import wallets, native_cost_basis
 from .instruments import instrument
 from .market import MarketError
@@ -162,3 +162,55 @@ def portfolio(uid, market, fx):
             'return_pct_usd':performance_return(equity_usd,user.initial_usd,user.net_contributions_usd) if complete else None,
             'realized_pnl':{'USD':realized.get('USD',Decimal(0)),'KRW':realized.get('KRW',Decimal(0))},
             'fx':rate,'errors':errors,'stale':any(r['quote'] and r['quote']['stale'] for r in rows)}
+
+
+def ranking_values(ids, market, fx):
+    """Account values for the ranking: the same figures portfolio() reports, without the rest.
+
+    The ranking revalues every account every few seconds while a market is
+    open. portfolio() locks each account row and replays its whole trade
+    history for the per-holding cost view; none of that changes a total. Here
+    every account is read in three queries without row locks, the reference
+    rate is read once and each symbol is quoted once."""
+    rate=None
+    try: rate=fx.current_rate('USD','KRW')
+    except MarketError: pass
+    with Session() as db:
+        users={u.id:u for u in db.scalars(select(User).where(User.id.in_(ids)))}
+        balances={}
+        for w in db.scalars(select(Wallet).where(Wallet.user_id.in_(ids))): balances[(w.user_id,w.currency)]=w.balance
+        holdings={}
+        for p in db.scalars(select(Position).where(Position.user_id.in_(ids)).order_by(Position.user_id,Position.symbol)):
+            holdings.setdefault(p.user_id,[]).append((p.symbol,p.quantity))
+    if rate and any(u.initial_krw is None for u in users.values()):
+        # Fixed once per account, at the first rate it is valued with (as portfolio() does).
+        for uid in [i for i,u in users.items() if u.initial_krw is None]:
+            try: initialize_equity(uid,fx)
+            except AccountGone: users.pop(uid)
+        with Session() as db:
+            for u in db.scalars(select(User).where(User.id.in_(list(users)))): users[u.id]=u
+    quotes={}
+    def quote(symbol):
+        if symbol not in quotes:
+            try: quotes[symbol]=market.quote(symbol)
+            except MarketError: quotes[symbol]=None
+        return quotes[symbol]
+    values={}
+    for uid in ids:
+        user=users.get(uid)
+        if user is None: continue
+        # An account without a wallet row yet holds its legacy cash in USD (see money.wallets).
+        usd=balances.get((uid,'USD'),user.cash); krw=balances.get((uid,'KRW'),Decimal(0))
+        equity=krw+(usd*rate['rate'] if rate else 0); complete=rate is not None; stale=False
+        for symbol,quantity in holdings.get(uid,[]):
+            q=quote(symbol)
+            if q is None: complete=False; continue
+            stale=stale or bool(q['stale'])
+            value=Decimal(str(q.get('native_price',q['price'])))*quantity
+            if instrument(symbol)['currency']=='KRW' or rate: equity+=krw_value(instrument(symbol)['currency'],value,rate['rate'] if rate else None)
+        equity_usd=(equity/rate['rate']).quantize(Decimal('.0001')) if complete else None
+        values[uid]={'username':user.username,'equity':equity if complete else None,'equity_usd':equity_usd,
+                     'return_pct':performance_return(equity,user.initial_krw,user.net_contributions_krw) if complete else None,
+                     'return_pct_usd':performance_return(equity_usd,user.initial_usd,user.net_contributions_usd) if complete else None,
+                     'fx':rate,'stale':stale}
+    return values

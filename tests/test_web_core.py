@@ -151,8 +151,8 @@ def test_ranking_same_bucket_serves_the_cached_payload(client, monkeypatch):
     assert first['refreshed'] is True and first['market_open'] is None and first['market_status'] == []
     assert first['next_refresh_at'] == boundary and first['errors'] == [] and first['incomplete'] is False
     cached = main._ranking_cache[main.market]
-    assert set(cached) == {'bucket', 'payload'} and cached['bucket'] == B1 and list(cached['payload']) == RANKING_KEYS[:8]
-    monkeypatch.setattr(main, 'wallet_portfolio', no_revalue)
+    assert set(cached) == {'bucket', 'payload', 'written'} and cached['bucket'] == B1 and list(cached['payload']) == RANKING_KEYS[:8]
+    monkeypatch.setattr(main, 'ranking_values', no_revalue)
     second = client.get('/api/ranking').json()
     assert list(second) == RANKING_KEYS and second == first | {'refreshed': False}
 
@@ -164,7 +164,7 @@ def test_ranking_prunes_ineligible_rows_in_the_cached_payload(client, monkeypatc
     first = client.get('/api/ranking').json()
     assert [(r['rank'], r['username']) for r in first['rows']] == [(1, 'alice'), (2, 'bob')]
     with Session.begin() as db: db.scalar(select(User).where(User.username == 'alice')).active = False
-    monkeypatch.setattr(main, 'wallet_portfolio', no_revalue)
+    monkeypatch.setattr(main, 'ranking_values', no_revalue)
     second = client.get('/api/ranking').json()
     # The remaining account moves up to 1st, and its tier with it.
     assert second['rows'] == [first['rows'][1] | {'rank': 1, 'tier': 'grandmaster'}] and list(second['rows'][0]) == ROW_KEYS
@@ -175,15 +175,15 @@ def test_ranking_skips_an_account_withdrawn_while_it_is_valued(client, monkeypat
     main._ranking_cache.clear()
     at_bucket(monkeypatch, B1)
     register(client, 'alice'); register(client, 'bob')
-    bob, value = uid_of('bob'), main.wallet_portfolio
-    def withdraw_first(uid, *args):
-        # bob passed the eligibility query, then withdrew before his valuation.
-        if uid == bob:
-            from sqlalchemy import text
-            with Session.begin() as db:
-                for table in ('wallets', 'users'): db.execute(text(f"DELETE FROM {table} WHERE {'user_id' if table == 'wallets' else 'id'}=:u"), {'u': uid})
-        return value(uid, *args)
-    monkeypatch.setattr(main, 'wallet_portfolio', withdraw_first)
+    bob, value = uid_of('bob'), main.ranking_values
+    def withdraw_first(ids, *args):
+        # bob passed the eligibility query, then withdrew before the valuation.
+        assert bob in ids
+        from sqlalchemy import text
+        with Session.begin() as db:
+            for table in ('wallets', 'users'): db.execute(text(f"DELETE FROM {table} WHERE {'user_id' if table == 'wallets' else 'id'}=:u"), {'u': bob})
+        return value(ids, *args)
+    monkeypatch.setattr(main, 'ranking_values', withdraw_first)
     r = client.get('/api/ranking')
     assert r.status_code == 200 and [row['username'] for row in r.json()['rows']] == ['alice']
 
@@ -192,18 +192,18 @@ def test_ranking_failure_without_a_cache(client, monkeypatch):
     main._ranking_cache.clear()
     boundary = at_bucket(monkeypatch, B1)
     register(client)
-    monkeypatch.setattr(main, 'wallet_portfolio', lambda *args: {'return_pct': None})
+    monkeypatch.setattr(main, 'ranking_values', lambda ids, *rest: {i: {'return_pct': None} for i in ids})
     r = client.get('/api/ranking').json()
     assert list(r) == RANKING_KEYS
     assert r == {'rows': [], 'errors': [HOLD], 'incomplete': True, 'base_currency': 'USD', 'updated_at': None,
                  'return_basis': RETURN_BASIS, 'stale': True, 'refresh_interval_seconds': 10,
                  'refreshed': True, 'market_open': None, 'market_status': [], 'next_refresh_at': boundary}
-    assert main._ranking_cache[main.market] == {'bucket': B1, 'payload': {k: r[k] for k in RANKING_KEYS[:8]}}
+    assert {k: v for k, v in main._ranking_cache[main.market].items() if k != 'written'} == {'bucket': B1, 'payload': {k: r[k] for k in RANKING_KEYS[:8]}}
     # A valued equity without a USD figure is incomplete as well.
     main._ranking_cache.clear()
-    monkeypatch.setattr(main, 'wallet_portfolio', lambda *args: {'return_pct': D(1), 'equity_usd': None})
+    monkeypatch.setattr(main, 'ranking_values', lambda ids, *rest: {i: {'return_pct': D(1), 'equity_usd': None} for i in ids})
     assert client.get('/api/ranking').json()['errors'] == [HOLD]
-    monkeypatch.setattr(main, 'wallet_portfolio', no_revalue)
+    monkeypatch.setattr(main, 'ranking_values', no_revalue)
     again = client.get('/api/ranking').json()
     assert list(again) == RANKING_KEYS and again == r | {'refreshed': False}
 
@@ -214,8 +214,8 @@ def test_ranking_failure_with_a_cache_is_not_revalued_within_its_bucket(client, 
     register(client)
     first = client.get('/api/ranking').json()
     boundary = at_bucket(monkeypatch, B2)
-    calls, real = [], main.wallet_portfolio
-    monkeypatch.setattr(main, 'wallet_portfolio', lambda *args: calls.append(args) or {'return_pct': None})
+    calls, real = [], main.ranking_values
+    monkeypatch.setattr(main, 'ranking_values', lambda ids, *rest: calls.append(ids) or {i: {'return_pct': None} for i in ids})
     failed = client.get('/api/ranking').json()
     assert list(failed) == RANKING_KEYS
     assert failed == first | {'errors': [HOLD], 'incomplete': True, 'refreshed': False, 'stale': True, 'next_refresh_at': boundary}
@@ -228,7 +228,7 @@ def test_ranking_failure_with_a_cache_is_not_revalued_within_its_bucket(client, 
     at_bucket(monkeypatch, B2 + timedelta(seconds=10))
     assert client.get('/api/ranking').json()['incomplete'] is True and len(calls) == 2
     boundary = at_bucket(monkeypatch, B2 + timedelta(seconds=20))
-    monkeypatch.setattr(main, 'wallet_portfolio', real)
+    monkeypatch.setattr(main, 'ranking_values', real)
     recovered = client.get('/api/ranking').json()
     assert recovered['refreshed'] is True and recovered['errors'] == [] and recovered['incomplete'] is False
     assert recovered['next_refresh_at'] == boundary and recovered['rows'] == first['rows']
@@ -246,7 +246,7 @@ def test_ranking_closed_market_serves_the_last_snapshot(client, monkeypatch):
     assert list(first) == RANKING_KEYS and first['refreshed'] is True
     assert first['market_open'] is False and first['market_status'] == labels
     boundary = at_bucket(monkeypatch, B2)
-    monkeypatch.setattr(main, 'wallet_portfolio', no_revalue)
+    monkeypatch.setattr(main, 'ranking_values', no_revalue)
     second = client.get('/api/ranking').json()
     assert list(second) == RANKING_KEYS and second == first | {'refreshed': False, 'next_refresh_at': boundary}
     assert main._ranking_cache[main.market]['bucket'] == B1
@@ -256,12 +256,12 @@ def test_ranking_closed_market_without_a_good_snapshot_revalues(client, monkeypa
     main._ranking_cache.clear()
     at_bucket(monkeypatch, B1)
     register(client)
-    real = main.wallet_portfolio
-    monkeypatch.setattr(main, 'wallet_portfolio', lambda *args: {'return_pct': None})
+    real = main.ranking_values
+    monkeypatch.setattr(main, 'ranking_values', lambda ids, *rest: {i: {'return_pct': None} for i in ids})
     assert client.get('/api/ranking').json()['updated_at'] is None
     main.market.providers = {'KR': Provider({'label': '장마감'}), 'US': Provider({'label': '장마감'})}
     at_bucket(monkeypatch, B2)
-    monkeypatch.setattr(main, 'wallet_portfolio', real)
+    monkeypatch.setattr(main, 'ranking_values', real)
     r = client.get('/api/ranking').json()
     assert r['refreshed'] is True and r['market_open'] is False and r['updated_at'] and r['rows'][0]['username'] == 'alice'
     assert main._ranking_cache[main.market]['bucket'] == B2
