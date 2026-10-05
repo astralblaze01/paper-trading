@@ -131,20 +131,22 @@ function medalSvg(rank){
     <path d="${starPath(24,35.5,4.6)}" fill="${c.leaf}" stroke="${c.rim}" stroke-width=".8"/></svg>`;
 }
 function rankBadge(rank){const n=document.createElement('span');n.className='rank-badge';if(rank<=3){n.classList.add('rank-medal');n.innerHTML=medalSvg(rank);n.setAttribute('role','img');n.setAttribute('aria-label',rank+'위');}else n.textContent=rank;return n;}
+// The ranking heading's note and its tooltip: [text, title].
+window.rankingStatusText=function(r){
+  const markets=(r.market_status||[]).map(x=>`${x.market==='KR'?'한국':'미국'} ${x.label}`).join(' · ');
+  const stamp=value=>new Date(value).toLocaleString('ko-KR',{timeZone:'Asia/Seoul',hour12:false});
+  const asOf=r.updated_at?stamp(r.updated_at):'아직 없음';
+  const next=r.next_refresh_at?stamp(r.next_refresh_at):'다음 경계 시각';
+  const text=r.incomplete
+    ? `마지막 정상 갱신: ${asOf} · `+(r.errors||[]).join(' ')
+    : (r.market_open===false
+      ? `장이 닫혀 마지막 랭킹을 유지합니다 · 기준 ${asOf}${markets?' · '+markets:''}`
+      : `USD 환산 · 10초 단위 · ${asOf.split(' ').slice(-1)[0]}`);
+  return [text,`기준 ${asOf} · 다음 갱신 ${next}${markets?' · '+markets:''}`];
+};
 function renderRanking(){if(!rankingCache)return;
   const status=$('rankingStatus');
-  if(status){
-    const markets=(rankingCache.market_status||[]).map(x=>`${x.market==='KR'?'한국':'미국'} ${x.label}`).join(' · ');
-    const stamp=value=>new Date(value).toLocaleString('ko-KR',{timeZone:'Asia/Seoul',hour12:false});
-    const asOf=rankingCache.updated_at?stamp(rankingCache.updated_at):'아직 없음';
-    const next=rankingCache.next_refresh_at?stamp(rankingCache.next_refresh_at):'다음 경계 시각';
-    status.textContent=rankingCache.incomplete
-      ? `마지막 정상 갱신: ${asOf} · `+(rankingCache.errors||[]).join(' ')
-      : (rankingCache.market_open===false
-        ? `장이 닫혀 마지막 랭킹을 유지합니다 · 기준 ${asOf}${markets?' · '+markets:''}`
-        : `USD 환산 · 10초 단위 · ${asOf.split(' ').slice(-1)[0]}`);
-    status.title=`기준 ${asOf} · 다음 갱신 ${next}${markets?' · '+markets:''}`;
-  }
+  if(status)[status.textContent,status.title]=rankingStatusText(rankingCache);
   // Photo in a ring of the tier color, the name in that color over the tier's gem and name.
   const person=x=>{const box=document.createElement('span');box.className='rank-user';if(x.tier)box.dataset.tier=x.tier;if(window.avatar){const photo=avatar(x.username,x.image_version,'small');if(x.tier)photo.classList.add('ring-'+x.tier);box.append(photo);}
     const who=node('span',null,'rank-who'),name=node('span',null,'rank-name'),link=userLink(x.username);if(x.tier)link.classList.add('tier-text-'+x.tier);name.append(link);if(x.username===window.sessionUsername)name.append(node('span','나','me-tag'));who.append(name);
