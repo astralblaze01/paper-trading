@@ -287,11 +287,19 @@ RULES = """너는 ALPHARENA 모의투자 대회에 참가한 AI 트레이더 "{n
 행동은 적힌 순서대로 실행된다(최대 {max_actions}개)."""
 
 
-def prompt_evidence(value):
-    """IDs, publisher and dates identify evidence; long RSS redirect URLs stay in the audit log."""
-    if isinstance(value, list): return [prompt_evidence(item) for item in value]
+PROMPT_BODY_CHARS = 700        # per article in the prompt; the full text stays in the run's record
+PROMPT_REMEMBERED_CHARS = 160  # remembered articles are background: a glimpse, not the whole body
+
+
+def prompt_evidence(value, limit=PROMPT_BODY_CHARS):
+    """IDs, publisher and dates identify evidence; long RSS redirect URLs stay in the audit log.
+
+    Bodies are cut to fit every CLI's prompt (agy takes at most 128 KiB)."""
+    if isinstance(value, list): return [prompt_evidence(item, limit) for item in value]
     if isinstance(value, dict):
-        return {key: (str(item)[:1800] if key in ('body', 'excerpt') else prompt_evidence(item)) for key, item in value.items() if key not in ('url', 'feed')}
+        return {key: (str(item)[:limit] if key in ('body', 'excerpt')
+                      else prompt_evidence(item, PROMPT_REMEMBERED_CHARS if key == 'remembered' else limit))
+                for key, item in value.items() if key not in ('url', 'feed')}
     return value
 
 

@@ -77,3 +77,55 @@ def test_invalid_feed_rejected(payload):
 @pytest.mark.parametrize('url', ['javascript:alert(1)', 'file:///etc/passwd', 'https://user:password@example.org/'])
 def test_unsafe_article_links_are_discarded(url):
     assert not world.parse_feed(feed(url=url), 'source', NOW, 3)
+
+
+def test_articles_are_read_in_parallel_within_a_budget(monkeypatch):
+    monkeypatch.setattr(world, 'FEED_BUDGET', 1)
+    many = ('<rss><channel>' + ''.join(f'<item><title>Story {i}</title><link>https://example.org/{i}</link><pubDate>Mon, 05 Oct 2026 07:0{i}:00 GMT</pubDate></item>' for i in range(6)) + '</channel></rss>').encode()
+    def article(url):
+        if url.endswith('/5'): world.time.sleep(3)   # one slow site
+        else: world.time.sleep(0.5)
+        return {'url': url, 'body': 'Readable body text for the market. ' * 10}
+    research = world.WorldResearch(loader=lambda _: many, article_loader=article, now=NOW)
+    started = world.time.monotonic()
+    items = research.feed('https://example.org/feed', 'Pub')['items']
+    # Five half-second reads one after another would take 2.5 s; in parallel they fit the 1 s budget.
+    assert world.time.monotonic() - started < 2
+    coverage = {i['title']: i['coverage'] for i in items}
+    assert coverage['Story 5'] == 'headline_only' and sum(c == 'article_body' for c in coverage.values()) == 5
+    assert next(i for i in items if i['title'] == 'Story 5')['article_error'] == 'TimeoutError'
+
+
+def test_google_news_links_are_resolved_to_the_publisher_before_reading(monkeypatch):
+    seen = []
+    monkeypatch.setattr(world, 'resolve_google_news', lambda url: seen.append(url) or 'https://publisher.example/story')
+    monkeypatch.setattr(world, 'download_article', lambda url: {'url': url, 'body': 'body ' * 50})
+    assert world.read_article('https://news.google.com/rss/articles/CBMiabc')['url'] == 'https://publisher.example/story'
+    assert seen == ['https://news.google.com/rss/articles/CBMiabc']
+    assert world.read_article('https://direct.example/a')['url'] == 'https://direct.example/a' and len(seen) == 1
+
+
+@pytest.mark.parametrize('url', ['https://evil.example/rss/articles/CBMiabcdefghijklmnopqrstuv', 'http://news.google.com/rss/articles/CBMiabcdefghijklmnopqrstuv',
+                                 'https://news.google.com/rss/articles/bad id'])
+def test_only_genuine_google_news_article_links_are_resolved(url):
+    with pytest.raises(ValueError): world.resolve_google_news(url)
+
+
+def test_the_overview_reads_publisher_feeds_that_link_to_articles():
+    urls = []
+    research = world.WorldResearch(loader=lambda url: urls.append(url) or feed(), article_loader=lambda u: {'url': u, 'body': 'x ' * 100}, now=NOW)
+    result = research.overview(['KR', 'US'])
+    publishers = {url for feeds in world.PUBLISHER_FEEDS.values() for _, url in feeds}
+    assert publishers <= set(urls) and not any(u.startswith('https://news.google.com') for u in urls)
+    assert all(world.urllib.parse.urlsplit(u).hostname in world.HOSTS for u in urls)
+    assert all(len(v['items']) <= world.FEED_ITEMS for v in result['feeds'].values())
+
+
+@pytest.mark.parametrize('stamp,naive_tz,expected', [
+    ('Mon, 05 Oct 2026 16:56:56 +09:00', None, '2026-10-05T07:56:56+00:00'),   # 매일경제
+    ('2026-10-05 16:09:44', world.KST, '2026-10-05T07:09:44+00:00'),           # 연합인포맥스: local time, no zone
+    ('2026-10-05 16:09:44', None, None),                                       # no zone and none known: not evidence
+    ('Mon, 05 Oct 2026 07:00:00 GMT', None, '2026-10-05T07:00:00+00:00')])
+def test_publisher_date_formats(stamp, naive_tz, expected):
+    got = world.feed_time(stamp, naive_tz)
+    assert (got.isoformat() if got else None) == expected

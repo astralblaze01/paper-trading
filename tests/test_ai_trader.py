@@ -238,3 +238,12 @@ def test_headline_only_source_cannot_authorize_an_order(tmp_path, monkeypatch):
     client=FakeClient(); ask,_=scripted(json.dumps({'step':'decide','sources':['headline'],'actions':[{'type':'buy','symbol':'KR:005930','quantity':1}]}))
     result=ai_trader.run('claude',client=client,ask=ask,world=Headlines())
     assert result['results']==[] and '본문·공식 발췌' in result['dropped'][0]['why']
+
+
+def test_world_evidence_in_the_prompt_is_trimmed_to_fit_every_cli():
+    body = 'x' * 5000
+    context = {'feeds': {'US': {'feed': 'https://f', 'items': [{'id': 'a', 'url': 'https://u', 'body': body}]}},
+               'remembered': [{'id': 'b', 'body': body}]}
+    trimmed = ai_trader.prompt_evidence(context)
+    assert len(trimmed['feeds']['US']['items'][0]['body']) == ai_trader.PROMPT_BODY_CHARS and 'url' not in trimmed['feeds']['US']['items'][0]
+    assert len(trimmed['remembered'][0]['body']) == ai_trader.PROMPT_REMEMBERED_CHARS
