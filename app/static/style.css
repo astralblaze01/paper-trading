@@ -95,6 +95,8 @@
   --medal-ribbon: var(--accent-fill);
   --medal-gold: var(--medal-1-rim);  --medal-silver: var(--medal-2-rim);  --medal-bronze: var(--medal-3-rim);
   --top1-tint: #fcf3dc;  --top2-tint: #f0f3f5;  --top3-tint: #f9ece1;   /* flat row fills for 1–3 */
+  /* AI traders in the ranking: the brand mint running into a sky blue, unlike any tier color alone. */
+  --ai-from: #12c98a;  --ai-to: #2f8fe0;  --ai-ink: #0b4a57;  --ai-tint: #eef7f6;  --ai-tag-bg: #e3f4f1;  --ai-tag-edge: #c6e6ea;
   --leader-bg: #fffbf1;  --leader-edge: #f3dfae;
   --tier-bronze: #ad5600;  --tier-silver: #435f7a;  --tier-gold: #d38a00;  --tier-platinum: #1ca77a;
   --tier-diamond: #0092d6;  --tier-master: #9433e0;  --tier-grandmaster: #d4143c;
@@ -170,6 +172,7 @@
   --badge-us-bg: #17301f;  --badge-us-ink: #7ddca6;
   --badge-etf-bg: #33291a; --badge-etf-ink: #f0c77a;
   --top1-tint: rgba(242,163,27,.14);  --top2-tint: rgba(174,182,191,.12);  --top3-tint: rgba(200,105,28,.15);
+  --ai-from: #1fe194;  --ai-to: #5cb3ff;  --ai-ink: #a9ecdc;  --ai-tint: rgba(64,190,220,.09);  --ai-tag-bg: rgba(64,190,220,.14);  --ai-tag-edge: rgba(92,179,255,.32);
   --leader-bg: #2a2414;  --leader-edge: #5a4722;
   --tier-bronze: #e59a5c;  --tier-silver: #9fb4c9;
   --chart-grid: #333333;
@@ -1191,6 +1194,20 @@ body:has(#dashboard[hidden]) .watch-strip { display: none; }
 .top-rank-2 { --rank-tone: var(--medal-silver); --rank-tint: var(--top2-tint); }
 .top-rank-3 { --rank-tone: var(--medal-bronze); --rank-tint: var(--top3-tint); }
 #ranking tr.top-rank td, #ranking tr.top-rank:hover td { background: var(--rank-tint); }
+/* AI traders: a soft row fill (a medal fill wins in 1–3), an AI pill by the name,
+   and a mint-to-sky ring with two sparkles around the photo in place of the tier ring. */
+#ranking tr.is-ai:not(.top-rank) td, #ranking tr.is-ai:not(.top-rank):hover td { background: var(--ai-tint); border-bottom-color: transparent; }
+#ranking tr.is-ai td:first-child { border-radius: 16px 0 0 16px; }
+#ranking tr.is-ai td:last-child { border-radius: 0 16px 16px 0; }
+.ai-tag { display: inline-flex; align-items: center; gap: 3px; padding: 1px 8px 1px 6px; border: 1px solid var(--ai-tag-edge); border-radius: var(--radius-pill);
+  background: var(--ai-tag-bg); color: var(--ai-ink); font-size: var(--fs-2xs); font-weight: 700; line-height: 1.5; letter-spacing: .3px; }
+.ai-tag .ai-spark { width: 10px; height: 10px; fill: var(--ai-to); }
+.ai-avatar { position: relative; display: inline-flex; flex-shrink: 0; }
+.avatar.ring-ai { border: 2px solid transparent; background: linear-gradient(var(--surface), var(--surface)) padding-box, linear-gradient(135deg, var(--ai-from), var(--ai-to)) border-box;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ai-to) 12%, transparent); }
+.ai-avatar .ai-spark { position: absolute; pointer-events: none; }
+.ai-avatar .ai-spark:nth-of-type(1) { top: -5px; left: -5px; width: 12px; height: 12px; fill: var(--ai-to); }
+.ai-avatar .ai-spark:nth-of-type(2) { right: -4px; bottom: -2px; width: 8px; height: 8px; fill: var(--ai-from); }
 #ranking .user-link { font-size: var(--fs-md); overflow-wrap: anywhere; white-space: normal; text-decoration: none; }
 #ranking .user-link:hover { text-decoration: underline; }
 #ranking .avatar-small { width: 44px; height: 44px; }
@@ -1226,9 +1243,12 @@ body:has(#dashboard[hidden]) .watch-strip { display: none; }
   #ranking .user-link { font-size: var(--fs-md); }
   .rank-user { gap: 8px; }
   .rank-tier { font-size: var(--fs-2xs); }
+  .ai-tag { padding: 0 6px 0 5px; }
+  .ai-avatar .ai-spark:nth-of-type(1) { top: -4px; left: -4px; width: 9px; height: 9px; }
+  .ai-avatar .ai-spark:nth-of-type(2) { width: 6px; height: 6px; }
 }
 @media (max-width: 360px) {
-  #ranking .rank-user .avatar-small { display: none; }
+  #ranking .rank-user .avatar-small, #ranking .rank-user .ai-avatar { display: none; }
 }
 /* Weekly report: ranks 1–4 of the period's return, up front, in a gray box. */
 .weekly-panel #weeklyStatus { margin: 0 0 16px; font-size: var(--fs-sm); color: var(--ink-2); }

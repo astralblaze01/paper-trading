@@ -119,7 +119,7 @@ def test_request_id_cache_control_and_access_log(client, caplog):
 RANKING_KEYS = ['rows', 'errors', 'incomplete', 'base_currency', 'updated_at', 'return_basis', 'stale',
                 'refresh_interval_seconds', 'refreshed', 'market_open', 'market_status', 'next_refresh_at']
 ROW_KEYS = ['rank', 'username', 'equity', 'equity_usd', 'return_pct', 'return_pct_usd', 'stale', 'fx', 'image_version',
-            'tier', 'previous_rank']
+            'tier', 'previous_rank', 'ai']
 HOLD = '시세 또는 기준환율을 확인할 수 없어 랭킹을 보류합니다.'
 SEOUL = ZoneInfo('Asia/Seoul')
 B1 = datetime(2026, 9, 24, 9, 0, 10, tzinfo=SEOUL)

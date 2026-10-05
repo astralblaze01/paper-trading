@@ -147,12 +147,17 @@ window.rankingStatusText=function(r){
       : `USD 환산 · 10초 단위 · ${r.updated_at?clock(r.updated_at)+' 기준':asOf}`);
   return [text,`기준 ${asOf} · 다음 갱신 ${next}${markets?' · '+markets:''}`];
 };
+// A four-point sparkle for the AI traders' marks (an SVG, so it looks the same in every font).
+const AI_SPARK='<svg class="ai-spark" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M8 0c.6 4.2 3.3 7.4 8 8-4.7.6-7.4 3.8-8 8-.6-4.2-3.3-7.4-8-8 4.7-.6 7.4-3.8 8-8z"/></svg>';
+function aiTag(){const t=document.createElement('span');t.className='ai-tag';t.innerHTML=AI_SPARK+'AI';t.title='AI 트레이더';t.setAttribute('aria-label','AI 트레이더');return t;}
 function renderRanking(){if(!rankingCache)return;
   const status=$('rankingStatus');
   if(status)[status.textContent,status.title]=rankingStatusText(rankingCache);
   // Photo in a ring of the tier color, the name in that color over the tier's gem and name.
-  const person=x=>{const box=document.createElement('span');box.className='rank-user';if(x.tier)box.dataset.tier=x.tier;if(window.avatar){const photo=avatar(x.username,x.image_version,'small');if(x.tier)photo.classList.add('ring-'+x.tier);box.append(photo);}
-    const who=node('span',null,'rank-who'),name=node('span',null,'rank-name'),link=userLink(x.username);if(x.tier)link.classList.add('tier-text-'+x.tier);name.append(link);if(x.username===window.sessionUsername)name.append(node('span','나','me-tag'));who.append(name);
+  const person=x=>{const box=document.createElement('span');box.className='rank-user';if(x.tier)box.dataset.tier=x.tier;if(window.avatar){const photo=avatar(x.username,x.image_version,'small');if(x.tier)photo.classList.add('ring-'+x.tier);
+      // AI traders: a gradient ring with two sparkles instead of the tier ring.
+      if(x.ai){const frame=node('span',null,'ai-avatar');frame.innerHTML=AI_SPARK+AI_SPARK;photo.classList.add('ring-ai');frame.prepend(photo);box.append(frame);}else box.append(photo);}
+    const who=node('span',null,'rank-who'),name=node('span',null,'rank-name'),link=userLink(x.username);if(x.tier)link.classList.add('tier-text-'+x.tier);name.append(link);if(x.ai)name.append(aiTag());if(x.username===window.sessionUsername)name.append(node('span','나','me-tag'));who.append(name);
     if(x.tier&&window.tierIcon){const t=node('small',null,'rank-tier tier-text-'+x.tier);t.append(tierIcon(x.tier),window.TIER_LABELS?.[x.tier]||x.tier);who.append(t);}
     box.append(who);return box;};
   // Ranked by USD value; shown in the selected display currency at the snapshot's rate.
@@ -160,7 +165,7 @@ function renderRanking(){if(!rankingCache)return;
   const rankCell=x=>{const box=document.createElement('span'),stacked=change(x);box.className='rank-cell';stacked.classList.replace('rank-change','rank-change-stacked');box.append(rankBadge(x.rank),stacked);return box;};
   const change=x=>{const c=window.rankChange?rankChange(x.rank,x.previous_rank):document.createElement('span');if(!c.textContent){c.textContent='–';c.classList.add('same');}return c;};
   table($('ranking'),['순위','변화','사용자','총 자산 ('+viewCurrency('USD')+')','수익률 ('+basisLabel()+')'],rankingCache.rows.map(x=>[rankCell(x),change(x),person(x),equityTone(viewMoney(x.equity_usd,'USD',x.fx||viewFx),accountReturn(x),.01),signedPct(accountReturn(x))]));
-  $('ranking').querySelectorAll('tbody tr').forEach((tr,i)=>{const row=rankingCache.rows[i];if(row.rank<=3)tr.classList.add('top-rank','top-rank-'+row.rank);if(row.username===window.sessionUsername)tr.classList.add('is-me');});
+  $('ranking').querySelectorAll('tbody tr').forEach((tr,i)=>{const row=rankingCache.rows[i];if(row.rank<=3)tr.classList.add('top-rank','top-rank-'+row.rank);if(row.username===window.sessionUsername)tr.classList.add('is-me');if(row.ai)tr.classList.add('is-ai');});
   if(window.renderMyProfile)renderMyProfile();
   window.renderHeaderUser?.();
   renderMyStanding();

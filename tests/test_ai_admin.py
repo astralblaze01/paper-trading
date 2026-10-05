@@ -73,3 +73,10 @@ def test_deleting_an_ai_account_removes_its_log(client):
     bot.post('/api/ai/decisions', headers={'x-csrf-token': bot_token}, json=RECORD)
     with Session.begin() as db: delete_account_data(db, db.scalar(select(User).where(User.username == 'ai_bot')))
     with Session() as db: assert db.scalar(select(func.count()).select_from(AiDecision)) == 0
+
+
+def test_ranking_rows_say_which_accounts_are_ai_traders(client):
+    register(client)
+    bot, *_ = ai_and_admin()
+    rows = {r['username']: r['ai'] for r in client.get('/api/ranking').json()['rows']}
+    assert rows == {'alice': False, 'ai_bot': True}
