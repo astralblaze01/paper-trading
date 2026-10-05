@@ -422,6 +422,10 @@ with sync_playwright() as p:
         expect(page.locator('#ranking th').nth(4)).to_have_text('수익률 (달러 기준)')
         expect(page.locator('#ranking td').nth(3)).to_contain_text('$')
         expect(page.locator('#myStanding')).to_contain_text('위')
+        # 거래 통화 shows the ranking's totals in USD, so the return is the dollar basis too.
+        page.locator('#displayCurrency').select_option('native')
+        expect(page.locator('#ranking th').nth(3)).to_have_text('총 자산 (USD)')
+        expect(page.locator('#ranking th').nth(4)).to_have_text('수익률 (달러 기준)')
         page.locator('#displayCurrency').select_option('KRW')
         other=page.locator('#ranking .user-link').filter(has_text=peer).first
         other_name=other.inner_text()

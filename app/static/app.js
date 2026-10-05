@@ -26,6 +26,9 @@ function viewCurrency(native){return displayMode==='native'?native:displayMode;}
 function returnBasis(){return displayMode==='USD'?'USD':'KRW';}
 function basisLabel(basis=returnBasis()){return basis==='USD'?'달러 기준':'원화 기준';}
 function accountReturn(p,basis=returnBasis()){return basis==='USD'?p.return_pct_usd:p.return_pct;}
+// Rankings and profiles show totals in USD unless KRW is chosen, so their return
+// follows the same currency: a dollar total beside a dollar-basis return.
+function rankingBasis(){return viewCurrency('USD')==='KRW'?'KRW':'USD';}
 // Total value colored by the account's result: red up, blue down, default ink when even.
 // `value` is rounded to what is displayed first, so "0원"/"0.00%" never shows a color.
 function equityTone(text,value,unit){const n=value==null?0:Math.round(Number(value)/unit),box=document.createElement('span');box.className=n>0?'gain':n<0?'loss':'';box.textContent=text;return box;}
@@ -182,7 +185,8 @@ function renderRanking(){if(!rankingCache)return;
   // Phones hide the 변화 column; the same change shows under the badge instead.
   const rankCell=x=>{const box=document.createElement('span'),stacked=change(x);box.className='rank-cell';stacked.classList.replace('rank-change','rank-change-stacked');box.append(rankBadge(x.rank),stacked);return box;};
   const change=x=>{const c=window.rankChange?rankChange(x.rank,x.previous_rank):document.createElement('span');if(!c.textContent){c.textContent='–';c.classList.add('same');}return c;};
-  table($('ranking'),['순위','변화','사용자','총 자산 ('+viewCurrency('USD')+')','수익률 ('+basisLabel()+')'],rankingCache.rows.map(x=>[rankCell(x),change(x),person(x),equityTone(viewMoney(x.equity_usd,'USD',x.fx||viewFx),accountReturn(x),.01),signedPct(accountReturn(x))]));
+  const basis=rankingBasis();
+  table($('ranking'),['순위','변화','사용자','총 자산 ('+viewCurrency('USD')+')','수익률 ('+basisLabel(basis)+')'],rankingCache.rows.map(x=>[rankCell(x),change(x),person(x),equityTone(viewMoney(x.equity_usd,'USD',x.fx||viewFx),accountReturn(x,basis),.01),signedPct(accountReturn(x,basis))]));
   $('ranking').querySelectorAll('tbody tr').forEach((tr,i)=>{const row=rankingCache.rows[i];if(row.rank<=3)tr.classList.add('top-rank','top-rank-'+row.rank);if(row.username===window.sessionUsername)tr.classList.add('is-me');if(row.ai)tr.classList.add('is-ai');});
   if(window.renderMyProfile)renderMyProfile();
   window.renderHeaderUser?.();
