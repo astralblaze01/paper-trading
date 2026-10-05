@@ -18,7 +18,7 @@ class FakeClient:
     def get(self, path, **params):
         self.gets.append(path)
         if path == '/api/market-overview':
-            return {'markets': [{'market': m, 'session': s, 'tradable': s != 'closed'} for m, s in self.sessions.items()]}
+            return {'markets': [{'market': m, 'session': s, 'open': s != 'closed', 'tradable': s != 'closed'} for m, s in self.sessions.items()]}
         if path == '/api/portfolio': return PORTFOLIO
         if path == '/api/explore': return {'rows': [{'symbol': 'KR:005930', 'name': '삼성전자', 'price': 70000, 'change_pct': 1.2}]}
         if path.startswith('/api/candles/'):
@@ -57,11 +57,20 @@ def test_only_well_formed_actions_for_open_markets_are_kept():
     assert [why for _, why in dropped] == ['US market is not open', 'quantity must be a positive whole number', 'bad symbol', 'unknown action']
 
 
-def test_nothing_is_asked_while_no_regular_session_is_open():
-    client = FakeClient({'KR': 'after_hours', 'US': 'closed'})
+def test_nothing_is_asked_while_every_market_is_closed():
+    client = FakeClient({'KR': 'closed', 'US': 'closed'})
     ask, prompts = scripted()
     assert ai_trader.run('claude', client=client, ask=ask) is None
     assert prompts == [] and client.posts == []
+
+
+def test_extended_sessions_count_as_open(tmp_path, monkeypatch):
+    monkeypatch.setattr(ai_trader, 'STATE', tmp_path)
+    client = FakeClient({'KR': 'closed', 'US': 'overnight'})
+    ask, prompts = scripted(json.dumps({'step': 'decide', 'actions': [{'type': 'buy', 'symbol': 'AAPL', 'quantity': 1}]}))
+    entry = ai_trader.run('gpt', client=client, ask=ask)
+    assert entry['markets'] == ['US'] and 'US(overnight)' in prompts[0]
+    assert client.posts == [('/api/orders', client.posts[0][1])] and client.posts[0][1]['symbol'] == 'AAPL'
 
 
 def test_research_then_decide_places_the_orders_in_order(tmp_path, monkeypatch):

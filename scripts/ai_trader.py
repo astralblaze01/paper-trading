@@ -1,6 +1,6 @@
 """AI traders: Claude and GPT each run an ordinary ALPHARENA account and trade it themselves.
 
-Once an hour, while the Korean or US regular session is open, each AI looks at its
+Once an hour, while the Korean or US market takes orders in any session, each AI looks at its
 account and the market rankings, asks for whatever detail it wants (quotes, charts,
 company data, searches), and then decides its own orders. This script only carries
 the AI's requests to the site's public API and its orders to /api/orders, so the
@@ -162,8 +162,9 @@ def num(value, places=2):
 
 
 def open_markets(client):
-    """Markets in their regular session now; the AI trades only these (thin extended-hours prices are skipped)."""
-    return [m['market'] for m in client.get('/api/market-overview')['markets'] if m.get('session') == 'regular' and m.get('tradable')]
+    """{market: session label} for each market that takes orders now, in any session (pre, regular, after, day market)."""
+    return {m['market']: m.get('label') or m.get('session') for m in client.get('/api/market-overview')['markets']
+            if m.get('open') and m.get('tradable')}
 
 
 def account_view(portfolio):
@@ -236,7 +237,8 @@ RULES = """너는 ALPHARENA 모의투자 대회에 참가한 AI 트레이더 "{n
 목표: 장기적으로 계좌의 총 자산(달러 환산)을 최대한 키워 다른 참가자(사람과 AI)보다 높은 순위를 얻는 것.
 
 규칙
-- 지금 거래할 수 있는 시장: {markets}. 다른 시장 종목은 주문하지 마라.
+- 지금 거래할 수 있는 시장(현재 세션): {markets}. 다른 시장 종목은 주문하지 마라.
+  정규장이 아닌 세션(프리장·애프터장·데이마켓)은 거래가 적어 가격이 튈 수 있다.
 - 지갑은 USD와 KRW로 나뉜다. 미국 종목은 USD, 한국 종목(KR:6자리)은 KRW로 결제한다.
   한국 종목을 사려면 먼저 exchange 행동으로 USD를 KRW로 바꿔야 한다(환전 수수료 약 0.15%).
 - 수수료: 미국 매수·매도 0.1%, 한국 매수·매도 0.015% + 매도세 0.20%(ETF 면제). 잦은 매매는 손해다.
@@ -262,7 +264,7 @@ RULES = """너는 ALPHARENA 모의투자 대회에 참가한 AI 트레이더 "{n
 
 
 def build_prompt(name, markets, account, market_lists, memory, research, rounds_left):
-    parts = [RULES.format(name=name, markets=', '.join(markets), max_requests=MAX_REQUESTS, rounds_left=rounds_left, max_actions=MAX_ACTIONS),
+    parts = [RULES.format(name=name, markets=', '.join(f'{m}({label})' for m, label in markets.items()), max_requests=MAX_REQUESTS, rounds_left=rounds_left, max_actions=MAX_ACTIONS),
              f'현재 시각(UTC): {datetime.now(timezone.utc).isoformat(timespec="minutes")}',
              '내 계좌:\n' + json.dumps(account, ensure_ascii=False),
              '시장 순위(거래대금 상위·상승·하락):\n' + json.dumps(market_lists, ensure_ascii=False)]
@@ -365,7 +367,7 @@ def run(agent, dry_run=False, base=BASE, ask=None, client=None, markets=None):
     `markets` overrides the open-market check, for trying the AI with --dry-run while markets are closed."""
     ask = ask or ASK[agent]
     client = client or signed_in(agent, base)
-    markets = markets or open_markets(client)
+    markets = {m: '가정' for m in markets} if markets else open_markets(client)
     if not markets: return None
     account = account_view(client.get('/api/portfolio'))
     market_lists = overview(client, markets)
@@ -386,7 +388,7 @@ def run(agent, dry_run=False, base=BASE, ask=None, client=None, markets=None):
         if dry_run: results.append({'action': action, 'dry_run': True}); continue
         try: results.append({'action': action, 'result': execute(client, action)})
         except ApiError as exc: results.append({'action': action, 'error': str(exc.detail)})
-    entry = {'time': datetime.now(timezone.utc).isoformat(timespec='seconds'), 'markets': markets, 'dry_run': dry_run,
+    entry = {'time': datetime.now(timezone.utc).isoformat(timespec='seconds'), 'markets': list(markets), 'dry_run': dry_run,
              'summary': str(decision.get('summary', ''))[:300], 'research': [r for r, _ in research],
              'results': results, 'dropped': [{'action': a, 'why': why} for a, why in dropped]}
     if not dry_run:
@@ -408,5 +410,5 @@ if __name__ == '__main__':
     else:
         entry = run(args.agent, dry_run=args.dry_run, markets=args.market)
         stamp = datetime.now(timezone.utc).isoformat(timespec='seconds')
-        if entry is None: print(f'{stamp} {args.agent}: no regular session open, skipped')
+        if entry is None: print(f'{stamp} {args.agent}: no market open, skipped')
         else: print(f'{stamp} {args.agent} ({time.time() - started:.0f}s): ' + json.dumps(entry, ensure_ascii=False))
