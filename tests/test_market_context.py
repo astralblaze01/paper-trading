@@ -15,11 +15,12 @@ def feed(stamp='Mon, 05 Oct 2026 07:00:00 GMT', url='https://example.org/report'
 
 
 def test_evidence_keeps_provenance_and_never_promises_full_article():
-    research = world.WorldResearch(loader=lambda _: feed(), now=NOW)
+    research = world.WorldResearch(loader=lambda _: feed(), article_loader=lambda _: {'url': 'https://example.org/report', 'body': 'A sufficiently long article body with verified paragraphs and market context. ' * 5}, now=NOW)
     result = research.news('AAPL earnings')
     item, = result['items']
     assert item['publisher'] == 'Publisher' and item['url'] == 'https://example.org/report'
-    assert item['coverage'] == 'headline_only' and item['published_at'] != item['retrieved_at']
+    assert item['coverage'] == 'article_body' and item['published_at'] != item['retrieved_at']
+    assert 'verified paragraphs' in item['body']
     assert research.citations({'sources': [item['id'], item['id'], 'invented']}) == [item]
     assert not research.citations({'sources': 'invented'})
 
@@ -33,6 +34,21 @@ def test_policy_is_dated_background_not_current_headlines():
     old = feed('Wed, 16 Sep 2026 18:00:00 GMT')
     item, = world.parse_feed(old, 'Federal Reserve', NOW, world.POLICY_DAYS, True)
     assert item['kind'] == 'official_policy' and item['published_at'].startswith('2026-09-16')
+
+
+def test_memory_survives_restart_and_is_not_current_order_evidence(tmp_path):
+    first = world.WorldResearch(loader=lambda _: feed(), article_loader=lambda _: {'url': 'https://example.org/report', 'body': 'A long saved article body. ' * 20}, now=NOW, storage_path=tmp_path/'world.jsonl')
+    item, = first.news('AAPL').get('items')
+    assert item['coverage'] == 'article_body'
+    second = world.WorldResearch(loader=lambda _: b'<rss/>', now=NOW + world.timedelta(hours=1), storage_path=tmp_path/'world.jsonl')
+    assert second.memory_for('market') and second.memory_for('market')[0]['id'] == item['id']
+    assert second.citations({'sources': [item['id']]}) == []
+
+
+def test_article_failure_is_explicit_and_keeps_feed_evidence():
+    research = world.WorldResearch(loader=lambda _: feed(), article_loader=lambda _: (_ for _ in ()).throw(OSError('blocked')), now=NOW)
+    item, = research.news('AAPL')['items']
+    assert item['coverage'] == 'headline_only' and item['article_error'] == 'OSError'
 
 
 def test_failed_feed_does_not_reuse_old_or_invent_sources():

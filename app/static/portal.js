@@ -1156,7 +1156,8 @@ function aiDecision(d,open){
    const p=node('p',null,'field-help');let url;
    try{url=new URL(s.url);if(!['https:','http:'].includes(url.protocol)||url.username||url.password)continue;}catch{continue;}
    const a=node('a',s.title||s.url);a.href=url.href;a.target='_blank';a.rel='noopener noreferrer';
-   p.append(a,document.createTextNode(` · ${s.publisher||'출처'} · ${kst(s.published_at)} · ${s.coverage==='headline_only'?'기사 제목만 확인':'공식 피드 발췌'}`));inner.append(p);
+   const scope=s.coverage==='article_body'?'기사 본문 확인':s.coverage==='feed_excerpt'?'공식 피드 발췌':'기사 제목만 확인';
+   p.append(a,document.createTextNode(` · ${s.publisher||'출처'} · ${kst(s.published_at)} · ${scope}`));inner.append(p);
   }
  }
  (data.thinking||[]).forEach((t,i)=>{if(!t)return;inner.append(node('h4',`조사 ${i+1}단계 생각`));const p=node('p',t,'ai-thinking');inner.append(p);

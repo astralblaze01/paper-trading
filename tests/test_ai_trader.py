@@ -12,7 +12,7 @@ spec.loader.exec_module(ai_trader)
 WorldResearch = ai_trader.WorldResearch
 FEED = b'<rss><channel><item><title>Fixture market report</title><link>https://example.org/news</link><pubDate>Mon, 05 Oct 2026 07:00:00 GMT</pubDate></item></channel></rss>'
 def fixture_world():
-    return WorldResearch(loader=lambda _: FEED, now=datetime(2026, 10, 5, 8, tzinfo=timezone.utc))
+    return WorldResearch(loader=lambda _: FEED, article_loader=lambda _: {'url':'https://example.org/news','body':'Fixture article body with enough context. '*20}, now=datetime(2026, 10, 5, 8, tzinfo=timezone.utc))
 SOURCE_ID = fixture_world().news('market')['items'][0]['id']
 
 @pytest.fixture(autouse=True)
@@ -227,3 +227,14 @@ def test_no_world_feeds_means_no_orders_even_if_ai_reuses_old_citation(tmp_path,
     ask, _ = scripted(json.dumps({'step': 'decide', 'sources': [SOURCE_ID], 'actions': [{'type': 'sell', 'symbol': 'KR:005930', 'quantity': 1}]}))
     result = ai_trader.run('gpt', client=client, ask=ask, world=world)
     assert result['sources'] == [] and result['results'] == [] and len(result['dropped']) == 1
+
+
+def test_headline_only_source_cannot_authorize_an_order(tmp_path, monkeypatch):
+    monkeypatch.setattr(ai_trader, 'STATE', tmp_path)
+    class Headlines:
+        def overview(self, markets): return {'feeds': {}}
+        def news(self, *args): return {'status':'ok','items':[]}
+        def citations(self, decision): return [{'id':'headline','coverage':'headline_only','title':'title','url':'https://example.org','publisher':'x','published_at':'2026-10-05T00:00:00+00:00'}]
+    client=FakeClient(); ask,_=scripted(json.dumps({'step':'decide','sources':['headline'],'actions':[{'type':'buy','symbol':'KR:005930','quantity':1}]}))
+    result=ai_trader.run('claude',client=client,ask=ask,world=Headlines())
+    assert result['results']==[] and '본문·공식 발췌' in result['dropped'][0]['why']
