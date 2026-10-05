@@ -1150,6 +1150,15 @@ function aiDecision(d,open){
  inner.append(aiFacts([['모델',data.model],['걸린 시간',data.seconds!=null?data.seconds+'초':null],['조사',`${(data.research||[]).length}회 · 요청 ${(data.research||[]).flat().length}건`]]));
  if(data.error)inner.append(node('p','오류: '+data.error,'ai-error'));
  if(data.analysis){inner.append(node('h4','판단 근거'),node('p',data.analysis,'ai-analysis'));}
+ if(Array.isArray(data.sources)&&data.sources.length){
+  inner.append(node('h4','확인한 외부 근거'));
+  for(const s of data.sources){
+   const p=node('p',null,'field-help');let url;
+   try{url=new URL(s.url);if(!['https:','http:'].includes(url.protocol)||url.username||url.password)continue;}catch{continue;}
+   const a=node('a',s.title||s.url);a.href=url.href;a.target='_blank';a.rel='noopener noreferrer';
+   p.append(a,document.createTextNode(` · ${s.publisher||'출처'} · ${kst(s.published_at)} · ${s.coverage==='headline_only'?'기사 제목만 확인':'공식 피드 발췌'}`));inner.append(p);
+  }
+ }
  (data.thinking||[]).forEach((t,i)=>{if(!t)return;inner.append(node('h4',`조사 ${i+1}단계 생각`));const p=node('p',t,'ai-thinking');inner.append(p);
   const asked=(data.research||[])[i]||[];if(asked.length)inner.append(node('p','요청: '+asked.map(r=>[r.type,r.symbol||r.query||r.asset,r.range||r.kind].filter(Boolean).join(' ')).join(' · '),'field-help'));});
  inner.append(node('h4','행동과 이유'));

@@ -74,6 +74,8 @@ with Session.begin() as db:
         from datetime import datetime,timezone
         db.add(AiDecision(user_id=bot.id,created_at=datetime.now(timezone.utc),status='ok',summary='애플 소량 매수',
                           data={'model':'fixture-model','sessions':{'US':'정규장'},'markets':['US'],'seconds':12,'analysis':'20일 추세가 오르고 있어 분할 매수한다.',
+                                'sources':[{'id':'fixture-news','title':'확인한 시장 뉴스','url':'https://example.org/market','publisher':'Fixture News','published_at':datetime.now(timezone.utc).isoformat(),'coverage':'headline_only'},
+                                           {'title':'위험한 링크','url':'javascript:alert(1)'}],
                                 'thinking':['기술주 흐름 확인'],'research':[[{'type':'chart','symbol':'AAPL','range':'3M'}]],
                                 'results':[{'action':{'type':'buy','symbol':'AAPL','quantity':1,'reason':'추세 상승'},'result':{'quantity':1,'currency':'USD','net_amount':'100'}}],
                                 'dropped':[],'account':{'cash':{'USD':100000}},'research_data':[[{'request':{'type':'chart'},'data':{'last':100}}]]}))

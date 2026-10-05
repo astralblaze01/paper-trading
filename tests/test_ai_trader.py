@@ -2,10 +2,22 @@
 import importlib.util
 import json
 from pathlib import Path
+from datetime import datetime, timezone
+import pytest
 
 spec = importlib.util.spec_from_file_location('ai_trader', Path(__file__).resolve().parents[1] / 'scripts' / 'ai_trader.py')
 ai_trader = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ai_trader)
+
+WorldResearch = ai_trader.WorldResearch
+FEED = b'<rss><channel><item><title>Fixture market report</title><link>https://example.org/news</link><pubDate>Mon, 05 Oct 2026 07:00:00 GMT</pubDate></item></channel></rss>'
+def fixture_world():
+    return WorldResearch(loader=lambda _: FEED, now=datetime(2026, 10, 5, 8, tzinfo=timezone.utc))
+SOURCE_ID = fixture_world().news('market')['items'][0]['id']
+
+@pytest.fixture(autouse=True)
+def offline_world(monkeypatch):
+    monkeypatch.setattr(ai_trader, 'WorldResearch', fixture_world)
 
 PORTFOLIO = {'wallets': {'USD': 100000.0, 'KRW': 0.0}, 'equity_usd': 100000.0, 'return_pct': 0, 'realized_pnl': {'USD': 0, 'KRW': 0},
              'positions': [], 'fx': {'rate': 1350.0}}
@@ -35,7 +47,9 @@ def scripted(*answers):
     prompts = []
     def ask(prompt):
         prompts.append(prompt)
-        return answers[len(prompts) - 1]
+        answer = json.loads(answers[len(prompts) - 1])
+        answer.setdefault('sources', [SOURCE_ID])
+        return json.dumps(answer)
     return ask, prompts
 
 
@@ -175,3 +189,41 @@ def test_a_failed_ai_call_is_recorded_as_an_error_and_trades_nothing(tmp_path, m
         assert 'quota' in str(exc)
     (path, body), = client.posts
     assert path == '/api/ai/decisions' and body['status'] == 'error' and 'quota' in body['data']['error']
+
+
+@pytest.mark.parametrize('sources', [[], ['invented-id'], 'bad-shape'])
+def test_uncited_or_invented_world_evidence_cannot_place_orders(tmp_path, monkeypatch, sources):
+    monkeypatch.setattr(ai_trader, 'STATE', tmp_path)
+    client = FakeClient()
+    ask, _ = scripted(json.dumps({'step': 'decide', 'sources': sources, 'actions': [
+        {'type': 'exchange', 'source': 'USD', 'amount': 1000},
+        {'type': 'buy', 'symbol': 'KR:005930', 'quantity': 1}]}))
+    entry = ai_trader.run('claude', client=client, ask=ask)
+    assert entry['results'] == [] and len(entry['dropped']) == 2
+    assert [path for path, _ in client.posts] == ['/api/ai/decisions']
+
+
+def test_live_world_context_and_requested_news_are_auditable(tmp_path, monkeypatch):
+    monkeypatch.setattr(ai_trader, 'STATE', tmp_path)
+    client = FakeClient()
+    ask, prompts = scripted(
+        json.dumps({'step': 'research', 'requests': [{'type': 'news', 'query': '삼성전자 실적', 'market': 'KR'}]}),
+        json.dumps({'step': 'decide', 'sources': [SOURCE_ID], 'analysis': '보도 제목을 확인했으나 본문은 미확인, 관망', 'actions': []}))
+    entry = ai_trader.run('claude', client=client, ask=ask)
+    assert 'Fixture market report' in prompts[0] and 'headline_only' in prompts[0]
+    assert 'https://example.org/news' not in prompts[0]  # bounded prompt, full URL stays auditable
+    assert '삼성전자 실적' in prompts[1] and 'published_at' in prompts[1]
+    assert entry['sources'][0]['id'] == SOURCE_ID
+    assert entry['sources'][0]['url'] == 'https://example.org/news'
+    assert entry['research_data'][0][0]['request']['type'] == 'news'
+    assert entry['research_data'][-1][0]['request']['type'] == 'world_overview'
+
+
+def test_no_world_feeds_means_no_orders_even_if_ai_reuses_old_citation(tmp_path, monkeypatch):
+    monkeypatch.setattr(ai_trader, 'STATE', tmp_path)
+    def failed(_): raise OSError('offline')
+    world = WorldResearch(loader=failed)
+    client = FakeClient()
+    ask, _ = scripted(json.dumps({'step': 'decide', 'sources': [SOURCE_ID], 'actions': [{'type': 'sell', 'symbol': 'KR:005930', 'quantity': 1}]}))
+    result = ai_trader.run('gpt', client=client, ask=ask, world=world)
+    assert result['sources'] == [] and result['results'] == [] and len(result['dropped']) == 1

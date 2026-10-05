@@ -605,6 +605,9 @@ with sync_playwright() as p:
     run=page.locator('.ai-run').first
     expect(run).to_contain_text('애플 소량 매수')
     expect(run.locator('.ai-analysis')).to_have_text('20일 추세가 오르고 있어 분할 매수한다.')
+    expect(run.get_by_role('link',name='확인한 시장 뉴스')).to_have_attribute('href','https://example.org/market')
+    expect(run).to_contain_text('기사 제목만 확인')
+    expect(run.get_by_role('link',name='위험한 링크')).to_have_count(0)
     expect(run.locator('.ai-table')).to_contain_text('추세 상승')
     run.locator('.admin-raw summary').click()
     expect(run.locator('.admin-raw pre')).to_contain_text('research_data')
