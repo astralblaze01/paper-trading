@@ -34,9 +34,9 @@ window.rankChange=function(rank,previous){
   return box;
 };
 // Realized P&L (sells since the return baseline) summed in the displayed basis.
-function realizedTotal(p){
+function realizedTotal(p,basis=returnBasis()){
   const r=p.realized_pnl,rate=Number(p.fx?.rate);if(!r||!Number.isFinite(rate)||rate<=0)return null;
-  return returnBasis()==='USD'?Number(r.USD)+Number(r.KRW)/rate:Number(r.KRW)+Number(r.USD)*rate;
+  return basis==='USD'?Number(r.USD)+Number(r.KRW)/rate:Number(r.KRW)+Number(r.USD)*rate;
 }
 function profileStat(label,value){const d=node('div');d.append(node('dt',label));const v=node('dd');v.append(value instanceof Node?value:document.createTextNode(value));d.append(v);return d;}
 
@@ -82,11 +82,11 @@ window.renderProfileCard=function(target,p,editable){
   }
   const stats=node('dl',null,'profile-stats');
   const rank=node('span');rank.append(p.rank?`${p.rank}위`:'—',rankChange(p.rank,p.previous_rank));
-  const realized=realizedTotal(p);
-  const rankStat=profileStat('랭킹',rank),returnStat=profileStat(`평가 수익률 (${basisLabel()})`,signedPct(accountReturn(p)));
+  const basis=rankingBasis(),realized=realizedTotal(p,basis);
+  const rankStat=profileStat('랭킹',rank),returnStat=profileStat(`평가 수익률 (${basisLabel(basis)})`,signedPct(accountReturn(p,basis)));
   rankStat.classList.add('profile-stat-rank');returnStat.classList.add('profile-stat-return');
   stats.append(rankStat,returnStat,
-    profileStat('실현 손익 (매도 확정)',realized==null?'—':signed(realized,(realized>0?'+':'')+nativeMoney(realized,returnBasis()))),
+    profileStat('실현 손익 (매도 확정)',realized==null?'—':signed(realized,(realized>0?'+':'')+nativeMoney(realized,basis))),
     profileStat('총 평가금액',viewMoney(p.equity_usd,'USD')));
   // Days since sign-up in Korea time, the sign-up day counting as day 1 (own and public profiles).
   if(p.member_days){const since=profileStat('가입 기간',`${p.member_days.toLocaleString()}일`);since.classList.add('member-days');if(p.member_since)since.title=new Date(p.member_since).toLocaleDateString('ko-KR',{timeZone:'Asia/Seoul'})+' 가입';stats.append(since);}
