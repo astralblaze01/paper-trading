@@ -14,6 +14,8 @@ import time
 
 ROOT = Path(__file__).resolve().parents[1]
 COMPOSE = ['docker', 'compose', '--project-directory', str(ROOT)]
+# Compose resolves a relative COMPOSE_FILE in .env (compose.yaml:compose.https.yaml)
+# against the working folder, and cron starts this script in the home folder.
 
 
 def backup(folder, run=subprocess.run, now=None):
@@ -23,9 +25,9 @@ def backup(folder, run=subprocess.run, now=None):
     partial = target.with_name(target.name + '.partial')
     try:
         with open(os.open(partial, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), 'wb') as out:
-            run(COMPOSE + ['exec', '-T', 'db', 'pg_dump', '-U', 'paper', '-Fc', 'paper'], stdout=out, check=True, timeout=600)
+            run(COMPOSE + ['exec', '-T', 'db', 'pg_dump', '-U', 'paper', '-Fc', 'paper'], stdout=out, check=True, timeout=600, cwd=ROOT)
         with open(partial, 'rb') as dump:
-            run(COMPOSE + ['exec', '-T', 'db', 'pg_restore', '--list'], stdin=dump, stdout=subprocess.DEVNULL, check=True, timeout=600)
+            run(COMPOSE + ['exec', '-T', 'db', 'pg_restore', '--list'], stdin=dump, stdout=subprocess.DEVNULL, check=True, timeout=600, cwd=ROOT)
         if partial.stat().st_size == 0: raise RuntimeError('empty dump')
         partial.replace(target)
         return target
