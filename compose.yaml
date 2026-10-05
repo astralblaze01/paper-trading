@@ -154,6 +154,28 @@ services:
       retries: 5
       start_period: 30s
     logging: *logging
+  finnhub-stream:
+    # Holds the only Finnhub WebSocket connection the key allows: a second
+    # connection drops both, so never scale up or open one elsewhere with this key.
+    # Connects in the US regular session only.
+    build: .
+    image: paper-trading-web
+    command: [python, -m, app.finnhub_stream]
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      FINNHUB_API_KEY: ${FINNHUB_API_KEY:-}
+      FINNHUB_STREAM_ENABLED: ${FINNHUB_STREAM_ENABLED:-true}
+      FINNHUB_STREAM_MAX_SUBSCRIPTIONS: ${FINNHUB_STREAM_MAX_SUBSCRIPTIONS:-50}
+    depends_on:
+      redis: {condition: service_healthy}
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD, python, -c, 'import time,os; assert time.time()-os.stat("/tmp/finnhub-stream-heartbeat").st_mtime < 120']
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    logging: *logging
   nginx:
     image: nginx:1.28-alpine
     ports:

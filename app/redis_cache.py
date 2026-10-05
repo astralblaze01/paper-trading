@@ -18,6 +18,7 @@ QUOTE_UPDATES = 'market:quote:updates'          # pub/sub: a new snapshot versio
 SUBSCRIPTIONS_KEY = 'market:subscriptions'      # zset: symbols the market-worker keeps fresh
 STREAM_INTEREST_KEY = 'market:stream:interest'  # zset: symbols competing for trade-stream slots
 STREAM_STATUS_KEY = 'market:stream:status'      # the trade stream's heartbeat and subscriptions
+FINNHUB_STREAM_STATUS_KEY = 'market:finnhub-stream:status'  # the same for the Finnhub regular-session stream
 REFRESH_QUEUE_KEY = 'market:refresh'            # list: symbols without a snapshot, for the worker's next pass
 REFRESH_COALESCE = 10  # seconds during which further refresh requests for a symbol are not queued
 
@@ -327,6 +328,9 @@ return 1
 
     def stream_status(self):
         return self.get_json(STREAM_STATUS_KEY)
+
+    def finnhub_stream_status(self):
+        return self.get_json(FINNHUB_STREAM_STATUS_KEY)
 
     def requested_symbols(self, active_seconds=600):
         if not self.client:

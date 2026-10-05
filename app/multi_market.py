@@ -225,6 +225,7 @@ class MultiMarket:
         from .us_quotes import USQuotes
         self.us_quotes = USQuotes(self.us, self.kr)
         self._stream = (0.0, None)
+        self._finnhub_stream = (0.0, None)
         self.key = self.us.key or self.kr.key
         self.client = self  # lifespan close interface
 
@@ -342,6 +343,13 @@ class MultiMarket:
             self._stream = (time.monotonic(), value)
         return value
 
+    def finnhub_stream_status(self):
+        at, value = self._finnhub_stream
+        if time.monotonic() - at > 1:
+            value = redis_cache.finnhub_stream_status()
+            self._finnhub_stream = (time.monotonic(), value)
+        return value
+
     def assess(self, symbol, q):
         """Attach current-session tradeability to a quote (see quote_policy)."""
         from .quote_policy import assess
@@ -350,7 +358,9 @@ class MultiMarket:
             # regular session only.
             q = q | {'origin': 'rest', 'valid_sessions': ['regular']}
         code = market_of(symbol)
-        return assess(q, self.providers[code].session(), self.stream_status())
+        # A stream price is live only on the stream it arrived from.
+        stream = self.finnhub_stream_status() if q.get('stream') == 'finnhub' else self.stream_status()
+        return assess(q, self.providers[code].session(), stream)
 
     def quote_direct(self, symbol):
         if not valid_symbol(symbol): raise MarketError('잘못된 종목 코드입니다.')

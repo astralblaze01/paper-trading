@@ -589,6 +589,9 @@ function adminMarketRows(r){
   const line=node('span');line.append(adminStateSpan(m.label||SESSION_KO[m.session]||m.session,canTrade),` · 주문 ${canTrade?'가능':'불가'}`);
   const age=st.last_message_age==null?'—':`${st.last_message_age}초 전`;
   row.append(node('strong',name),line,node('small',`스트림 ${st.healthy?'정상':st.state||'—'} · 마지막 체결 ${age} · 구독 ${(st.subscribed||[]).length}종목 · 가격 ${m.price_mode||'—'}`));
+  const fh=m.finnhub_stream;
+  // The Finnhub stream runs in the US regular session only; outside it reads 'outside_session'.
+  if(fh)row.append(node('small',`Finnhub 스트림 ${fh.healthy?'정상':fh.state||'—'} · 마지막 메시지 ${fh.last_message_age==null?'—':fh.last_message_age+'초 전'} · 구독 ${(fh.subscribed||[]).length} / ${fh.limit??'—'}종목${fh.queued?.length?' · 대기 '+fh.queued.length:''}`));
   return row;
  });
 }
@@ -600,7 +603,8 @@ function renderAdminStatus(r){
  $('adminDashMarket').replaceChildren(...adminMarketRows(r));
  const box=$('adminMarket');box.replaceChildren(...adminMarketRows(r));
  if(r.quotes){const q=r.quotes;box.append(node('p',`가격 저장 ${q.state} · 요청 ${q.requested??'—'} · 보존 ${q.available??'—'} · 실패 ${q.failed??'—'}${q.last_saved?' · 마지막 수집 '+new Date(q.last_saved*1000).toLocaleTimeString('ko-KR'):''}`,'admin-quotes'));}
- const raw=node('details',null,'admin-raw');raw.append(node('summary','진단 원문'),node('pre',[adminMarketText('KR',r.kr_market),adminMarketText('US',r.us_market),r.us_market?`Queued: ${r.us_market.stream.queued.join(' ')||'—'} · Reconnects: ${r.us_market.stream.reconnects}${r.us_market.stream.last_error?' · Last error: '+r.us_market.stream.last_error:''}`:''].filter(Boolean).join('\n\n')));
+ const raw=node('details',null,'admin-raw');raw.append(node('summary','진단 원문'),node('pre',[adminMarketText('KR',r.kr_market),adminMarketText('US',r.us_market),r.us_market?`Queued: ${r.us_market.stream.queued.join(' ')||'—'} · Reconnects: ${r.us_market.stream.reconnects}${r.us_market.stream.last_error?' · Last error: '+r.us_market.stream.last_error:''}`:'',
+  r.us_market?.finnhub_stream?((f)=>`Finnhub stream: ${f.state}${f.healthy?' (healthy)':''} · Subscribed: ${f.subscribed.join(' ')||'—'} (${f.subscribed.length} / ${f.limit??'—'}) · Queued: ${f.queued.join(' ')||'—'} · Reconnects: ${f.reconnects}${f.last_error?' · Last error: '+f.last_error:''}`)(r.us_market.finnhub_stream):''].filter(Boolean).join('\n\n')));
  box.append(raw);
  const pct=b=>`${Number(b)/100}%`,f=r.fees;
  $('adminFees').replaceChildren(...[['미국 매수 / 매도',`${pct(f.US_BUY_FEE_BPS)} / ${pct(f.US_SELL_FEE_BPS)}`],['국내 매수 / 매도',`${pct(f.KR_BUY_FEE_BPS)} / ${pct(f.KR_SELL_FEE_BPS)}`],['국내 매도 세금',pct(f.KR_SELL_TAX_BPS)],['환전 수수료 + 스프레드',`${pct(f.FX_FEE_BPS)} + ${pct(f.FX_SPREAD_BPS)}`]].flatMap(([k,v])=>[node('dt',k),node('dd',v)]));

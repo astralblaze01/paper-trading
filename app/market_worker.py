@@ -7,6 +7,7 @@ from .instruments import valid_symbol
 from .multi_market import MultiMarket
 from .redis_cache import redis_cache, trade_key, price_key
 from .quote_data import normalize_quote
+from .finnhub_stream import day_fields
 from .logging_config import configure_logging
 from .kr_symbols import refresh_master
 from .us_symbols import refresh_master as refresh_us_master
@@ -19,6 +20,16 @@ MASTER_RETRY = 3600     # a failed download is tried again after this instead
 
 
 CLOSED_RETRY = 300  # seconds before a symbol that failed while its market was closed is tried again
+# A symbol the Finnhub stream delivers live needs REST only for its day change, high
+# and low; Finnhub REST allows 50 calls a minute for every symbol together.
+STREAMED_REFRESH = 300
+
+
+def finnhub_streamed():
+    """Symbols the Finnhub stream holds right now, or none while it is unhealthy."""
+    from .quote_policy import stream_healthy
+    status = redis_cache.finnhub_stream_status()
+    return set(status.get('subscribed') or ()) if stream_healthy(status) else set()
 
 
 def collect_quote(market, symbol, snapshot_ttl):
@@ -26,7 +37,8 @@ def collect_quote(market, symbol, snapshot_ttl):
     quote['_cached_at'] = time.time()
     trade = redis_cache.get_json(trade_key(symbol))
     if trade and float(trade.get('timestamp', 0)) > float(quote['timestamp']):
-        quote = trade
+        # A Finnhub trade carries only its price; the REST answer has the day's change.
+        quote = day_fields(trade, quote) if trade.get('stream') == 'finnhub' else trade
     if redis_cache.store_quote(symbol, quote, snapshot_ttl):
         state = 'stored'
     else:
@@ -69,6 +81,7 @@ def main():
                     log.warning('US symbol master refresh failed',extra={'status_code':type(exc).__name__})
             urgent = redis_cache.next_refresh(timeout=1)
             symbols = ([urgent] if urgent else []) + redis_cache.requested_symbols()
+            streamed = finnhub_streamed()
             now = time.monotonic()
             pending = sorted(dict.fromkeys(symbols), key=lambda s: (refreshed.get(s, 0), attempted.get(s, 0)))
             while True:
@@ -81,7 +94,7 @@ def main():
                     continue
                 if now < retry_after.get(symbol, 0):
                     continue
-                if time.monotonic() - refreshed.get(symbol, 0) < interval:
+                if time.monotonic() - refreshed.get(symbol, 0) < (STREAMED_REFRESH if symbol in streamed else interval):
                     continue
                 attempted[symbol] = time.monotonic()
                 try:

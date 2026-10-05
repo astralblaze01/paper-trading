@@ -228,6 +228,10 @@ class USProvider:
         kis=bool(self.kis and getattr(self.kis,'configured',False))
         stream=redis_cache.stream_status() if kis else None
         streaming=stream_healthy(stream)
+        if session=='regular' and not streaming:
+            # The Finnhub stream is live for the regular session only.
+            finnhub=redis_cache.finnhub_stream_status()
+            if stream_healthy(finnhub): stream,streaming=finnhub,True
         def rest(name):
             ok,record=rest_health(name)
             return ok or not record  # no recent attempt is not a failure
@@ -241,7 +245,7 @@ class USProvider:
         extended=runtime(EXTENDED,'not_current_session')
         day=runtime({'overnight'},'available')
         label='휴장' if raw and raw.get('holiday') and session=='closed' else LABELS[session]
-        mode=session_price_mode(session,stream if kis else None,rest_ok)
+        mode=session_price_mode(session,stream,rest_ok)
         is_open=session not in ('closed','unknown')
         return {'market':'US','label':label,'session':session,'timezone':'America/New_York',
                 'open':is_open,'tradable':is_open and mode!='unavailable','venue':'US' if is_open else 'NONE',

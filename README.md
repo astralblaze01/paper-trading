@@ -180,6 +180,7 @@ python3 scripts/ai_trader.py run gpt --dry-run --market US   # 장이 닫혀 있
 | `web` | FastAPI 앱 (`app.main:app`). 시작 시 테이블 생성과 마이그레이션 수행 |
 | `market-worker` | 요청된 종목 시세를 REST로 수집해 Redis에 캐시, 국내·미국 종목 마스터를 하루 한 번 갱신 |
 | `market-stream` | KIS WebSocket 하나로 미국·한국 실시간 체결을 받아 Redis에 저장 (앱키당 세션 1개라 복제 금지) |
+| `finnhub-stream` | 미국 정규장 동안 Finnhub WebSocket 하나로 최대 50종목의 실시간 체결을 받아 Redis에 저장 (키당 연결 1개라 복제 금지) |
 | `worker` | 1분마다 내부 작업 호출 (예약 주문 확인·체결, 주간 순위 게시, 일별 성과 기록) |
 | `db` | PostgreSQL 17 (`pgdata` 볼륨) |
 | `redis` | Redis 7 시세 캐시 (`redis_data` 볼륨) |
@@ -188,7 +189,7 @@ python3 scripts/ai_trader.py run gpt --dry-run --market US   # 장이 닫혀 있
 
 | 공급자 | 용도 | 설정 |
 | --- | --- | --- |
-| [Finnhub](https://finnhub.io) | 미국 시세, 검색, 차트, 장 상태, 기업 정보·배당 | `FINNHUB_API_KEY` |
+| [Finnhub](https://finnhub.io) | 미국 시세(정규장 실시간 체결 포함), 검색, 차트, 장 상태, 기업 정보·배당 | `FINNHUB_API_KEY` |
 | [한국투자증권 Open API](https://apiportal.koreainvestment.com) | 국내 시세·차트·순위·휴장일·기업 정보, 미국 시간외·데이마켓 시세와 실시간 체결, 미국 순위·차트 보조 | `KIS_APP_KEY`, `KIS_APP_SECRET` (계좌번호 불필요) |
 | [Alpha Vantage](https://www.alphavantage.co) | KIS를 쓸 수 없을 때 미국 시장 순위 대체 | `ALPHAVANTAGE_API_KEY` (선택) |
 | [Frankfurter](https://frankfurter.dev) (ECB) | USD/KRW 일별 기준환율 | 키 불필요 |
@@ -206,10 +207,12 @@ flowchart LR
   W <--> R[(Redis · 시세 캐시)]
   W <--> D[(PostgreSQL · 계좌·거래·기록)]
   MS[market-stream] -->|KIS WebSocket 실시간 체결| R
+  FS[finnhub-stream] -->|Finnhub WebSocket 정규장 체결| R
   MW[market-worker] -->|요청된 종목 REST 시세 · 종목 마스터| R
   K[worker] -->|1분마다 /internal/jobs| W
   W -->|차트·순위·기업 정보| API[(Finnhub · KIS · Frankfurter)]
   MS --- API
+  FS --- API
   MW --- API
 ```
 
@@ -220,7 +223,7 @@ flowchart LR
 
 ### 시세가 화면에 오기까지
 1. 사용자가 종목을 열면 `web`이 그 종목을 "요청된 종목"으로 Redis에 표시합니다.
-2. `market-stream`은 KIS WebSocket으로 실시간 체결을 받아 Redis에 저장하고, `market-worker`는 요청된 종목을 `QUOTE_TTL`(기본 15초)마다 REST로 확인해 빈틈을 채웁니다.
+2. `market-stream`은 KIS WebSocket으로 실시간 체결을 받아 Redis에 저장합니다. 미국 정규장에는 `finnhub-stream`도 Finnhub WebSocket으로 최대 50종목의 체결을 받습니다. `market-worker`는 요청된 종목을 `QUOTE_TTL`(기본 15초)마다 REST로 확인해 빈틈을 채우고, Finnhub 스트림이 받고 있는 종목은 전일 대비·고가·저가만 맞추도록 5분마다 확인합니다.
 3. 종목 상세 화면은 SSE(서버 푸시)로 새 체결가를 즉시 받습니다. SSE를 쓸 수 없으면 30초 간격 REST 확인으로 대체합니다.
 4. 시세마다 세션(프리장·정규장 등)과 신선도(얼마나 최근 체결인지)를 판정해, 주문에 써도 되는 가격인지 함께 표시합니다.
 
@@ -277,7 +280,8 @@ ECB 일별 기준환율(Frankfurter)에 스프레드와 수수료를 적용합�
 | 항목 | 주기 | 외부 API 호출 |
 |---|---|---|
 | 종목 상세 현재가 | 실시간(WebSocket → SSE), 대체 시 30초 | 사용자 수와 무관(스트림 1개 공유) |
-| 요청된 종목 REST 확인 | 15초 (`QUOTE_TTL`) | 종목 수에 비례, 사용자 수와 무관 |
+| 미국 정규장 체결 (Finnhub 스트림) | 실시간, 종목당 0.5초마다 저장 | 없음(연결 1개, 최대 50종목) |
+| 요청된 종목 REST 확인 | 15초 (`QUOTE_TTL`), Finnhub 스트림 종목은 5분 | 종목 수에 비례, 사용자 수와 무관 |
 | 시장 탐색 순위 목록 | 한국 10초 · 미국 15초 | 주기마다 고정 횟수(한국 1회, 미국 3회), 사용자 수와 무관 |
 | 자산 랭킹 | 10초(장 중) | 없음(저장된 시세 사용) |
 | 예약 주문 확인 | 1분 | 대기 중인 종목 시세 확인 |
@@ -349,6 +353,8 @@ docker compose exec web python -m app.admin_cli --ai <아이디>   # AI 트레�
 | `US_TRADE_STREAM_ENABLED` / `KR_TRADE_STREAM_ENABLED` | `true` | 시장별 실시간 체결 스트림 사용 여부 |
 | `US_STREAM_MAX_AGE` / `KR_STREAM_MAX_AGE` | `10` | 스트림 워커 heartbeat가 이 시간(초)보다 오래되면 스트림 가격을 실시간으로 보지 않음 |
 | `MARKET_STREAM_MAX_SUBSCRIPTIONS` | `3` | KIS WebSocket 동시 구독 수, 두 시장 합계 (현재 키 실측 한도 3) |
+| `FINNHUB_STREAM_ENABLED` | `true` | 미국 정규장 Finnhub 실시간 체결 스트림 사용 여부 |
+| `FINNHUB_STREAM_MAX_SUBSCRIPTIONS` | `50` | Finnhub WebSocket 동시 구독 수 (무료 키 실측 한도 약 51) |
 | `MARKET_STREAM_RECONNECT_MAX_SECONDS` | `60` | 재연결 지수 백오프 최대 간격(초, ±20% jitter) |
 | `MARKET_CALLS_PER_MINUTE` | `50` | Finnhub 분당 호출 한도 |
 | `WEEKLY_ENABLED` | `true` | 주간 순위 게시 사용 여부 |
@@ -429,6 +435,7 @@ app/
   us_session.py      미국 세션 판정 (America/New_York 기준)
   us_quotes.py       세션별 미국 REST 시세 소스
   trade_stream.py    KIS WebSocket 체결 스트림 워커 (미국·한국)
+  finnhub_stream.py  Finnhub WebSocket 체결 스트림 워커 (미국 정규장)
   kr_session.py      한국 세션 판정 (KRX·NXT, Asia/Seoul)
   kr_quotes.py       한국 통합 시세, 종목별 NXT·ETP capability
   quote_policy.py    시세의 세션·실시간·주문 가능 여부 판정
@@ -598,7 +605,7 @@ KIS 분봉 응답에는 KIS의 세션 범위(데이마켓 20:00–04:00 ET)도 �
 | --- | --- | --- | --- |
 | 데이마켓 | KIS WebSocket `R`+`BAQ/BAY/BAA` (`overnight_stream`) | KIS 데이마켓 1분봉 (`overnight_rest`) | 주문 불가 |
 | 프리장·애프터장 | KIS WebSocket `D`+`NAS/NYS/AMS` (`extended_stream`) | KIS 주 거래소 1분봉 (`extended_rest`) | 주문 불가 |
-| 정규장 | KIS WebSocket (`trade_stream`) | Finnhub `/quote`, 실패 시 KIS 1분봉 (`rest`) | 주문 불가 |
+| 정규장 | Finnhub WebSocket 또는 KIS WebSocket (`trade_stream`) | Finnhub `/quote`, 실패 시 KIS 1분봉 (`rest`) | 주문 불가 |
 
 2026-09-24 실측(`scripts/check_us_sessions.py`) 결과는 다음과 같습니다.
 - KIS 현재가 API는 체결 시각이 없습니다. 게다가 데이마켓 시간에 `NAS`로 조회하면 정규장 종가를 돌려줍니다. 그래서 전일 대비 계산의 기준가로만 씁니다.
@@ -630,6 +637,18 @@ KIS 분봉 응답에는 KIS의 세션 범위(데이마켓 20:00–04:00 ET)도 �
 - 나머지 종목은 market-worker의 REST 시세를 씁니다.
 - 연결이 끊기면 1초부터 시작하는 지수 백오프(최대 `US_STREAM_RECONNECT_MAX_SECONDS`)로 재연결합니다. 그동안 REST로 대체합니다.
 
+### Finnhub WebSocket (정규장)
+
+KIS 연결의 3건만으로는 정규장에 실시간으로 볼 수 있는 미국 종목이 너무 적습니다. 그래서 `finnhub-stream`이 정규장(09:30–16:00 ET) 동안만 Finnhub WebSocket을 하나 엽니다. 2026-10-05 정규장 실측 결과는 다음과 같습니다.
+- 한 연결에 약 50종목까지 구독됩니다. 하나씩 구독했을 때 52번째에 `{"type":"error","msg":"Subscribing to too many symbols"}`가 왔고, 구독을 해제하면 자리가 다시 납니다. 기본값은 한도보다 낮은 50이고, 거절 메시지는 종목을 밝히지 않으므로 마지막에 요청한 종목을 해제하고 그 연결 동안 한도를 낮춥니다.
+- **같은 키로 두 번째 연결을 열면 두 연결이 모두 끊깁니다.** 그래서 `finnhub-stream` 하나만 Redis 리더 락을 잡고 연결하며, 같은 키로 다른 곳에서 WebSocket을 열면 안 됩니다.
+- 체결은 약 0.1초 뒤에 도착하고 종목·가격·밀리초 시각·수량·조건 코드만 담깁니다. 전일 대비·고가·저가·거래량은 같은 뉴욕 거래일의 기존 스냅샷에서 이어 받습니다(전일 종가 = 스냅샷 가격 − 스냅샷 전일 대비).
+- 프리장 체결도 보내므로, 체결 시각이 정규장에 속하는 것만 씁니다. 직전 가격과 30% 넘게 다른 체결은 버립니다.
+
+슬롯은 지금 상세 화면을 보거나 주문하는 미국 종목을 먼저, 그다음 market-worker가 최신으로 유지하는 미국 종목(보유 종목·목록 등, 최근 요청 순)에 배정합니다. 이미 구독 중인 종목은 계속 필요한 동안 자리를 지킵니다.
+이 스트림으로 받은 가격은 Finnhub 스트림의 연결 상태(`market:finnhub-stream:status`)로 실시간 여부를 판정합니다. KIS 스트림이 끊겨 있어도 마찬가지입니다.
+market-worker는 이 스트림이 받고 있는 종목을 REST로 5분마다만 확인합니다. Finnhub REST는 모든 종목을 합쳐 분당 50회까지인데, 최근 요청된 미국 종목 68개를 15초마다 확인하려면 분당 약 270회가 필요했기 때문입니다.
+
 Redis 키:
 
 | 키 | 내용 |
@@ -637,6 +656,7 @@ Redis 키:
 | `market:price:{symbol}` | 화면·주문이 읽는 최신 시세 스냅샷 (REST 또는 스트림) |
 | `market:trade:{symbol}` | 스트림이 받은 마지막 체결 |
 | `market:stream:status` | 스트림 연결 상태·구독 종목·heartbeat |
+| `market:finnhub-stream:status` | Finnhub 스트림의 같은 정보 |
 | `market:stream:interest` | 스트림 구독 우선순위 |
 | `market:rest-health:{source}` | REST source별 최근 성공/실패 |
 
@@ -658,7 +678,7 @@ docker compose exec redis redis-cli GET market:stream:status
 ```
 
 WebSocket까지 확인하려면 먼저 `docker compose stop market-stream` 하고 `--seconds 30`으로 실행합니다.
-관리자 화면에는 세션, 가격 모드, 스트림 상태, 구독 수/한도, REST source 상태가 표시됩니다.
+관리자 화면에는 세션, 가격 모드, 스트림 상태, 구독 수/한도, REST source 상태가 표시되고, 미국 줄에는 Finnhub 스트림 상태와 구독 수/한도가 함께 표시됩니다.
 
 ## 종목 상세 현재가 SSE (선택 활성화)
 

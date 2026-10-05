@@ -165,4 +165,16 @@ def diagnostics(market, code='US'):
                        'subscribed': mine, 'all_subscribed': stream.get('subscribed', []), 'limit': stream.get('limit'),
                        'queued': stream.get('queued', []), 'reconnects': stream.get('reconnects', 0),
                        'last_error': stream.get('last_error')},
-            'rest': {name: rest_health(name, now)[1] or None for name in sources}}
+            'rest': {name: rest_health(name, now)[1] or None for name in sources},
+            **({'finnhub_stream': finnhub_diagnostics(now)} if code == 'US' else {})}
+
+
+def finnhub_diagnostics(now):
+    from .quote_policy import stream_healthy
+    stream = redis_cache.finnhub_stream_status() or {}
+    last = stream.get('last_message')
+    return {'state': stream.get('state', 'no_worker'), 'healthy': stream_healthy(stream, now),
+            'last_message_age': round(now - last, 1) if last else None,
+            'subscribed': stream.get('subscribed', []), 'limit': stream.get('limit'),
+            'queued': stream.get('queued', []), 'reconnects': stream.get('reconnects', 0),
+            'last_error': stream.get('last_error')}
