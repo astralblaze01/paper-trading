@@ -109,3 +109,19 @@ def test_dry_run_places_and_logs_nothing(tmp_path, monkeypatch):
     ask, _ = scripted(json.dumps({'step': 'decide', 'actions': [{'type': 'buy', 'symbol': 'KR:005930', 'quantity': 1}]}))
     entry = ai_trader.run('claude', client=client, ask=ask, dry_run=True)
     assert entry['results'][0]['dry_run'] and client.posts == [] and not list(tmp_path.iterdir())
+
+
+def test_gemini_runs_through_agy_pinned_to_a_gemini_model(monkeypatch):
+    seen = {}
+    class Done:
+        returncode, stderr = 0, ''
+        stdout = json.dumps({'status': 'SUCCESS', 'response': '{"step": "decide", "actions": []}'})
+    def run(cmd, **kw):
+        seen['cmd'] = cmd
+        return Done()
+    monkeypatch.setattr(ai_trader.subprocess, 'run', run)
+    assert ai_trader.extract_json(ai_trader.ASK['gemini']('prompt')) == {'step': 'decide', 'actions': []}
+    cmd = seen['cmd']
+    # Antigravity also serves other vendors' models, so ai_gemini always names a Gemini one.
+    assert cmd[0] == 'agy' and cmd[cmd.index('--model') + 1].startswith('gemini-') and cmd[-1].endswith('prompt')
+    assert ai_trader.AGENTS['gemini']['username'] == 'ai_gemini'

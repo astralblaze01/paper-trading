@@ -1,4 +1,4 @@
-"""AI traders: Claude and GPT each run an ordinary ALPHARENA account and trade it themselves.
+"""AI traders: Claude, GPT and Gemini each run an ordinary ALPHARENA account and trade it themselves.
 
 Once an hour, while the Korean or US market takes orders in any session, each AI looks at its
 account and the market rankings, asks for whatever detail it wants (quotes, charts,
@@ -8,13 +8,15 @@ AI trades under exactly the rules a person does: the server re-checks every quot
 balance and market session.
 
 The AI runs through the CLI the host is signed in to, so no API key is needed:
-`claude -p` (a Claude subscription) and `codex exec` (a ChatGPT subscription).
+`claude -p` (a Claude subscription), `codex exec` (a ChatGPT subscription) and
+`agy -p` (the Antigravity CLI, a Google account; pinned to a Gemini model, since
+Antigravity also offers other vendors' models).
 
     python3 scripts/ai_trader.py setup claude   # once: create ai_claude, its avatar and bio
     python3 scripts/ai_trader.py run claude     # one decision round (cron, hourly)
     python3 scripts/ai_trader.py run claude --dry-run   # decide, but place no orders
 
-    35 * * * * /usr/bin/python3 /home/ubuntu/paper-trading/scripts/ai_trader.py run claude
+    5 * * * * /usr/bin/python3 /home/ubuntu/paper-trading/scripts/ai_trader.py run claude
 
 Passwords live in ~/.config/alpharena-ai/ (owner-only); decisions are logged to
 ~/.local/state/alpharena-ai/<agent>.jsonl, and the last few are shown to the AI
@@ -62,7 +64,10 @@ AGENTS = {
                'bio': '🤖 Claude 기반 AI 트레이더 · 매시간 스스로 시장을 분석해 사고팝니다. 사람의 개입 없이 운용됩니다.'},
     'gpt': {'username': 'ai_gpt', 'name': 'GPT',
             'bio': '🤖 GPT 기반 AI 트레이더 · 매시간 스스로 시장을 분석해 사고팝니다. 사람의 개입 없이 운용됩니다.'},
+    'gemini': {'username': 'ai_gemini', 'name': 'Gemini',
+               'bio': '🤖 Gemini 기반 AI 트레이더 · 매시간 스스로 시장을 분석해 사고팝니다. 사람의 개입 없이 운용됩니다.'},
 }
+GEMINI_MODEL = os.getenv('AI_GEMINI_MODEL', 'gemini-3.1-pro-high')
 SYMBOL = re.compile(r'^(KR:\d{6}|[A-Z][A-Z0-9.\-]{0,9})$')
 RESEARCH_ROUNDS = 2      # rounds of "show me more" before the AI must decide
 MAX_REQUESTS = 12        # data requests per round
@@ -307,7 +312,21 @@ def ask_gpt(prompt):
         return answer.read_text()
 
 
-ASK = {'claude': ask_claude, 'gpt': ask_gpt}
+def ask_gemini(prompt):
+    # agy reads the prompt only from its argument (not stdin); an argument is capped at 128 KiB.
+    text = SYSTEM + '\n\n' + prompt
+    if len(text.encode()) > 120_000: raise RuntimeError('prompt too long for agy')
+    with tempfile.TemporaryDirectory() as work:
+        out = subprocess.run(['agy', '--output-format', 'json', '--model', GEMINI_MODEL, '--sandbox', '--disable-slash-commands',
+                              '--print-timeout', f'{AI_TIMEOUT}s', '-p', text],
+                             capture_output=True, text=True, timeout=AI_TIMEOUT + 30, cwd=work, stdin=subprocess.DEVNULL)
+    if out.returncode: raise RuntimeError(f'agy failed: {(out.stderr or out.stdout)[-500:]}')
+    envelope = json.loads(out.stdout)
+    if envelope.get('status') != 'SUCCESS': raise RuntimeError(f'agy error: {str(envelope)[:500]}')
+    return envelope['response']
+
+
+ASK = {'claude': ask_claude, 'gpt': ask_gpt, 'gemini': ask_gemini}
 
 
 # ---- acting on the decision -------------------------------------------------
