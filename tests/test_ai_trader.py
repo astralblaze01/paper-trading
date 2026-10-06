@@ -247,3 +247,12 @@ def test_world_evidence_in_the_prompt_is_trimmed_to_fit_every_cli():
     trimmed = ai_trader.prompt_evidence(context)
     assert len(trimmed['feeds']['US']['items'][0]['body']) == ai_trader.PROMPT_BODY_CHARS and 'url' not in trimmed['feeds']['US']['items'][0]
     assert len(trimmed['remembered'][0]['body']) == ai_trader.PROMPT_REMEMBERED_CHARS
+
+
+def test_memory_covers_the_last_twelve_hours_of_runs(tmp_path, monkeypatch):
+    """At one run every 30 minutes the AI sees its last 24 decisions, oldest first."""
+    monkeypatch.setattr(ai_trader, 'STATE', tmp_path)
+    ai_trader.log_path('claude').write_text(''.join(
+        json.dumps({'time': f't{i}', 'summary': f'결정 {i}', 'results': []}) + '\n' for i in range(30)))
+    seen = ai_trader.memory('claude')
+    assert len(seen) == 24 and seen[0]['summary'] == '결정 6' and seen[-1]['summary'] == '결정 29'

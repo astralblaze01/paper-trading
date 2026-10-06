@@ -81,7 +81,9 @@ SYMBOL = re.compile(r'^(KR:\d{6}|[A-Z][A-Z0-9.\-]{0,9})$')
 RESEARCH_ROUNDS = 2      # rounds of "show me more" before the AI must decide
 MAX_REQUESTS = 12        # data requests per round
 MAX_ACTIONS = 8          # orders and exchanges per run
-MEMORY = 8               # past decisions shown back to the AI
+# Past decisions shown back to the AI: 24 runs is about 12 hours at one run every 30 minutes,
+# a few KB of the prompt (a remembered run is its time, summary and actions only).
+MEMORY = int(os.getenv('AI_MEMORY_RUNS', '24'))
 AI_TIMEOUT = 600
 
 
