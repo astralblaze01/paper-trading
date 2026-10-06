@@ -1230,6 +1230,8 @@ body:has(#dashboard[hidden]) .watch-strip { display: none; }
 .rank-cell { display: inline-flex; flex-direction: column; align-items: center; gap: 2px; }
 .rank-change-stacked { display: none; align-items: center; gap: 1px; font-size: var(--fs-2xs); font-weight: 700; color: var(--ink-emph); white-space: nowrap; }
 .rank-change-stacked.same { color: var(--faint); font-weight: 600; }
+.rank-figures { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.rank-return-stacked { display: none; font-size: var(--fs-xs); }
 .rank-change.same { color: var(--faint); font-weight: 600; }
 .rank-arrow { font-size: var(--fs-2xs); }
 .rank-arrow.up { color: var(--gain); }
@@ -1246,6 +1248,12 @@ body:has(#dashboard[hidden]) .watch-strip { display: none; }
   #ranking td:nth-child(2), #ranking th:nth-child(2) { display: none; }
   #ranking td:nth-child(3), #ranking th:nth-child(3) { min-width: 0; width: 100%; }
   #ranking .rank-change-stacked { display: flex; }
+  /* The return moves under the total and the tier label may wrap, so no width needs a sideways scroll. */
+  #ranking td:nth-child(5), #ranking th:nth-child(5) { display: none; }
+  #ranking .rank-return-stacked { display: block; }
+  #ranking th:nth-child(4)::after { content: attr(data-stacked); display: block; }
+  #ranking .rank-tier { white-space: normal; }
+  #ranking td:nth-child(3) { overflow-wrap: anywhere; }
   #ranking .rank-badge { width: 26px; height: 26px; font-size: var(--fs-sm); }
   #ranking .rank-badge.rank-medal { width: 32px; height: 37px; }
   #ranking .avatar-small { width: 32px; height: 32px; }

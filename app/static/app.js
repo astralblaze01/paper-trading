@@ -185,8 +185,11 @@ function renderRanking(){if(!rankingCache)return;
   // Phones hide the 변화 column; the same change shows under the badge instead.
   const rankCell=x=>{const box=document.createElement('span'),stacked=change(x);box.className='rank-cell';stacked.classList.replace('rank-change','rank-change-stacked');box.append(rankBadge(x.rank),stacked);return box;};
   const change=x=>{const c=window.rankChange?rankChange(x.rank,x.previous_rank):document.createElement('span');if(!c.textContent){c.textContent='–';c.classList.add('same');}return c;};
-  const basis=rankingBasis();
-  table($('ranking'),['순위','변화','사용자','총 자산 ('+viewCurrency('USD')+')','수익률 ('+basisLabel(basis)+')'],rankingCache.rows.map(x=>[rankCell(x),change(x),person(x),equityTone(viewMoney(x.equity_usd,'USD',x.fx||viewFx),accountReturn(x,basis),.01),signedPct(accountReturn(x,basis))]));
+  // Phones also hide the 수익률 column; the return shows under the total, so the table fits in three columns.
+  const figures=(x,basis)=>{const box=document.createElement('span'),ret=signedPct(accountReturn(x,basis));box.className='rank-figures';ret.classList.add('rank-return-stacked');box.append(equityTone(viewMoney(x.equity_usd,'USD',x.fx||viewFx),accountReturn(x,basis),.01),ret);return box;};
+  const basis=rankingBasis(),returnHead='수익률 ('+basisLabel(basis)+')';
+  table($('ranking'),['순위','변화','사용자','총 자산 ('+viewCurrency('USD')+')',returnHead],rankingCache.rows.map(x=>[rankCell(x),change(x),person(x),figures(x,basis),signedPct(accountReturn(x,basis))]));
+  $('ranking').querySelector('th:nth-child(4)').dataset.stacked=returnHead;
   $('ranking').querySelectorAll('tbody tr').forEach((tr,i)=>{const row=rankingCache.rows[i];if(row.rank<=3)tr.classList.add('top-rank','top-rank-'+row.rank);if(row.username===window.sessionUsername)tr.classList.add('is-me');if(row.ai)tr.classList.add('is-ai');});
   if(window.renderMyProfile)renderMyProfile();
   window.renderHeaderUser?.();

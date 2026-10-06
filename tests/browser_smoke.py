@@ -410,6 +410,18 @@ with sync_playwright() as p:
         if width<600:
             expect(stacked).to_be_visible();expect(stacked).to_have_text('▲2')
             expect(page.locator('#ranking th').nth(1)).to_be_hidden()
+            # Regression: the total and return sat side by side and never wrapped, so a narrow phone or
+            # larger text scrolled the ranking sideways. The return now sits under the total.
+            expect(page.locator('#ranking th').nth(4)).to_be_hidden()
+            expect(page.locator('#ranking tbody tr').first.locator('.rank-return-stacked')).to_be_visible()
+            fits="""scale=>{document.documentElement.style.cssText='';if(scale>1)document.documentElement.style.cssText=['2xs','xs','sm','base','md'].map(k=>'--fs-'+k+':'+parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--fs-'+k))*scale+'px').join(';');
+              const rows=rankingCache.rows;rankingCache={...rankingCache,rows:[{...rows[0],username:'averyveryverylongusername',equity_usd:987654.32,tier:'grandmaster'},{...rows[0],username:'gemini_trader',ai:true,tier:'grandmaster',previous_rank:30},...rows.slice(1)]};renderRanking();
+              const box=document.querySelector('#ranking'),ok=box.scrollWidth<=box.clientWidth+1;rankingCache={...rankingCache,rows};renderRanking();document.documentElement.style.cssText='';return ok;}"""
+            for narrow in (320,340,360,375,390,412,430,480,599):
+                page.set_viewport_size({'width':narrow,'height':height})
+                for scale in (1,1.3):
+                    assert page.evaluate(fits,scale), f'the ranking scrolls sideways at {narrow}px, text x{scale}'
+            page.set_viewport_size({'width':width,'height':height})
         else:
             expect(stacked).to_be_hidden();expect(page.locator('#ranking th').nth(1)).to_be_visible()
         assert page.evaluate("[...document.querySelectorAll('#ranking tbody td:nth-child(n+4) > span')].every(s=>s.getBoundingClientRect().right<=s.parentElement.getBoundingClientRect().right+0.5)"), 'ranking figure overflows its cell'
