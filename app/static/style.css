@@ -1643,6 +1643,6 @@ body:has(#dashboard[hidden]) .watch-strip { display: none; }
 .ai-run-error .ai-run-badge { background: var(--danger-soft); color: var(--error-ink); }
 .ai-run-summary { flex-basis: 100%; color: var(--ink); overflow-wrap: anywhere; }
 .ai-run-body { padding: 0 14px 14px; border-top: 1px solid var(--border); }
-.ai-analysis, .ai-thinking { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; }
+.ai-analysis, .ai-thinking, .ai-note { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; }
 .ai-thinking { color: var(--ink-2); }
 .ai-error { color: var(--error-ink); font-weight: 600; overflow-wrap: anywhere; }

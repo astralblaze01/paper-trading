@@ -627,12 +627,18 @@ with sync_playwright() as p:
     expect(run.get_by_role('link',name='확인한 시장 뉴스')).to_have_attribute('href','https://example.org/market')
     expect(run).to_contain_text('기사 제목만 확인')
     expect(run.get_by_role('link',name='위험한 링크')).to_have_count(0)
-    expect(run.locator('.ai-table')).to_contain_text('추세 상승')
+    expect(run.locator('.ai-table',has_text='추세 상승')).to_have_count(1)   # the actions, after the stock notes
+    # What the AI wrote into its own notebook this run.
+    expect(run.locator('.ai-note').first).to_have_text('- 가설: 기술주 반등\n- 다음: 정규장 거래량 확인')
+    expect(run).to_contain_text('목표 250달러, 손절 210달러')
     run.locator('.admin-raw summary').click()
     expect(run.locator('.admin-raw pre')).to_contain_text('research_data')
     page.screenshot(path='/artifacts/admin-ai-1440.png',full_page=True)
     page.locator('[data-ai-tab="portfolio"]').click()
     expect(page.locator('#adminAiBody .ai-facts')).to_contain_text('USD 현금')
+    # Each return beside the profit in the same currency.
+    facts=page.locator('#adminAiBody .ai-facts dt').all_inner_texts()
+    assert facts.index('수익률(원화)')==facts.index('평가손익(원화)')+1 and facts.index('수익률(달러)')==facts.index('평가손익(달러)')+1, facts
     page.locator('[data-ai-tab="history"]').click()
     expect(page.locator('#adminAiBody')).to_contain_text('매수')
     page.set_viewport_size({'width':390,'height':844})

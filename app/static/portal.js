@@ -547,7 +547,7 @@ const ADMIN_SECTIONS={
   system:['시장·시스템','DB·Redis·시세 공급자, 시장 상태, 일별 성과 기록'],
   settings:['서비스 설정','새 계좌 초기 지급액과 수수료·세금 정책'],
   audit:['감사·아카이브','관리자 작업 로그와 초기화·시즌 아카이브'],
-  ai:['AI 에이전트','AI 트레이더별 매시간 판단 기록과 포트폴리오 전체 (조회 전용)']};
+  ai:['AI 에이전트','AI 트레이더별 30분마다의 판단 기록·투자 노트와 포트폴리오 전체 (조회 전용)']};
 function adminSection(){const m=location.pathname.match(/^\/admin(?:\/(users|accounts|notices|system|settings|audit|ai))?\/?$/);return m?m[1]||'dashboard':null;}
 document.addEventListener('click',e=>{
   const a=e.target.closest?.('a[href^="/admin"]');
@@ -1157,6 +1157,10 @@ function aiDecision(d,open){
  inner.append(aiFacts([['모델',data.model],['걸린 시간',data.seconds!=null?data.seconds+'초':null],['조사',`${(data.research||[]).length}회 · 요청 ${(data.research||[]).flat().length}건`]]));
  if(data.error)inner.append(node('p','오류: '+data.error,'ai-error'));
  if(data.analysis){inner.append(node('h4','판단 근거'),node('p',data.analysis,'ai-analysis'));}
+ // What the AI wrote into its own notebook this run (scripts/ai_trader.py: journal and stock notes).
+ if(data.journal){inner.append(node('h4','일지 메모'),node('p',data.journal,'ai-note'));}
+ const notes=Object.entries(data.stock_notes||{}).filter(([,v])=>v);
+ if(notes.length){inner.append(node('h4','종목 노트'));aiTable(inner,['종목','노트'],notes.map(([sym,text])=>[sym,node('p',text,'ai-note')]),'');}
  if(Array.isArray(data.sources)&&data.sources.length){
   inner.append(node('h4','확인한 외부 근거'));
   for(const s of data.sources){
@@ -1170,7 +1174,7 @@ function aiDecision(d,open){
  (data.thinking||[]).forEach((t,i)=>{if(!t)return;inner.append(node('h4',`조사 ${i+1}단계 생각`));const p=node('p',t,'ai-thinking');inner.append(p);
   const asked=(data.research||[])[i]||[];if(asked.length)inner.append(node('p','요청: '+asked.map(r=>[r.type,r.symbol||r.query||r.asset,r.range||r.kind].filter(Boolean).join(' ')).join(' · '),'field-help'));});
  inner.append(node('h4','행동과 이유'));
- aiTable(inner,['구분','대상','이유','결과'],(data.results||[]).map(r=>[AI_ACTION[r.action.type]||r.action.type,aiActionText(r.action),r.action.reason||'—',aiResultText(r)]),'이번 시간에는 거래하지 않았습니다.');
+ aiTable(inner,['구분','대상','이유','결과'],(data.results||[]).map(r=>[AI_ACTION[r.action.type]||r.action.type,aiActionText(r.action),r.action.reason||'—',aiResultText(r)]),'이번 실행에서는 거래하지 않았습니다.');
  if((data.dropped||[]).length){inner.append(node('h4','실행하지 않은 행동'));aiTable(inner,['행동','이유'],data.dropped.map(x=>[JSON.stringify(x.action),x.why]),'');}
  // The data the AI looked at and the account it saw: fetched only when opened.
  const raw=node('details',null,'admin-raw'),pre=node('pre');raw.append(node('summary','AI가 본 계좌와 조사 데이터 원문'),pre);
@@ -1185,14 +1189,18 @@ const AI_TAB_RENDER={
   async function page(){const r=await viewAs('ai/decisions'+(before?'?before='+before:''));
    r.rows.forEach((d,i)=>list.append(aiDecision(d,!before&&i===0)));
    if(r.rows.length)before=r.rows[r.rows.length-1].id;more.hidden=!r.more;
-   if(!list.children.length)list.append(node('p','아직 판단 기록이 없습니다. 장이 열려 있는 시간에 매시간 기록됩니다.','empty-state'));}
+   if(!list.children.length)list.append(node('p','아직 판단 기록이 없습니다. 장이 열려 있는 시간에 30분마다 기록됩니다.','empty-state'));}
   more.addEventListener('click',()=>page().catch(e=>toast(e.message,'error')));
   await page();view.append(list,more);
  },
  async portfolio(view){
   const p=await viewAs('portfolio');
-  view.append(aiFacts([['총 평가금액',p.equity==null?'—':nativeMoney(p.equity,'KRW')],['달러 환산',p.equity_usd==null?'—':nativeMoney(p.equity_usd,'USD')],
-   ['평가손익(원화)',p.pnl==null?'—':nativeMoney(p.pnl,'KRW')],['수익률(원화)',signedPct(p.return_pct)],['수익률(달러)',signedPct(p.return_pct_usd)],
+  // Each return sits beside the profit in the same currency: KRW basis, then USD basis.
+  const pnl=(v,c)=>v==null?'—':signed(v,(Math.round(Number(v)*(c==='USD'?100:1))>0?'+':'')+nativeMoney(v,c)),split=fxSplitText(p);
+  view.append(aiFacts([['총 평가금액(원화)',p.equity==null?'—':nativeMoney(p.equity,'KRW')],['총 평가금액(달러)',p.equity_usd==null?'—':nativeMoney(p.equity_usd,'USD')],
+   ['평가손익(원화)',pnl(p.pnl,'KRW')],['수익률(원화)',signedPct(p.return_pct)],
+   ['평가손익(달러)',pnl(p.pnl_usd,'USD')],['수익률(달러)',signedPct(p.return_pct_usd)],
+   ...(split?[[split.invest[0]+'(원화)',pnl(p.other_pnl,'KRW')],[split.fx[0]+'(원화)',pnl(p.initial_fx_effect,'KRW')]]:[]),
    ['USD 현금',nativeMoney(p.wallets.USD,'USD')],['KRW 현금',nativeMoney(p.wallets.KRW,'KRW')],
    ['실현 손익',`${nativeMoney(p.realized_pnl?.USD||0,'USD')} / ${nativeMoney(p.realized_pnl?.KRW||0,'KRW')}`],['수익률 기준',p.return_basis]]));
   view.append(node('h4','보유 종목'));
