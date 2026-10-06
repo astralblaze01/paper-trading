@@ -1,6 +1,6 @@
 """AI traders: Claude, GPT and Gemini each run an ordinary ALPHARENA account and trade it themselves.
 
-Once an hour, while the Korean or US market takes orders in any session, each AI looks at its
+Every 30 minutes, while the Korean or US market takes orders in any session, each AI looks at its
 account and the market rankings, asks for whatever detail it wants (quotes, charts,
 company data, searches), and then decides its own orders. This script only carries
 the AI's requests to the site's public API and its orders to /api/orders, so the
@@ -13,10 +13,10 @@ The AI runs through the CLI the host is signed in to, so no API key is needed:
 Antigravity also offers other vendors' models).
 
     python3 scripts/ai_trader.py setup claude   # once: create ai_claude, its avatar and bio
-    python3 scripts/ai_trader.py run claude     # one decision round (cron, hourly)
+    python3 scripts/ai_trader.py run claude     # one decision round (cron, every 30 minutes)
     python3 scripts/ai_trader.py run claude --dry-run   # decide, but place no orders
 
-    5 * * * * /usr/bin/python3 /home/ubuntu/paper-trading/scripts/ai_trader.py run claude
+    5,35 * * * * /usr/bin/python3 /home/ubuntu/paper-trading/scripts/ai_trader.py run claude
 
 Passwords live in ~/.config/alpharena-ai/ (owner-only); decisions are logged to
 ~/.local/state/alpharena-ai/<agent>.jsonl, and the last few are shown to the AI
@@ -64,11 +64,11 @@ CONFIG = Path.home() / '.config' / 'alpharena-ai'
 STATE = Path.home() / '.local' / 'state' / 'alpharena-ai'
 AGENTS = {
     'claude': {'username': 'ai_claude', 'name': 'Claude',
-               'bio': '🤖 Claude 기반 AI 트레이더 · 매시간 스스로 시장을 분석해 사고팝니다. 사람의 개입 없이 운용됩니다.'},
+               'bio': '🤖 Claude 기반 AI 트레이더 · 30분마다 스스로 시장을 분석해 사고팝니다. 사람의 개입 없이 운용됩니다.'},
     'gpt': {'username': 'ai_gpt', 'name': 'GPT',
-            'bio': '🤖 GPT 기반 AI 트레이더 · 매시간 스스로 시장을 분석해 사고팝니다. 사람의 개입 없이 운용됩니다.'},
+            'bio': '🤖 GPT 기반 AI 트레이더 · 30분마다 스스로 시장을 분석해 사고팝니다. 사람의 개입 없이 운용됩니다.'},
     'gemini': {'username': 'ai_gemini', 'name': 'Gemini',
-               'bio': '🤖 Gemini 기반 AI 트레이더 · 매시간 스스로 시장을 분석해 사고팝니다. 사람의 개입 없이 운용됩니다.'},
+               'bio': '🤖 Gemini 기반 AI 트레이더 · 30분마다 스스로 시장을 분석해 사고팝니다. 사람의 개입 없이 운용됩니다.'},
 }
 # Each AI's model is pinned here, not left to the CLI's defaults or the user's own config,
 # so the three compete on a known footing. Override with the environment variables.
