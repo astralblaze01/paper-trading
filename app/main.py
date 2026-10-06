@@ -712,12 +712,20 @@ install_ai(app, sys.modules[__name__])
 @app.post('/internal/jobs')
 def internal_jobs(request: Request):
     if not secrets.compare_digest(request.headers.get(WORKER_TOKEN_HEADER,''),worker_token(secret)): raise HTTPException(403,'Forbidden')
-    filled=process_limit_orders(market)
-    weekly_result=tick(market,fx=fx) if os.getenv('WEEKLY_ENABLED','true').lower()=='true' else 'disabled'
+    # Milliseconds per step: the scheduler runs these once a minute, and reservations wait behind the rest.
+    ms={};clock=time.monotonic()
+    def lap(name):
+        nonlocal clock
+        now=time.monotonic();ms[name]=round((now-clock)*1000);clock=now
+    filled=process_limit_orders(market);lap('limits')
+    weekly_result=tick(market,fx=fx) if os.getenv('WEEKLY_ENABLED','true').lower()=='true' else 'disabled';lap('weekly')
     try: snapshots=capture_daily_snapshots(market,fx)
     except Exception:
         request_log.exception('daily snapshot failed'); snapshots='error'
+    lap('snapshots')
     try: dividend_result=dividends.run(market.kr,market=market) if getattr(market,'kr',None) is not None and market.kr.configured else 'disabled'
     except Exception:
         request_log.exception('dividends failed'); dividend_result='error'
+    lap('dividends')
+    if sum(ms.values())>5000: request_log.warning('slow scheduled jobs %s', ms)
     return {'filled':filled,'weekly':weekly_result,'snapshots':snapshots,'dividends':dividend_result}
