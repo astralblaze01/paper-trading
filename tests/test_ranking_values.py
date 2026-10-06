@@ -66,3 +66,29 @@ def test_ranking_values_fix_the_starting_krw_value_once():
     ranking_values([uid], Market(), main.fx)
     with Session() as db:
         assert db.get(User, uid).initial_krw == D('100000000')
+
+
+class Waiting(Market):
+    """Each price request waits for the collector (3 s); a batch shares one wait, like MultiMarket.quotes."""
+    def __init__(self, failing=()):
+        super().__init__(failing); self.waits = 0
+    def quote(self, symbol):
+        self.waits += 3; return super().quote(symbol)
+    def quotes(self, symbols):
+        self.waits += 3; out = {}
+        for s in symbols:
+            try: out[s] = Market.quote(self, s)
+            except MarketError as exc: out[s] = exc
+        return out
+
+
+def test_ranking_and_portfolio_read_their_prices_in_one_batch():
+    """Read one by one, an idle site's first ranking waited 3 s per held stock under the ranking lock."""
+    ids = [account('a', usd=D('5000'), krw=D('2500000'), positions=[('AAPL', 10, D('100')), ('KR:005930', 3, D('65000'))]),
+           account('b', usd=D('1'), krw=D('0'), positions=[('MSFT', 2, D('300')), ('NVDA', 1, D('90'))])]
+    plain, waiting = ranking_values(ids, Market(), main.fx), Waiting()
+    assert ranking_values(ids, waiting, main.fx) == plain and waiting.waits == 3
+    waiting = Waiting(failing={'NVDA'})
+    view = portfolio(ids[1], waiting, main.fx)
+    assert waiting.waits == 3 and view['equity'] is None and view['errors'] == ['NVDA: no price']
+    assert [p['value'] for p in view['positions'] if p['symbol'] == 'MSFT'] == [D('246.90')]
