@@ -116,6 +116,21 @@ def test_watchlist_popularity_dedup_and_admin_forbidden(client):
         other.delete('/api/watchlist/AAPL',headers={'x-csrf-token':other_token})
     assert len(client.get('/api/watchlist').json())==1
 
+def test_watchlist_reads_its_prices_in_one_batch(client, monkeypatch):
+    """Up to 50 stocks, each read alone waiting up to 3 s for an outdated price, made an idle
+    watchlist take minutes to open; a batch shares one wait."""
+    token=register(client); headers={'x-csrf-token':token}
+    for symbol in ('AAPL','MSFT','NVDA'):
+        assert client.post('/api/watchlist',headers=headers,json={'symbol':symbol}).status_code==200
+    waits=[]
+    def one(symbol): waits.append([symbol]); return {'price':D(1),'timestamp':int(time.time()),'stale':False}
+    def batch(symbols): waits.append(list(symbols)); return {s:({'price':D(1),'timestamp':int(time.time()),'stale':False} if s!='NVDA' else MarketError('no price')) for s in symbols}
+    monkeypatch.setattr(main.market,'quote',one); monkeypatch.setattr(main.market,'quotes',batch,raising=False)
+    rows=client.get('/api/watchlist').json()
+    assert len(waits)==1 and sorted(waits[0])==['AAPL','MSFT','NVDA']
+    assert [(r['symbol'],r['error']) for r in rows]==[('NVDA','no price'),('MSFT',None),('AAPL',None)]   # newest first
+
+
 def test_order_share_rounding_fees_and_zero_quantity(client, monkeypatch):
     token=register(client)
     monkeypatch.setenv('US_BUY_FEE_BPS','10')

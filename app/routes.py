@@ -295,11 +295,9 @@ def install(app,ctx):
     @app.get('/api/watchlist')
     def watchlist(uid=Depends(user)):
         with Session() as db: symbols=list(db.scalars(select(Watchlist.symbol).where(Watchlist.user_id==uid).order_by(Watchlist.created_at.desc())))
-        rows=[]
-        for symbol in symbols:
-            try: rows.append(instrument(symbol)|{'quote':ctx.market.quote(symbol),'error':None})
-            except MarketError as exc: rows.append(instrument(symbol)|{'quote':None,'error':str(exc)})
-        return rows
+        quotes=quotes_for(ctx.market,symbols)
+        return [instrument(s)|({'quote':None,'error':str(quotes[s])} if isinstance(quotes[s],MarketError) else {'quote':quotes[s],'error':None})
+                for s in symbols]
     @app.post('/api/watchlist',dependencies=[Depends(csrf)])
     def watch_add(data:SymbolInput,uid=Depends(user)):
         with Session.begin() as db:
