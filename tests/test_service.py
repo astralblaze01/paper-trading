@@ -517,6 +517,27 @@ def test_weekly_publication_returns_ties_and_idempotency(monkeypatch):
         assert Decimal(row['return_pct']) == 1  # weekly, not the 3.02% lifetime return
         assert Decimal(row['total_return_pct']) == Decimal('3.02')
 
+def test_weekly_reads_every_held_price_in_one_batch():
+    """Every 15 minutes the weekly step re-reads each held stock's price for the report, inside the
+    account-wide lock. One request at a time, each waiting up to 3 s for an outdated price, it held
+    that lock for about a minute (20 holdings), and withdrawals and admin grants waited on it."""
+    from datetime import datetime, timezone
+    from app.weekly import tick
+    from app.db import Position
+    uid = seed()
+    with Session.begin() as db:
+        for symbol in ('AAPL', 'MSFT', 'NVDA', 'TSLA', 'AMD'):
+            db.add(Position(user_id=uid, symbol=symbol, quantity=1, average_cost=Decimal(100), native_average_cost=Decimal(100)))
+    class Slow(FakeMarket):
+        """Each request waits for the collector (3 s); a batch shares one wait."""
+        def __init__(self): self.waits = 0
+        def quote(self, symbol): self.waits += 3; return FakeMarket.quote(self, symbol)
+        def quotes(self, symbols): self.waits += 3; return {s: FakeMarket.quote(self, s) for s in symbols}
+    market = Slow()
+    assert tick(market, datetime.now(timezone.utc)) == 'baseline'   # the fake prices are stamped now
+    assert market.waits == 3
+
+
 def test_weekly_missing_prices_defers_without_changing_baseline():
     from datetime import datetime, timedelta, timezone
     from app.weekly import tick, next_run
