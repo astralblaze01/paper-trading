@@ -24,11 +24,15 @@ class KoreaPrices:
         self.configured = bool(self.key and self.secret)
         # Only token issuance and the fixed quotation endpoint are ever called.
         self.client = httpx.Client(base_url='https://openapi.koreainvestment.com:9443', timeout=8)
-        self.lock = RLock()
+        self.lock = RLock()   # the token and the rate-limit pause, which both kinds of call share
+        # Overseas and domestic calls keep separate spacing (1.1 s, 0.2 s; also separate slots on
+        # Redis), so each waits only behind its own kind: one lock covering both made a 0.2 s
+        # domestic quote wait out an overseas call's 1.1 s spacing and request.
+        self.lanes = {'overseas': RLock(), 'domestic': RLock()}
+        self.last_calls = {'overseas': 0.0, 'domestic': 0.0}
         self.token = ''
         self.expires = 0
         self.cooldown = 0
-        self.last_call = 0
         self.cache = {}
         from .cache import TTLCache
         self.responses = TTLCache()
@@ -78,24 +82,25 @@ class KoreaPrices:
         if not path.startswith(('/uapi/domestic-stock/v1/quotations/','/uapi/overseas-price/v1/quotations/','/uapi/overseas-stock/v1/ranking/')) and path not in ('/uapi/domestic-stock/v1/ranking/fluctuation','/uapi/domestic-stock/v1/ksdinfo/dividend','/uapi/domestic-stock/v1/ksdinfo/rev-split','/uapi/domestic-stock/v1/finance/financial-ratio'):
             raise MarketError('허용되지 않은 시세 경로입니다.')
         def load():
-            with self.lock:
-                now=time.monotonic()
-                if not self.configured: raise MarketError('국내 데이터 공급자 설정 필요')
-                if now<self.cooldown: raise MarketError('국내 시세 요청 한도 대기 중입니다.')
+            # The KIS overseas historical endpoints rejected consecutive
+            # 0.5s requests in live verification; serialize those at 1.1s.
+            # Domestic quotations are well inside the live limit (20/s per
+            # app key, shared with the workers) at 0.2s.
+            lane='overseas' if path.startswith('/uapi/overseas-') else 'domestic'
+            gap=1.1 if lane=='overseas' else 0.2
+            with self.lanes[lane]:
                 try:
-                    if now>=self.expires: self._access_token(now)
-                    # The KIS overseas historical endpoints rejected consecutive
-                    # 0.5s requests in live verification; serialize those at 1.1s.
-                    # Domestic quotations are well inside the live limit (20/s per
-                    # app key, shared with the workers) at 0.2s.
-                    overseas=path.startswith('/uapi/overseas-')
-                    gap=1.1 if overseas else 0.2
+                    with self.lock:
+                        now=time.monotonic()
+                        if not self.configured: raise MarketError('국내 데이터 공급자 설정 필요')
+                        if now<self.cooldown: raise MarketError('국내 시세 요청 한도 대기 중입니다.')
+                        if now>=self.expires: self._access_token(now)
                     # The web and worker processes share one app key, so the spacing is
                     # kept on a clock they all see; this process's own gap still applies.
-                    shared=redis_cache.reserve_slot('kis:overseas' if overseas else 'kis:domestic',gap)
-                    delay=max(gap-(time.monotonic()-self.last_call),shared or 0)
+                    shared=redis_cache.reserve_slot('kis:'+lane,gap)
+                    delay=max(gap-(time.monotonic()-self.last_calls[lane]),shared or 0)
                     if delay>0: time.sleep(delay)
-                    self.last_call=time.monotonic()
+                    self.last_calls[lane]=time.monotonic()
                     headers={'authorization':'Bearer '+self.token,'appkey':self.key,'appsecret':self.secret,'tr_id':tr_id,'custtype':'P'}
                     if tr_cont: headers['tr_cont']=tr_cont
                     r=self.client.get(path,headers=headers,params=params)

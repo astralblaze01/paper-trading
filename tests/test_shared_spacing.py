@@ -62,3 +62,39 @@ def test_ranking_snapshot_round_trips_with_its_types(redis_url, monkeypatch):
              'payload': {'rows': [{'equity_usd': Decimal('101234.5600'), 'fx': {'rate': Decimal('1390.5')}, 'rank': 1}]}}
     assert shared.set_typed('ranking:snapshot', entry, 60)
     assert cache(redis_url, monkeypatch).get_typed('ranking:snapshot') == entry
+
+
+class FakeKIS:
+    """KIS over HTTP: each answer takes 0.3 s; records when every quotation call started."""
+    def __init__(self): self.starts = []
+    def post(self, path, json=None):
+        return Answer({'access_token': 't', 'expires_in': 86400})
+    def get(self, path, headers=None, params=None):
+        self.starts.append((path.split('/')[2], time.monotonic())); time.sleep(.3)
+        return Answer({'rt_cd': '0', 'output': {}})
+
+
+class Answer:
+    status_code, headers = 200, {}
+    def __init__(self, body): self.body = body
+    def json(self): return self.body
+    def raise_for_status(self): pass
+
+
+def test_a_domestic_call_does_not_wait_behind_overseas_calls(monkeypatch):
+    """One lock covered both kinds of call, through the 1.1 s overseas spacing and the request
+    itself: live, a 0.18 s domestic quote took 1.25 s while two overseas calls ran."""
+    import threading
+    from app.multi_market import KoreaPrices
+    monkeypatch.setenv('KIS_APP_KEY', 'k'); monkeypatch.setenv('KIS_APP_SECRET', 's')
+    kis = KoreaPrices(); kis.client = FakeKIS()
+    overseas = lambda n: kis.get('/uapi/overseas-price/v1/quotations/price', 'T', {'n': n}, 0)
+    domestic = lambda n: kis.get('/uapi/domestic-stock/v1/quotations/inquire-price', 'T', {'n': n}, 0)
+    # The domestic call arrives while the second overseas call waits out its 1.1 s spacing.
+    us = threading.Thread(target=lambda: [overseas(1), overseas(2)]); us.start(); time.sleep(.45)
+    started = time.monotonic(); domestic(1); took = time.monotonic() - started
+    us.join(); domestic(2)
+    assert took < .6, took                                   # its own request only
+    by = lambda kind: [t for k, t in kis.client.starts if k == kind]
+    assert by('overseas-price')[1] - by('overseas-price')[0] >= 1.1    # each kind keeps its spacing
+    assert by('domestic-stock')[1] - by('domestic-stock')[0] >= .2
