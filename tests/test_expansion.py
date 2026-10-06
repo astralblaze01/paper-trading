@@ -487,3 +487,24 @@ def test_worker_cache_stops_waiting_on_a_collector_that_does_not_answer(monkeypa
     clock[0] += 31
     market.quote('AAPL')
     assert requests[-1] == ('AAPL', True)                                        # and it tries again later
+
+
+@pytest.mark.parametrize('source', ['finnhub', 'kis'])
+def test_worker_cache_does_not_wait_on_a_quiet_symbol_live_on_its_stream(monkeypatch, source):
+    """A symbol held by a healthy trade stream may go minutes without a print; its last trade is
+    still the current price. The market-worker refreshes Finnhub-streamed symbols over REST only
+    every five minutes, so treating it as outdated made every request wait the full 3 s."""
+    quiet = time.time() - 240
+    snapshot = {'price': 'live', 'timestamp': quiet, '_cached_at': quiet, 'origin': 'stream', 'stream_conn': 'c1',
+                **({'stream': 'finnhub'} if source == 'finnhub' else {})}
+    store = {'market:price:AAPL': snapshot, 'market:collection:AAPL': {'state': 'stored', 'checked_at': quiet}}
+    market, clock, requests = worker_cache_market(monkeypatch, store)
+    live = {'connected': True, 'conn': 'c1', 'heartbeat': time.time(), 'subscribed': ['AAPL']}
+    monkeypatch.setattr(market, 'finnhub_stream_status', lambda: live if source == 'finnhub' else None, raising=False)
+    monkeypatch.setattr(market, 'stream_status', lambda: live if source == 'kis' else None, raising=False)
+    assert market.quote('AAPL')['price'] == 'live' and requests == [('AAPL', False)] and clock[0] == 0
+    # The same snapshot after its stream dropped is outdated again.
+    monkeypatch.setattr(market, 'finnhub_stream_status', lambda: None, raising=False)
+    monkeypatch.setattr(market, 'stream_status', lambda: None, raising=False)
+    market.quote('AAPL')
+    assert requests[-1] == ('AAPL', True)

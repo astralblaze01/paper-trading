@@ -292,6 +292,14 @@ class MultiMarket:
         try:
             seen = max(float(snapshot.get('timestamp') or 0), float(snapshot.get('_cached_at') or 0), float(status.get('checked_at') or 0))
             if time.time() - seen <= OUTDATED_SECONDS: return False
+            if snapshot.get('origin') == 'stream':
+                # A quiet symbol on a healthy stream: its last trade is still the current price (see
+                # quote_policy), and the worker refreshes Finnhub-streamed symbols over REST only rarely.
+                from .quote_policy import stream_healthy
+                stream = (self.finnhub_stream_status() if snapshot.get('stream') == 'finnhub' else self.stream_status()) or {}
+                if (stream_healthy(stream, market=market_of(symbol)) and snapshot.get('stream_conn') == stream.get('conn')
+                        and symbol in (stream.get('subscribed') or ())):
+                    return False
             provider = getattr(self, 'providers', {}).get(market_of(symbol))
             return provider is not None and provider.session() not in ('closed', 'unknown')
         except (MarketError, KeyError, TypeError, ValueError):
