@@ -434,3 +434,56 @@ def test_worker_cache_batch_reports_a_recent_collection_failure_at_once(monkeypa
     assert clock[0] == 0.0                     # nothing left worth waiting for
     assert out['AAA'] == {'symbol': 'AAA'}
     assert isinstance(out['BAD'], MarketError) and not isinstance(out['BAD'], QuotePending)
+
+
+def worker_cache_market(monkeypatch, store, session='regular'):
+    """MultiMarket reading the worker cache from `store`, on a fake clock; returns (market, clock, requests)."""
+    import app.multi_market as mm
+    monkeypatch.setenv('MARKET_CACHE_MODE', 'worker')
+    monkeypatch.delenv('MARKET_WORKER_MODE', raising=False)
+    clock, requests = [0.0], []
+    monkeypatch.setattr(mm.time, 'monotonic', lambda: clock[0])
+    def sleep(s):
+        clock[0] += s
+        for at, key, value in list(store.get('_later', [])):
+            if clock[0] >= at: store[key] = value
+    monkeypatch.setattr(mm.time, 'sleep', sleep)
+    monkeypatch.setattr(mm.redis_cache, 'get_json', lambda key: store.get(key))
+    monkeypatch.setattr(mm.redis_cache, 'request_quote', lambda symbol, force=False: requests.append((symbol, force)))
+    market = mm.MultiMarket.__new__(mm.MultiMarket)
+    market.providers = {'KR': type('P', (), {'session': lambda self: session})(), 'US': type('P', (), {'session': lambda self: session})()}
+    monkeypatch.setattr(market, '_cached_quote', lambda symbol, cached: cached)
+    return market, clock, requests
+
+
+def test_worker_cache_refreshes_an_hour_old_snapshot_while_the_market_is_open(monkeypatch):
+    """A symbol nobody watched for an hour (the AI traders ask once an hour) gets a fresh price, not the old one."""
+    hour_ago = time.time() - 3600
+    old = {'price': 'old', 'timestamp': hour_ago, '_cached_at': hour_ago}
+    store = {'market:price:KR:069500': old, 'market:collection:KR:069500': {'state': 'stored', 'checked_at': hour_ago},
+             '_later': [(1.0, 'market:price:KR:069500', {'price': 'new', 'timestamp': time.time(), '_cached_at': time.time()}),
+                        (1.0, 'market:collection:KR:069500', {'state': 'stored', 'checked_at': time.time()})]}
+    market, clock, requests = worker_cache_market(monkeypatch, store)
+    assert market.quote('KR:069500')['price'] == 'new'
+    assert requests == [('KR:069500', True)] and 1.0 <= clock[0] < 1.2   # asked at once, waited for the collector
+
+
+def test_worker_cache_serves_recent_or_closed_market_snapshots_without_waiting(monkeypatch):
+    fresh = {'price': 'fresh', 'timestamp': time.time() - 20, '_cached_at': time.time() - 20}
+    market, clock, requests = worker_cache_market(monkeypatch, {'market:price:AAPL': fresh})
+    assert market.quote('AAPL')['price'] == 'fresh' and requests == [('AAPL', False)] and clock[0] == 0
+    old = {'price': 'old', 'timestamp': time.time() - 3600, '_cached_at': time.time() - 3600}
+    market, clock, requests = worker_cache_market(monkeypatch, {'market:price:AAPL': old}, session='closed')
+    assert market.quote('AAPL')['price'] == 'old' and requests == [('AAPL', False)] and clock[0] == 0
+
+
+def test_worker_cache_stops_waiting_on_a_collector_that_does_not_answer(monkeypatch):
+    old = {'price': 'old', 'timestamp': time.time() - 3600, '_cached_at': time.time() - 3600}
+    market, clock, requests = worker_cache_market(monkeypatch, {'market:price:AAPL': old})
+    assert market.quote('AAPL')['price'] == 'old' and 3.0 <= clock[0] < 3.2   # one bounded wait
+    start = clock[0]
+    assert market.quote('AAPL')['price'] == 'old' and clock[0] == start          # then no wait for a while
+    assert requests[-1] == ('AAPL', False)
+    clock[0] += 31
+    market.quote('AAPL')
+    assert requests[-1] == ('AAPL', True)                                        # and it tries again later

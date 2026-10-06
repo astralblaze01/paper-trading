@@ -212,6 +212,9 @@ class ReferenceFX:
 
 # The market-worker retries a failed symbol after max(30, 2 × QUOTE_TTL) seconds.
 RECENT_FAILURE_SECONDS = 30
+# A snapshot not refreshed for this long is refreshed before it is served while its market is open.
+OUTDATED_SECONDS = 60
+OUTDATED_RETRY_SECONDS = 30
 
 class MultiMarket:
     def __init__(self):
@@ -284,6 +287,16 @@ class MultiMarket:
     def _from_worker_cache():
         return os.getenv('MARKET_CACHE_MODE','direct').lower() == 'worker' and os.getenv('MARKET_WORKER_MODE','false').lower() != 'true'
 
+    def _outdated(self, symbol, snapshot, status):
+        """True when the market is open and nothing has refreshed this snapshot lately."""
+        try:
+            seen = max(float(snapshot.get('timestamp') or 0), float(snapshot.get('_cached_at') or 0), float(status.get('checked_at') or 0))
+            if time.time() - seen <= OUTDATED_SECONDS: return False
+            provider = getattr(self, 'providers', {}).get(market_of(symbol))
+            return provider is not None and provider.session() not in ('closed', 'unknown')
+        except (MarketError, KeyError, TypeError, ValueError):
+            return False
+
     def _cached_quote(self, symbol, cached):
         if cached is None:
             raise QuotePending('시세 수집기가 가격을 준비 중입니다. 잠시 후 다시 시도하세요.')
@@ -313,19 +326,40 @@ class MultiMarket:
                 except MarketError as exc: out[symbol] = exc
             return out
         cached = {symbol: redis_cache.get_json(price_key(symbol)) for symbol in symbols}
-        for symbol in symbols:
-            redis_cache.request_quote(symbol, force=cached[symbol] is None)
+        statuses = {symbol: redis_cache.get_json(f'market:collection:{symbol}') or {} for symbol in symbols}
         def failed(symbol):
             # The collector just tried and failed; it waits before trying again, so
             # waiting here (or the page asking again) cannot bring a price sooner.
-            status = redis_cache.get_json(f'market:collection:{symbol}') or {}
+            status = statuses[symbol]
             return status.get('state') == 'failed' and time.time() - float(status.get('checked_at') or 0) < RECENT_FAILURE_SECONDS
+        # The collector keeps only recently requested symbols fresh. A symbol nobody
+        # has asked for in a while still has its last snapshot, which can be an hour
+        # old while the market is open; serving it as-is gives a caller that asks
+        # once (the AI traders) a stale price every time. Such a snapshot is
+        # refreshed first, with the same short wait as a missing one.
+        backoff = self.__dict__.setdefault('_refresh_backoff', {})
+        outdated = {symbol for symbol in symbols if cached[symbol] is not None and not failed(symbol)
+                    and backoff.get(symbol, 0) <= time.monotonic()
+                    and self._outdated(symbol, cached[symbol], statuses[symbol])}
+        for symbol in symbols:
+            redis_cache.request_quote(symbol, force=cached[symbol] is None or symbol in outdated)
         given_up = {symbol for symbol in symbols if cached[symbol] is None and failed(symbol)}
+        checked = {symbol: statuses[symbol].get('checked_at') for symbol in outdated}
+        def waiting():
+            return [s for s, v in cached.items() if (v is None and s not in given_up) or s in outdated]
         deadline = time.monotonic() + wait
-        while any(v is None and s not in given_up for s, v in cached.items()) and time.monotonic() < deadline:
+        while waiting() and time.monotonic() < deadline:
             time.sleep(.1)
-            for symbol in [s for s, v in cached.items() if v is None and s not in given_up]:
-                cached[symbol] = redis_cache.get_json(price_key(symbol))
+            for symbol in waiting():
+                if symbol in outdated:
+                    # Done once the collector has checked again, whether or not the price moved.
+                    status = redis_cache.get_json(f'market:collection:{symbol}') or {}
+                    if status.get('checked_at') == checked[symbol]: continue
+                    outdated.discard(symbol)
+                cached[symbol] = redis_cache.get_json(price_key(symbol)) or cached[symbol]
+        # No collector answered in time (busy or down): serve the last snapshot and do
+        # not hold this symbol's requests again for a while.
+        for symbol in outdated: backoff[symbol] = time.monotonic() + OUTDATED_RETRY_SECONDS
         out = {}
         for symbol in symbols:
             if cached[symbol] is None and symbol in given_up:
