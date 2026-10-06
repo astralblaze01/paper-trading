@@ -256,3 +256,83 @@ def test_memory_covers_the_last_twelve_hours_of_runs(tmp_path, monkeypatch):
         json.dumps({'time': f't{i}', 'summary': f'결정 {i}', 'results': []}) + '\n' for i in range(30)))
     seen = ai_trader.memory('claude')
     assert len(seen) == 24 and seen[0]['summary'] == '결정 6' and seen[-1]['summary'] == '결정 29'
+
+
+# The AI's own notebook ---------------------------------------------------------
+
+NOON = datetime(2026, 10, 6, 3, 30, tzinfo=timezone.utc)   # 12:30 in Korea
+
+
+def test_a_run_writes_the_day_journal_and_dated_stock_notes(tmp_path, monkeypatch):
+    monkeypatch.setattr(ai_trader, 'STATE', tmp_path)
+    decision = {'summary': 'KODEX 200 분할 매수', 'journal': '- 가설: 반도체 실적 기대가 지수를 끈다\n- 다음: 삼성 잠정실적 확인',
+                'stock_notes': {'KR:069500': '논리: 지수 분산. 손절 6% 아래.', 'rm -rf': 'x', 'AAPL': ''}}
+    results = [{'action': {'type': 'buy', 'symbol': 'KR:069500', 'quantity': 118}, 'result': {}},
+               {'action': {'type': 'exchange', 'source': 'USD', 'amount': 10000}, 'error': '잔액 부족'}]
+    ai_trader.write_notebook('claude', decision, results, {'KR': '정규장'}, NOON)
+    ai_trader.write_notebook('claude', {'summary': '관망', 'stock_notes': {'KR:069500': '실적 확인 전까지 보유'}}, [], {'KR': '정규장'},
+                             NOON.replace(minute=59))
+    journal = (tmp_path / 'claude-notes' / 'journal' / '2026-10-06.md').read_text()
+    assert journal.startswith('# Claude 투자 일지 · 2026-10-06\n')
+    assert '## 12:30 · KR 정규장\n**판단**: KODEX 200 분할 매수\n- buy KR:069500 118주: 체결\n- 환전 USD 10000: 거절 (잔액 부족)\n\n- 가설:' in journal
+    assert '## 12:59 · KR 정규장\n**판단**: 관망' in journal
+    notes = ai_trader.stock_entries('claude', 'KR:069500')
+    assert notes == ['## 2026-10-06 12:30 KST\n논리: 지수 분산. 손절 6% 아래.', '## 2026-10-06 12:59 KST\n실적 확인 전까지 보유']
+    assert ai_trader.noted_symbols('claude') == ['KR:069500']   # bad and empty notes are not stored
+
+
+def test_a_stock_keeps_its_latest_thirty_notes(tmp_path, monkeypatch):
+    monkeypatch.setattr(ai_trader, 'STATE', tmp_path)
+    for i in range(35):
+        ai_trader.write_notebook('gpt', {'stock_notes': {'NVDA': f'메모 {i}'}}, [], {'US': '정규장'}, NOON)
+    notes = ai_trader.stock_entries('gpt', 'NVDA')
+    assert len(notes) == 30 and notes[0].endswith('메모 5') and notes[-1].endswith('메모 34')
+
+
+def test_the_next_run_reads_yesterday_today_and_its_held_stocks(tmp_path, monkeypatch):
+    monkeypatch.setattr(ai_trader, 'STATE', tmp_path)
+    yesterday = NOON.replace(day=5)
+    ai_trader.write_notebook('claude', {'summary': '어제 판단', 'journal': '어제 메모', 'stock_notes': {'KR:069500': f'노트 {i}' for i in range(1)}}, [], {'KR': '정규장'}, yesterday)
+    for i in range(1, 5):
+        ai_trader.write_notebook('claude', {'stock_notes': {'KR:069500': f'노트 {i}', 'NVDA': '관심만'}}, [], {'KR': '정규장'}, NOON)
+    ai_trader.write_notebook('claude', {'summary': '사흘 전', 'journal': '오래된 메모'}, [], {'KR': '정규장'}, NOON.replace(day=3))
+    seen = ai_trader.notebook('claude', {'holdings': [{'symbol': 'KR:069500'}]}, NOON)
+    assert '어제 메모' in seen['journal'] and '오래된 메모' not in seen['journal']
+    assert seen['journal'].index('2026-10-05') < seen['journal'].index('2026-10-06')        # oldest first
+    assert [line for line in seen['held_stock_notes']['KR:069500'].splitlines() if line and not line.startswith('##')] == ['노트 2', '노트 3', '노트 4']
+    assert seen['other_noted_symbols'] == ['NVDA']
+    assert ai_trader.fetch(None, {'type': 'notes', 'symbol': 'nvda'}, agent='claude')['notes'].endswith('관심만')
+    assert ai_trader.fetch(None, {'type': 'notes', 'symbol': 'TSLA'}, agent='claude')['notes'] == '이 종목에 남긴 노트가 없다.'
+    assert 'error' in ai_trader.fetch(None, {'type': 'notes', 'symbol': '../x'}, agent='claude')
+    assert ai_trader.notebook('gemini', {'holdings': []}, NOON) is None
+
+
+def test_a_long_journal_is_cut_at_a_run_heading(tmp_path, monkeypatch):
+    monkeypatch.setattr(ai_trader, 'STATE', tmp_path)
+    for i in range(40):
+        ai_trader.write_notebook('claude', {'summary': f'판단 {i}', 'journal': '관찰 ' * 60}, [], {'KR': '정규장'}, NOON)
+    journal = ai_trader.notebook('claude', {'holdings': []}, NOON)['journal']
+    assert len(journal) <= ai_trader.PROMPT_JOURNAL_CHARS and journal.startswith('## 12:30') and '판단 39' in journal
+
+
+def test_a_run_carries_its_notes_into_the_next_run(tmp_path, monkeypatch):
+    monkeypatch.setattr(ai_trader, 'STATE', tmp_path)
+    ask, prompts = scripted(
+        json.dumps({'step': 'decide', 'summary': '삼성 관찰', 'journal': '반도체 업황 반등 신호 확인 필요', 'stock_notes': {'KR:005930': '목표 8만 원'}, 'actions': []}),
+        json.dumps({'step': 'research', 'requests': [{'type': 'notes', 'symbol': 'KR:005930'}]}),
+        json.dumps({'step': 'decide', 'summary': '노트대로 관망', 'actions': []}))
+    first = ai_trader.run('claude', client=FakeClient(), ask=ask)
+    assert first['journal'] == '반도체 업황 반등 신호 확인 필요' and first['stock_notes'] == {'KR:005930': '목표 8만 원'}
+    ai_trader.run('claude', client=FakeClient(), ask=ask)
+    assert '내 투자 노트' in prompts[1] and '반도체 업황 반등 신호 확인 필요' in prompts[1] and '"KR:005930"' in prompts[1]
+    assert '목표 8만 원' in prompts[2]   # the notes it asked for came back
+    assert '내 투자 노트' not in prompts[0]
+
+
+def test_a_dry_run_or_failed_run_writes_no_notes(tmp_path, monkeypatch):
+    monkeypatch.setattr(ai_trader, 'STATE', tmp_path)
+    ask, _ = scripted(json.dumps({'step': 'decide', 'journal': '시험', 'stock_notes': {'NVDA': '시험'}, 'actions': []}))
+    ai_trader.run('claude', dry_run=True, client=FakeClient(), ask=ask)
+    def broken(prompt): raise RuntimeError('CLI down')
+    with pytest.raises(RuntimeError): ai_trader.run('claude', client=FakeClient(), ask=broken)
+    assert not (tmp_path / 'claude-notes').exists()
