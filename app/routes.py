@@ -10,7 +10,7 @@ from sqlalchemy import select, func, delete
 from sqlalchemy.dialects.postgresql import insert
 from .db import Session, User, FxTransaction, Watchlist, PopularityEvent, LimitOrder, lock_user
 from .instruments import SYMBOL_PATTERN, valid_symbol, instrument, CATALOG, DIVIDEND_SYMBOLS, market_of
-from .market import MarketError, QuotePending
+from .market import MarketError, QuotePending, quotes_for
 from .fx import preview, exchange
 from .money import MAX_ORDER_QUANTITY, wallets, rounded
 from .trading import preview_order
@@ -51,15 +51,6 @@ def quote_fields(q):
             'volume':q.get('volume'), 'turnover':q.get('turnover'), 'data_time':datetime.fromtimestamp(q['timestamp'],timezone.utc).isoformat(),
             'data_status':q.get('data_status','공급자 시세')+(' · 오래된 시세' if q.get('stale') else '')}
 
-def quotes_for(market, symbols):
-    """{symbol: quote or MarketError}. From the worker cache all misses share one wait
-    (MultiMarket.quotes) instead of up to 3 s each, one symbol after another."""
-    if hasattr(market,'quotes'): return market.quotes(list(symbols))
-    out={}
-    for symbol in symbols:
-        try: out[symbol]=market.quote(symbol)
-        except MarketError as exc: out[symbol]=exc
-    return out
 
 # A yield moves with the price, but slowly; one provider round per symbol every few hours is enough.
 # A failed lookup is retried sooner, so a provider hiccup does not hide a yield for hours.

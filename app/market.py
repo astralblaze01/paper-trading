@@ -16,6 +16,17 @@ class ProviderAccessDenied(MarketError):
 class QuotePending(MarketError):
     """The collector has been asked for this price and has not stored it yet."""
 
+def quotes_for(market, symbols):
+    """{symbol: quote or MarketError} for several symbols. From the worker cache all misses
+    share one wait (MultiMarket.quotes) instead of up to 3 s each, one symbol after another."""
+    symbols = list(dict.fromkeys(symbols))
+    if callable(getattr(market, 'quotes', None)): return market.quotes(symbols)
+    out = {}
+    for symbol in symbols:
+        try: out[symbol] = market.quote(symbol)
+        except MarketError as exc: out[symbol] = exc
+    return out
+
 class Finnhub:
     def __init__(self):
         self.key = os.getenv('FINNHUB_API_KEY', '')

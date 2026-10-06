@@ -3,15 +3,7 @@ from sqlalchemy import select, func
 from .db import Session, Position, Transaction, User, Wallet, lock_user
 from .money import wallets, native_cost_basis
 from .instruments import instrument
-from .market import MarketError
-
-
-def batch_quotes(market, symbols):
-    """Prices for several symbols in one request where the market offers it ({symbol: quote or MarketError}).
-
-    Read one by one, each outdated price waits up to 3 s for the collector; a batch shares
-    one wait (MultiMarket.quotes). Markets without a batch read are asked per symbol later."""
-    return market.quotes(sorted(set(symbols))) if symbols and hasattr(market, 'quotes') else {}
+from .market import MarketError, quotes_for
 
 
 RETURN_BASIS = '초기 KRW 평가액 대비 (외부 입출금 반영)'
@@ -131,13 +123,11 @@ def portfolio(uid, market, fx):
         realized=dict(db.execute(select(Transaction.currency,func.sum(Transaction.realized_pnl)).where(Transaction.user_id==uid,Transaction.accounting_version==2,*([Transaction.created_at>=user.performance_since] if user.performance_since else [])).group_by(Transaction.currency)).all())
     rows=[]; equity=balances['KRW']+(balances['USD']*rate['rate'] if rate else 0)
     complete=rate is not None
-    batch=batch_quotes(market,[p.symbol for p in positions])
+    # One batch: read one by one, each outdated price would wait up to 3 s for the collector.
+    batch=quotes_for(market,[p.symbol for p in positions])
     for p in positions:
-        info=instrument(p.symbol); q=None
-        try:
-            q=batch[p.symbol] if p.symbol in batch else market.quote(p.symbol)
-            if isinstance(q,Exception): raise q
-        except MarketError as exc: q=None; errors.append(f'{p.symbol}: {exc}')
+        info=instrument(p.symbol); q=batch[p.symbol]
+        if isinstance(q,MarketError): errors.append(f'{p.symbol}: {q}'); q=None
         native=Decimal(str(q.get('native_price',q['price']))) if q else None
         value=native*p.quantity if native is not None else None
         average=native_cost_basis(p)
@@ -200,13 +190,9 @@ def ranking_values(ids, market, fx):
             except AccountGone: users.pop(uid)
         with Session() as db:
             for u in db.scalars(select(User).where(User.id.in_(list(users)))): users[u.id]=u
-    batch=batch_quotes(market,[s for rows in holdings.values() for s,_ in rows])
-    quotes={s:(None if isinstance(q,Exception) else q) for s,q in batch.items()}
-    def quote(symbol):
-        if symbol not in quotes:
-            try: quotes[symbol]=market.quote(symbol)
-            except MarketError: quotes[symbol]=None
-        return quotes[symbol]
+    # Every symbol any account holds, in one batch (see portfolio()).
+    quotes={s:(None if isinstance(q,MarketError) else q) for s,q in quotes_for(market,[s for rows in holdings.values() for s,_ in rows]).items()}
+    quote=quotes.get
     values={}
     for uid in ids:
         user=users.get(uid)

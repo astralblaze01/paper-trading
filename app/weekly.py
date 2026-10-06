@@ -5,8 +5,8 @@ from decimal import Decimal
 from sqlalchemy import select, text, func
 from sqlalchemy.orm import aliased
 from .db import ACCOUNT_LOCK, Session, User, Position, WeeklyState, WeeklyReport, ReportPrice, Wallet
-from .market import MarketError
-from .portfolio import batch_quotes, flow_adjusted_return, performance_return, RETURN_BASIS
+from .market import MarketError, quotes_for
+from .portfolio import flow_adjusted_return, performance_return, RETURN_BASIS
 from .kr_session import SEOUL
 
 
@@ -93,13 +93,14 @@ def tick(market, now=None, fx=None):
                             .outerjoin(krw,(krw.user_id==User.id)&(krw.currency=='KRW')).where(User.active.is_(True),User.is_admin.is_(False),User.ranking_public.is_(True))).all()
         symbols = {r.symbol for r in snapshot if r.symbol}
         prices, metadata, missing = {}, {}, []
-        # All in one batch: this runs inside the account-wide lock (see portfolio.batch_quotes).
-        batch = batch_quotes(market, symbols)
+        # All in one batch: this runs inside the account-wide lock, and each price read alone
+        # may wait up to 3 s for the collector.
+        batch = quotes_for(market, sorted(symbols))
         for symbol in sorted(symbols):
             stored = db.get(ReportPrice, symbol)
             try:
-                q = batch[symbol] if symbol in batch else market.quote(symbol)
-                if isinstance(q, Exception): raise q
+                q = batch[symbol]
+                if isinstance(q, MarketError): raise q
                 stamp = datetime.fromtimestamp(q['timestamp'], timezone.utc)
                 price = Decimal(str(q['price']))
                 if not price.is_finite() or price <= 0 or stamp > now + timedelta(seconds=60):
