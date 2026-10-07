@@ -15,8 +15,9 @@ from .us_quotes import known_us_exchange
 # US is three (NASDAQ, NYSE, AMEX) at the 1.1 s overseas spacing.
 KR_RANK_SECONDS = 10
 # Past its refresh interval a ranking is still shown for up to this long while one
-# background call fetches the next, so a browser polling at the interval never waits on KIS.
-RANK_STALE_SECONDS = 60
+# background call fetches the next, so a browser never waits on KIS. Ten minutes also covers
+# the first viewer after a quiet spell: the US list costs three overseas calls 1.1 s apart.
+RANK_STALE_SECONDS = 600
 US_RANK_SECONDS = 15
 RANGES={'1D':(1,'5'),'1W':(7,'30'),'3M':(93,'D'),'1Y':(366,'D'),'5Y':(1830,'W'),'ALL':(365*40,'M')}
 

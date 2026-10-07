@@ -62,3 +62,26 @@ def test_a_failed_load_is_raised_and_not_cached():
     except ValueError: pass
     else: raise AssertionError('expected the error')
     assert cache.get('k', 60, lambda: 'ok') == 'ok'
+
+
+def test_a_market_list_from_minutes_ago_opens_at_once_and_refreshes_behind(monkeypatch):
+    """The US list costs three overseas KIS calls 1.1 s apart; a viewer arriving more than 75 s
+    after the last one waited 2-6.5 s for them. Up to 10 minutes old, the last list is shown
+    at once and replaced in the background."""
+    import app.cache as cache_module
+    from app.providers import USProvider
+    clock, release, calls = [1000.0], threading.Event(), []
+    monkeypatch.setattr(cache_module.time, 'monotonic', lambda: clock[0])
+    class KIS:
+        configured = True
+        def get(self, path, tr_id, params, ttl):
+            calls.append(params['EXCD'])
+            if len(calls) > 3: release.wait(5)                     # the refresh is slow
+            return {'output2': [{'symb': 'AAPL', 'last': '200', 'tvol': '10', 'tamt': str(len(calls)), 'rate': '1'}]}
+    us = USProvider(adapter=None, kis=KIS())
+    assert us.movers('volume')['rows'][0]['turnover'] == 3 and calls == ['NAS', 'NYS', 'AMS']
+    clock[0] += 300                                                # nobody looked for five minutes
+    started = time.monotonic()
+    assert us.movers('volume')['rows'][0]['turnover'] == 3        # the last list, without waiting
+    assert time.monotonic() - started < .5
+    release.set()
