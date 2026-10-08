@@ -1250,6 +1250,10 @@ body:has(#dashboard[hidden]) .watch-strip { display: none; }
   #ranking .rank-change-stacked { display: flex; }
   /* The return moves under the total and the tier label may wrap, so no width needs a sideways scroll. */
   #ranking td:nth-child(5), #ranking th:nth-child(5) { display: none; }
+  /* With 수익률 hidden, the total is the row's right end: it takes the edge padding, rounding and outline. */
+  #ranking th:nth-child(4), #ranking td:nth-child(4) { padding-right: var(--rank-edge); }
+  #ranking tr.top-rank td:nth-child(4), #ranking tr.is-me td:nth-child(4), #ranking tr.is-ai td:nth-child(4) { border-radius: 0 16px 16px 0; }
+  #ranking tr.is-me td:nth-child(4) { box-shadow: inset -2px 0 0 var(--accent), inset 0 2px 0 var(--accent), inset 0 -2px 0 var(--accent); }
   #ranking .rank-return-stacked { display: block; }
   #ranking th:nth-child(4)::after { content: attr(data-stacked); display: block; }
   #ranking .rank-tier { white-space: normal; }

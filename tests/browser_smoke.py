@@ -414,6 +414,11 @@ with sync_playwright() as p:
             # larger text scrolled the ranking sideways. The return now sits under the total.
             expect(page.locator('#ranking th').nth(4)).to_be_hidden()
             expect(page.locator('#ranking tbody tr').first.locator('.rank-return-stacked')).to_be_visible()
+            # Regression: the rounded right end and my row's outline stayed on the hidden 수익률 cell,
+            # so the visible row ended in a square corner.
+            expect(page.locator('#ranking tbody tr.top-rank').first.locator('td').nth(3)).to_have_css('border-top-right-radius','16px')
+            expect(page.locator('#ranking tbody tr.is-me td').nth(3)).to_have_css('border-bottom-right-radius','16px')
+            assert '-2px 0px 0px 0px inset' in page.locator('#ranking tbody tr.is-me td').nth(3).evaluate("e=>getComputedStyle(e).boxShadow"), 'my row has no right outline'
             fits="""scale=>{document.documentElement.style.cssText='';if(scale>1)document.documentElement.style.cssText=['2xs','xs','sm','base','md'].map(k=>'--fs-'+k+':'+parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--fs-'+k))*scale+'px').join(';');
               const rows=rankingCache.rows;rankingCache={...rankingCache,rows:[{...rows[0],username:'averyveryverylongusername',equity_usd:987654.32,tier:'grandmaster'},{...rows[0],username:'gemini_trader',ai:true,tier:'grandmaster',previous_rank:30},...rows.slice(1)]};renderRanking();
               const box=document.querySelector('#ranking'),ok=box.scrollWidth<=box.clientWidth+1;rankingCache={...rankingCache,rows};renderRanking();document.documentElement.style.cssText='';return ok;}"""
