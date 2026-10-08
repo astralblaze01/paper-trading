@@ -784,7 +784,7 @@ docker compose -p paper-sse-test -f compose.sse-test.yaml restart browserweb
 - **공개 중단:** 계정을 유지한 채 공개만 끄는 설정은 없습니다. 원하지 않으면 회원 탈퇴합니다.
 - **기록:** 동의한 안내 버전과 시각을 `privacy_choices`에 남기고, 탈퇴 시 계정과 함께 삭제합니다. 관리자 계정은 동의 대상이 아니며 랭킹과 공개 프로필에 나오지 않습니다.
 
-[개인정보 처리방침](app/static/privacy.html)은 `/privacy`, [이용약관](app/static/terms.html)은 `/terms`에 로그인 없이 게시되며, 모든 화면 하단과 회원가입 폼에 링크가 있습니다. 운영자이자 개인정보 보호책임자는 김형우(7829hw@gmail.com)·황현태(jack3618@knu.ac.kr)입니다. 처리방침이나 약관을 바꿀 때에는 각 페이지의 버전·시행일·변경 이력을 갱신하고, 동의 내용이 바뀌면 `app/accounts.py`의 `PRIVACY_NOTICE_VERSION`도 올립니다.
+[개인정보 처리방침](app/static/privacy.html)은 `/privacy`, [이용약관](app/static/terms.html)은 `/terms`에 로그인 없이 게시되며, 모든 화면 하단과 회원가입 폼에 링크가 있습니다. 운영자이자 개인정보 보호책임자는 김형우(7829hw@gmail.com)·황현태(jack3618@knu.ac.kr)입니다. 처리방침이나 약관을 바꿀 때에는 각 페이지의 버전·시행일·변경 이력을 갱신하고, 동의 내용이 바뀌면 `app/accounts.py`의 `PRIVACY_NOTICE_VERSION`도 올립니다. 현재 이용약관은 버전 3, 개인정보 처리방침은 버전 2이며 둘 다 2026-10-15에 시행합니다(AI 트레이더의 운영과 랭킹 참여, 종목 조회 기록·랭킹 계산 결과 보관 등의 고지). 회원 간 공개 범위는 그대로라 `PRIVACY_NOTICE_VERSION`(동의 다시 받기)은 올리지 않았습니다.
 
 처리방침에 적은 운영 규칙:
 
