@@ -19,7 +19,7 @@ SOURCE_ID = fixture_world().news('market')['items'][0]['id']
 def offline_world(monkeypatch):
     monkeypatch.setattr(ai_trader, 'WorldResearch', fixture_world)
 
-PORTFOLIO = {'wallets': {'USD': 100000.0, 'KRW': 0.0}, 'equity_usd': 100000.0, 'return_pct': 0, 'realized_pnl': {'USD': 0, 'KRW': 0},
+PORTFOLIO = {'wallets': {'USD': 100000.0, 'KRW': 0.0}, 'equity_usd': 100000.0, 'return_pct': -0.5, 'return_pct_usd': 1.25, 'realized_pnl': {'USD': 0, 'KRW': 0},
              'positions': [], 'fx': {'rate': 1350.0}}
 
 
@@ -434,3 +434,14 @@ def test_the_notebook_gives_way_to_keep_the_prompt_under_the_cli_limit(tmp_path,
     assert notes['strategy'] in prompt and '### 2026-09-01' not in prompt               # the policy stays, old days go first
     small = ai_trader.build_prompt('Claude', {'US': '정규장'}, {}, {}, [], [], 2, None, notes)
     assert '### 2026-09-01' in small and '- 교훈 0 ' in small                              # nothing cut when it fits
+
+
+def test_the_pace_is_measured_on_the_dollar_return(tmp_path, monkeypatch):
+    """The target is 30 % a year on the account's dollar value; the KRW-basis return also moves with USD/KRW."""
+    monkeypatch.setattr(ai_trader, 'STATE', tmp_path)
+    monkeypatch.setenv('AI_TARGET_START', ai_trader.korea_day().isoformat())     # day 0: target 0.00
+    ask, prompts = scripted(json.dumps({'step': 'decide', 'actions': []}))
+    ai_trader.run('claude', dry_run=True, client=FakeClient(), ask=ask)
+    account = json.loads(prompts[0].split('내 계좌:\n', 1)[1].split('\n\n', 1)[0])
+    assert (account['return_pct_usd_basis'], account['return_pct_krw_basis']) == (1.25, -0.5)
+    assert account['pace_gap_pct'] == 1.25

@@ -189,6 +189,8 @@ def account_view(portfolio):
         'cash': {c: num(v) for c, v in portfolio['wallets'].items()},
         'total_equity_usd': num(portfolio.get('equity_usd')),
         'return_pct_krw_basis': num(portfolio.get('return_pct')),
+        # The 30 % target is on the dollar value, so the pace compares this one.
+        'return_pct_usd_basis': num(portfolio.get('return_pct_usd')),
         'realized_pnl': portfolio.get('realized_pnl'),
         'holdings': [{'symbol': p['symbol'], 'name': p.get('name'), 'currency': p.get('currency'), 'quantity': p['quantity'],
                       'average_cost': num(p.get('average_cost'), 4), 'price': num((p.get('quote') or {}).get('native_price')),
@@ -743,7 +745,7 @@ def run(agent, dry_run=False, base=BASE, ask=None, client=None, markets=None, wo
     markets = {m: '가정' for m in markets} if markets else open_markets(client)
     if not markets: return None
     account = account_view(client.get('/api/portfolio'))
-    account |= target_pace(agent, account.get('return_pct_krw_basis'))
+    account |= target_pace(agent, account.get('return_pct_usd_basis'))
     market_lists = overview(client, markets)
     if world is None:
         try: world = WorldResearch(storage_path=STATE / f'{agent}-world.jsonl')
