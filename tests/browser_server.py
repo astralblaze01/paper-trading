@@ -75,7 +75,7 @@ with Session.begin() as db:
     db.execute(delete(AiDecision).where(AiDecision.user_id==bot.id))
     db.add(AiDecision(user_id=bot.id,created_at=datetime.now(timezone.utc),status='ok',summary='애플 소량 매수',
                       data={'model':'fixture-model','sessions':{'US':'정규장'},'markets':['US'],'seconds':12,'analysis':'20일 추세가 오르고 있어 분할 매수한다.',
-                            'journal':'- 가설: 기술주 반등\n- 다음: 정규장 거래량 확인','stock_notes':{'AAPL':'목표 250달러, 손절 210달러'},
+                            'journal':'- 가설: 기술주 반등\n- 다음: 정규장 거래량 확인','stock_notes':{'AAPL':'목표 250달러, 손절 210달러'},'strategy':'US 상승 국면 · 기술주 롱 위주','lesson':'AAPL/추격 매수: 급등 직후 진입은 피한다',
                             'sources':[{'id':'fixture-news','title':'확인한 시장 뉴스','url':'https://example.org/market','publisher':'Fixture News','published_at':datetime.now(timezone.utc).isoformat(),'coverage':'headline_only'},
                                        {'title':'위험한 링크','url':'javascript:alert(1)'}],
                             'thinking':['기술주 흐름 확인'],'research':[[{'type':'chart','symbol':'AAPL','range':'3M'}]],

@@ -336,3 +336,101 @@ def test_a_dry_run_or_failed_run_writes_no_notes(tmp_path, monkeypatch):
     def broken(prompt): raise RuntimeError('CLI down')
     with pytest.raises(RuntimeError): ai_trader.run('claude', client=FakeClient(), ask=broken)
     assert not (tmp_path / 'claude-notes').exists()
+
+
+# Long memory: strategy, daily summaries, lessons, the 30 % pace ------------------
+
+from datetime import timedelta
+
+
+def test_a_new_strategy_replaces_the_file_and_keeps_the_old_one(tmp_path, monkeypatch):
+    monkeypatch.setattr(ai_trader, 'STATE', tmp_path)
+    write = lambda d, at: ai_trader.write_notebook('claude', d, [], {'US': '정규장'}, at)
+    write({'strategy': 'US 상승 · 롱 위주'}, NOON)
+    write({'summary': '방침 그대로'}, NOON.replace(minute=40))                    # no strategy: unchanged
+    assert (tmp_path / 'claude-notes' / 'strategy.md').read_text() == 'US 상승 · 롱 위주\n'
+    write({'strategy': 'US 하락 전환 · 인버스 ' + '가' * 3000, 'lesson': 123}, NOON.replace(hour=4))   # a bad lesson is ignored
+    assert len(ai_trader.read(ai_trader.strategy_path('claude'))) == ai_trader.STRATEGY_CHARS
+    history = sorted((tmp_path / 'claude-notes' / 'strategy_history').iterdir())
+    assert [p.name for p in history] == ['2026-10-06T1330.md']   # replaced at 13:30 KST and history[0].read_text() == 'US 상승 · 롱 위주\n'
+    assert not ai_trader.lessons('claude')
+    for i in range(25): write({'strategy': f'방침 {i}'}, NOON + timedelta(hours=i + 1))
+    assert len(list((tmp_path / 'claude-notes' / 'strategy_history').iterdir())) == 20
+
+
+def test_lessons_are_one_dated_line_each_and_the_latest_fifty_are_kept(tmp_path, monkeypatch):
+    monkeypatch.setattr(ai_trader, 'STATE', tmp_path)
+    for i in range(55):
+        ai_trader.write_notebook('gpt', {'lesson': f'QQQ/손절:\n추격 매수 {i}'}, [], {'US': '정규장'}, NOON)
+    lines = (tmp_path / 'gpt-notes' / 'lessons.md').read_text().splitlines()
+    assert len(lines) == 50 and lines[0] == '- 2026-10-06 QQQ/손절: 추격 매수 5' and lines[-1].endswith('추격 매수 54')
+    assert len(ai_trader.notebook('gpt', {'holdings': []}, NOON)['lessons']) == 30
+
+
+def test_four_weeks_of_daily_summaries_drop_the_oldest_past_8000_characters(tmp_path, monkeypatch):
+    monkeypatch.setattr(ai_trader, 'STATE', tmp_path)
+    today = NOON.astimezone(ai_trader.SEOUL).date()
+    for n in range(1, 31):
+        path = ai_trader.daily_path('claude', today - timedelta(days=n)); path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f'{n}일 전 요약 ' + '가' * 590)
+    days = ai_trader.notebook('claude', {'holdings': []}, NOON)['recent_days']
+    assert len(days) <= ai_trader.PROMPT_RECENT_DAYS_CHARS
+    assert days.endswith('1일 전 요약 ' + '가' * 590) and '29일 전' not in days   # four weeks at most, newest kept
+    shown = [int(line.split('일 전')[0]) for line in days.splitlines() if '일 전 요약' in line]
+    assert shown == sorted(shown, reverse=True) and len(shown) < 28              # oldest first, the oldest cut
+
+
+def test_yesterdays_journal_is_summarized_once_on_the_first_run_of_a_day(tmp_path, monkeypatch):
+    monkeypatch.setattr(ai_trader, 'STATE', tmp_path)
+    now = datetime.now(timezone.utc)
+    ai_trader.write_notebook('claude', {'summary': '어제 SPY 매수', 'journal': '가설: 금리 하락'}, [], {'US': '정규장'}, now - timedelta(days=1))
+    def failing(prompt):
+        if prompt.startswith(ai_trader.SUMMARY_PROMPT[:20]): raise RuntimeError('CLI busy')
+        return json.dumps({'step': 'decide', 'sources': [SOURCE_ID], 'actions': []})
+    assert ai_trader.run('claude', client=FakeClient(), ask=failing)['status'] == 'ok'   # trading goes on
+    yesterday = ai_trader.daily_path('claude', ai_trader.korea_day(now) - timedelta(days=1))
+    assert not yesterday.exists()
+    ask, prompts = scripted(json.dumps({'summary': '금리 하락 가설로 SPY 매수'}), json.dumps({'step': 'decide', 'actions': []}),
+                            json.dumps({'step': 'decide', 'actions': []}))
+    ai_trader.run('claude', client=FakeClient(), ask=ask)                                  # the next run tries again
+    assert yesterday.read_text() == '금리 하락 가설로 SPY 매수\n'
+    assert '어제 SPY 매수' in prompts[0] and '금리 하락 가설로 SPY 매수' in prompts[1]      # summarized, then remembered
+    ai_trader.run('claude', client=FakeClient(), ask=ask)
+    assert len(prompts) == 3                                                               # not summarized twice
+
+
+def test_the_30_percent_pace(tmp_path, monkeypatch):
+    monkeypatch.setattr(ai_trader, 'STATE', tmp_path)
+    monkeypatch.setenv('AI_TARGET_START', '2025-10-06')
+    assert ai_trader.target_pace('claude', 5.0, NOON) == {'days_elapsed': 365, 'target_return_pct_to_date': 30.0, 'pace_gap_pct': -25.0}
+    monkeypatch.setenv('AI_TARGET_START', '2026-10-06')
+    assert ai_trader.target_pace('claude', None, NOON) == {'days_elapsed': 0, 'target_return_pct_to_date': 0.0, 'pace_gap_pct': None}
+    monkeypatch.delenv('AI_TARGET_START')   # else the first logged run, saved once
+    (tmp_path / 'claude.jsonl').write_text(json.dumps({'time': '2026-10-04T23:30:00+00:00'}) + '\n')   # 10-05 in Korea
+    assert ai_trader.target_pace('claude', 1.0, NOON)['days_elapsed'] == 1
+    ai_trader.save_start_date('claude')
+    assert (tmp_path / 'claude-notes' / 'start_date').read_text() == '2026-10-05\n'
+
+
+def test_a_dry_run_writes_no_file_at_all(tmp_path, monkeypatch):
+    monkeypatch.setattr(ai_trader, 'STATE', tmp_path)
+    yesterday = datetime.now(timezone.utc) - timedelta(days=1)
+    ai_trader.write_notebook('claude', {'summary': '어제'}, [], {'US': '정규장'}, yesterday)
+    before = sorted(p for p in tmp_path.rglob('*'))
+    ask, prompts = scripted(json.dumps({'step': 'decide', 'strategy': '새 방침', 'lesson': 'X: 교훈', 'actions': []}))
+    entry = ai_trader.run('claude', dry_run=True, client=FakeClient(), ask=ask)
+    assert sorted(p for p in tmp_path.rglob('*')) == before and len(prompts) == 1            # no summary call either
+    assert 'target_return_pct_to_date' in prompts[0] and entry['strategy'] == '새 방침' and entry['lesson'] == 'X: 교훈'
+
+
+def test_the_notebook_gives_way_to_keep_the_prompt_under_the_cli_limit(tmp_path, monkeypatch):
+    monkeypatch.setattr(ai_trader, 'STATE', tmp_path)
+    notes = {'strategy': '방침 ' * 500, 'lessons': [f'- 교훈 {i} ' + '가' * 190 for i in range(30)],
+             'recent_days': '\n\n'.join(f'### 2026-09-{d:02d}\n' + '나' * 280 for d in range(1, 29)),
+             'journal': '\n\n'.join(f'## {h:02d}:00 · US\n' + '다' * 400 for h in range(20)), 'held_stock_notes': {}, 'other_noted_symbols': []}
+    big_world = {'items': [{'id': str(i), 'body': '라' * 700} for i in range(40)]}   # about 84 KB, like a busy news day
+    prompt = ai_trader.build_prompt('Claude', {'US': '정규장'}, {}, {}, [], [], 2, big_world, notes)
+    assert len(prompt.encode()) <= ai_trader.PROMPT_LIMIT_BYTES
+    assert notes['strategy'] in prompt and '### 2026-09-01' not in prompt               # the policy stays, old days go first
+    small = ai_trader.build_prompt('Claude', {'US': '정규장'}, {}, {}, [], [], 2, None, notes)
+    assert '### 2026-09-01' in small and '- 교훈 0 ' in small                              # nothing cut when it fits

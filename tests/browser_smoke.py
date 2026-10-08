@@ -643,6 +643,8 @@ with sync_playwright() as p:
     # What the AI wrote into its own notebook this run.
     expect(run.locator('.ai-note').first).to_have_text('- 가설: 기술주 반등\n- 다음: 정규장 거래량 확인')
     expect(run).to_contain_text('목표 250달러, 손절 210달러')
+    expect(run).to_contain_text('투자 방침 갱신')
+    expect(run).to_contain_text('AAPL/추격 매수: 급등 직후 진입은 피한다')
     run.locator('.admin-raw summary').click()
     expect(run.locator('.admin-raw pre')).to_contain_text('research_data')
     page.screenshot(path='/artifacts/admin-ai-1440.png',full_page=True)

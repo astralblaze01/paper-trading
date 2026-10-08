@@ -1161,6 +1161,9 @@ function aiDecision(d,open){
  if(data.journal){inner.append(node('h4','일지 메모'),node('p',data.journal,'ai-note'));}
  const notes=Object.entries(data.stock_notes||{}).filter(([,v])=>v);
  if(notes.length){inner.append(node('h4','종목 노트'));aiTable(inner,['종목','노트'],notes.map(([sym,text])=>[sym,node('p',text,'ai-note')]),'');}
+ // Present only when this run replaced the AI's investment policy or recorded a lesson.
+ if(data.strategy){inner.append(node('h4','투자 방침 갱신'),node('p',data.strategy,'ai-note'));}
+ if(data.lesson){inner.append(node('h4','교훈'),node('p',data.lesson,'ai-note'));}
  if(Array.isArray(data.sources)&&data.sources.length){
   inner.append(node('h4','확인한 외부 근거'));
   for(const s of data.sources){
