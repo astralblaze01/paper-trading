@@ -223,7 +223,7 @@ class USProvider:
         Nothing here is true merely because of the clock."""
         from .us_session import LABELS, EXTENDED
         from .quote_policy import stream_healthy, session_price_mode
-        from .us_quotes import rest_health
+        from .us_quotes import rest_usable
         from .redis_cache import redis_cache
         raw=self.raw_status(); session=self.session_from(raw)
         kis=bool(self.kis and getattr(self.kis,'configured',False))
@@ -233,9 +233,7 @@ class USProvider:
             # The Finnhub stream is live for the regular session only.
             finnhub=redis_cache.finnhub_stream_status()
             if stream_healthy(finnhub): stream,streaming=finnhub,True
-        def rest(name):
-            ok,record=rest_health(name)
-            return ok or not record  # no recent attempt is not a failure
+        rest=rest_usable
         rest_ok={'overnight':kis and rest('kis_overnight'),'pre_market':kis and rest('kis_primary'),
                  'after_hours':kis and rest('kis_primary'),
                  'regular':rest('finnhub') or (kis and rest('kis_primary'))}.get(session,False)
@@ -359,15 +357,14 @@ class KRProvider:
         """KRX+NXT session with the price sources that can serve it right now."""
         from .kr_session import LABELS, OPEN, venues
         from .quote_policy import stream_healthy, session_price_mode
-        from .us_quotes import rest_health
+        from .us_quotes import rest_usable
         from .redis_cache import redis_cache
         day=self.cache.get('trading-day',300,self.trading_day)
         session=self.session()
         configured=bool(getattr(self.adapter,'configured',False))
         stream=redis_cache.stream_status() if configured else None
         streaming=stream_healthy(stream,market='KR')
-        ok,record=rest_health('kis_kr')
-        rest_ok=configured and (ok or not record)
+        rest_ok=configured and rest_usable('kis_kr')
         is_open=session in OPEN
         mode=session_price_mode(session,stream if configured else None,rest_ok,'KR')
         label='휴장' if day is False else LABELS[session]

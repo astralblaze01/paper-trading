@@ -34,7 +34,23 @@ class NoSessionData(MarketError):
 
 
 def record_health(name, ok, error=None):
-    redis_cache.set_json(f'market:rest-health:{name}', {'ok': ok, 'at': time.time(), 'error': error}, 900)
+    """The source's latest attempt, and when it last worked (one symbol failing must not hide that)."""
+    key, now = f'market:rest-health:{name}', time.time()
+    previous = redis_cache.get_json(key) or {}
+    redis_cache.set_json(key, {'ok': ok, 'at': now, 'error': error, 'ok_at': now if ok else previous.get('ok_at')}, 900)
+
+
+def rest_usable(name, now=None, window=300):
+    """False only when the source failed within `window` and nothing succeeded in that time.
+
+    An old success, an old failure or no attempt at all is no evidence of an outage: the
+    collector refreshes rarely while nobody watches, and a quiet symbol's failure is not the
+    source's. Treating those as down made a market 'not tradable' whenever the trade stream
+    reconnected, and the AI traders skipped the run."""
+    now = now or time.time()
+    value = redis_cache.get_json(f'market:rest-health:{name}') or {}
+    if not value or value.get('ok') or now - float(value.get('at') or 0) > window: return True
+    return now - float(value.get('ok_at') or 0) <= window
 
 
 def rest_health(name, now=None, window=300):

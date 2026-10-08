@@ -387,3 +387,44 @@ def test_pre_upgrade_snapshot_is_regular_only(monkeypatch):
         assert q['session_tradeable'] is False and '데이마켓' in rejection(q)
     finally:
         m.close()
+
+
+# REST health decides tradability while the stream is down -------------------------
+
+def health_store(monkeypatch):
+    from app import redis_cache as rc
+    store = {}
+    monkeypatch.setattr(rc.redis_cache, 'get_json', lambda key: store.get(key))
+    monkeypatch.setattr(rc.redis_cache, 'set_json', lambda key, value, ttl: store.__setitem__(key, value) or True)
+    return store
+
+
+def test_an_old_success_is_not_a_rest_failure(monkeypatch):
+    """Live on 2026-10-08 the last Finnhub success was 306 s old and the last Korean one 608 s: both
+    counted as broken, so either market read 'not tradable' whenever the KIS stream reconnected,
+    and the AI traders skipped those runs as if the market were closed."""
+    from app import providers, us_session, quote_policy, redis_cache as rc
+    from app.providers import USProvider
+    frozen = at('2026-10-08T08:07')                                                     # pre-market: KIS REST only
+    real = us_session.clock_session
+    monkeypatch.setattr(us_session, 'clock_session', lambda when=None: real(when or frozen))
+    monkeypatch.setattr(quote_policy.time, 'time', lambda: frozen.timestamp())
+    monkeypatch.setattr('app.us_quotes.time.time', lambda: frozen.timestamp())
+    store = health_store(monkeypatch)
+    store['market:rest-health:kis_primary'] = {'ok': True, 'at': frozen.timestamp() - 306, 'error': None}
+    monkeypatch.setattr(rc.redis_cache, 'stream_status', lambda: {'connected': False})      # reconnecting
+    status = USProvider(Adapter({'session': 'pre-market', 'holiday': None}), FakeKIS()).market_status()
+    assert (status['session'], status['tradable'], status['price_mode']) == ('pre_market', True, 'extended_rest')
+
+
+def test_one_failing_symbol_does_not_mark_the_market_broken(monkeypatch):
+    from app import us_quotes
+    store, clock = health_store(monkeypatch), [1000.0]
+    monkeypatch.setattr(us_quotes.time, 'time', lambda: clock[0])
+    us_quotes.record_health('kis_kr', True)
+    clock[0] += 20; us_quotes.record_health('kis_kr', False, 'NoSessionData')            # one quiet symbol
+    assert us_quotes.rest_usable('kis_kr')
+    clock[0] += 400; us_quotes.record_health('kis_kr', False, 'MarketError')             # nothing works for 5 min
+    assert not us_quotes.rest_usable('kis_kr')
+    clock[0] += 301
+    assert us_quotes.rest_usable('kis_kr')                                                 # an old failure is no evidence either
