@@ -367,9 +367,9 @@ def test_kis_read_only_timestamp_and_cache(monkeypatch):
 
 class FakeRedis:
     """Just enough of redis-py for the shared KIS token path."""
-    def __init__(self): self.data = {}
+    def __init__(self): self.data = {}; self.ttls = {}
     def get(self, key): return self.data.get(key)
-    def setex(self, key, ttl, value): self.data[key] = value
+    def setex(self, key, ttl, value): self.data[key] = value; self.ttls[key] = ttl
     def delete(self, key): self.data.pop(key, None)
     def lock(self, name, **kwargs):
         import threading
@@ -426,6 +426,17 @@ def test_kis_token_is_issued_once_across_processes(shared_kis):
     assert state['issued'] == 1
     assert state['auth'] == ['Bearer token-1', 'Bearer token-1']
     assert json.loads(fake.get(web._token_key()))['access_token'] == 'token-1'
+
+def test_kis_token_is_shared_for_its_whole_lifetime_and_logged(shared_kis, caplog):
+    """A 24 h token kept only 6 h was issued again by every process started after that."""
+    import logging
+    process, state, fake = shared_kis
+    with caplog.at_level(logging.INFO, logger='kis'):
+        kis_request(process(), 1)
+    assert 86400 - 180 < fake.ttls[process()._token_key()] <= 86400 - 120
+    assert [r.getMessage() for r in caplog.records if r.name == 'kis'][0].startswith('KIS access token issued (valid 86280s) by ')
+    kis_request(process(), 2)  # a process started later reuses it
+    assert state['issued'] == 1
 
 def test_kis_rate_limit_cooldown_blocks_requests_with_valid_token(shared_kis):
     process, state, fake = shared_kis

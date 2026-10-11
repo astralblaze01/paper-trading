@@ -1,6 +1,8 @@
 """Price-only adapters. No account number, brokerage orders, or payment routes."""
+import logging
 import os
 import re
+import sys
 import time
 from datetime import datetime, timezone, date
 from decimal import Decimal, InvalidOperation
@@ -11,6 +13,8 @@ from .instruments import discover, instrument, valid_symbol, market_of
 from .redis_cache import price_key, redis_cache
 from .quote_data import normalize_quote
 from . import kr_session
+
+log = logging.getLogger('kis')
 
 SEOUL = kr_session.SEOUL  # tests read the Korean zone from here
 NO_REFERENCE_RATE = '유효한 기준환율이 없어 한국 종목을 평가하거나 거래할 수 없습니다.'
@@ -49,8 +53,13 @@ class KoreaPrices:
             token=d['access_token']; lifetime=max(60,int(d.get('expires_in',86400))-120)
             if not token: raise ValueError()
             self.cooldown=0
+            # KIS notifies the account holder of every issuance; the log says which process asked.
+            log.info('KIS access token issued (valid %ss) by %s pid %s',lifetime,os.path.basename(sys.argv[0] or '?'),os.getpid())
             return {'access_token':token,'expires_at':time.time()+lifetime}
-        shared=redis_cache.get_or_load(self._token_key(),21600,issue)
+        # Shared for the token's whole lifetime (24 h at KIS), so it is issued about once a day
+        # however many processes start in between. It used to be kept 6 h, and every process
+        # starting after that issued a new one.
+        shared=redis_cache.get_or_load(self._token_key(),lambda value:float(value['expires_at'])-time.time(),issue)
         token=str(shared['access_token']); remaining=float(shared.get('expires_at',time.time()+3600))-time.time()
         if not token or remaining<=0:
             self._drop_shared_token(token)
