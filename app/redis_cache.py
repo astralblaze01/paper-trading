@@ -190,6 +190,7 @@ class RedisCache:
             return False
 
     def get_or_load(self, key, ttl, load):
+        """`ttl` is seconds, or a function of the loaded value for values that carry their own expiry."""
         cached = self.get_json(key)
         if cached is not None:
             return cached
@@ -202,7 +203,7 @@ class RedisCache:
                 if cached is not None:
                     return cached
                 value = load()
-                self.set_json(key, value, ttl)
+                self.set_json(key, value, ttl(value) if callable(ttl) else ttl)
                 return value
         except RedisError:
             return load()

@@ -243,6 +243,7 @@ class TradeStream:
             key = response.json().get('approval_key')
             if not key:
                 raise StreamRejected('approval key refused')
+            log.info('KIS WebSocket approval key issued')
             return {'approval_key': key}
         return self.cache.get_or_load(self.approval_key(), APPROVAL_TTL, issue)['approval_key']
 
