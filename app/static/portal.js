@@ -547,7 +547,7 @@ const ADMIN_SECTIONS={
   system:['시장·시스템','DB·Redis·시세 공급자, 시장 상태, 일별 성과 기록'],
   settings:['서비스 설정','새 계좌 초기 지급액과 수수료·세금 정책'],
   audit:['감사·아카이브','관리자 작업 로그와 초기화·시즌 아카이브'],
-  ai:['AI 에이전트','AI 트레이더별 30분마다의 판단 기록·투자 노트와 포트폴리오 전체 (조회 전용)']};
+  ai:['AI 에이전트','AI 트레이더별 1시간마다의 판단 기록·투자 노트와 포트폴리오 전체 (조회 전용)']};
 function adminSection(){const m=location.pathname.match(/^\/admin(?:\/(users|accounts|notices|system|settings|audit|ai))?\/?$/);return m?m[1]||'dashboard':null;}
 document.addEventListener('click',e=>{
   const a=e.target.closest?.('a[href^="/admin"]');
@@ -1192,7 +1192,7 @@ const AI_TAB_RENDER={
   async function page(){const r=await viewAs('ai/decisions'+(before?'?before='+before:''));
    r.rows.forEach((d,i)=>list.append(aiDecision(d,!before&&i===0)));
    if(r.rows.length)before=r.rows[r.rows.length-1].id;more.hidden=!r.more;
-   if(!list.children.length)list.append(node('p','아직 판단 기록이 없습니다. 장이 열려 있는 시간에 30분마다 기록됩니다.','empty-state'));}
+   if(!list.children.length)list.append(node('p','아직 판단 기록이 없습니다. 장이 열려 있는 시간에 1시간마다 기록됩니다.','empty-state'));}
   more.addEventListener('click',()=>page().catch(e=>toast(e.message,'error')));
   await page();view.append(list,more);
  },

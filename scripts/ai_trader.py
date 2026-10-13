@@ -1,6 +1,6 @@
 """AI traders: Claude, GPT and Gemini each run an ordinary ALPHARENA account and trade it themselves.
 
-Every 30 minutes, while the Korean or US market takes orders in any session, each AI looks at its
+Every hour, while the Korean or US market takes orders in any session, each AI looks at its
 account and the market rankings, asks for whatever detail it wants (quotes, charts,
 company data, searches), and then decides its own orders. This script only carries
 the AI's requests to the site's public API and its orders to /api/orders, so the
@@ -13,10 +13,10 @@ The AI runs through the CLI the host is signed in to, so no API key is needed:
 Antigravity also offers other vendors' models).
 
     python3 scripts/ai_trader.py setup claude   # once: create ai_claude, its avatar and bio
-    python3 scripts/ai_trader.py run claude     # one decision round (cron, every 30 minutes)
+    python3 scripts/ai_trader.py run claude     # one decision round (cron, every hour)
     python3 scripts/ai_trader.py run claude --dry-run   # decide, but place no orders
 
-    5,35 * * * * /usr/bin/python3 /home/ubuntu/paper-trading/scripts/ai_trader.py run claude
+    5 * * * * /usr/bin/python3 /home/ubuntu/paper-trading/scripts/ai_trader.py run claude
 
 Passwords live in ~/.config/alpharena-ai/ (owner-only); decisions are logged to
 ~/.local/state/alpharena-ai/<agent>.jsonl, and the last few are shown to the AI
@@ -65,11 +65,11 @@ CONFIG = Path.home() / '.config' / 'alpharena-ai'
 STATE = Path.home() / '.local' / 'state' / 'alpharena-ai'
 AGENTS = {
     'claude': {'username': 'ai_claude', 'name': 'Claude',
-               'bio': '🤖 Claude 기반 AI 트레이더 · 30분마다 스스로 시장을 분석해 사고팝니다. 사람의 개입 없이 운용됩니다.'},
+               'bio': '🤖 Claude 기반 AI 트레이더 · 1시간마다 스스로 시장을 분석해 사고팝니다. 사람의 개입 없이 운용됩니다.'},
     'gpt': {'username': 'ai_gpt', 'name': 'GPT',
-            'bio': '🤖 GPT 기반 AI 트레이더 · 30분마다 스스로 시장을 분석해 사고팝니다. 사람의 개입 없이 운용됩니다.'},
+            'bio': '🤖 GPT 기반 AI 트레이더 · 1시간마다 스스로 시장을 분석해 사고팝니다. 사람의 개입 없이 운용됩니다.'},
     'gemini': {'username': 'ai_gemini', 'name': 'Gemini',
-               'bio': '🤖 Gemini 기반 AI 트레이더 · 30분마다 스스로 시장을 분석해 사고팝니다. 사람의 개입 없이 운용됩니다.'},
+               'bio': '🤖 Gemini 기반 AI 트레이더 · 1시간마다 스스로 시장을 분석해 사고팝니다. 사람의 개입 없이 운용됩니다.'},
 }
 # Each AI's model is pinned here, not left to the CLI's defaults or the user's own config,
 # so the three compete on a known footing. Override with the environment variables.
@@ -82,7 +82,7 @@ SYMBOL = re.compile(r'^(KR:\d{6}|[A-Z][A-Z0-9.\-]{0,9})$')
 RESEARCH_ROUNDS = 2      # rounds of "show me more" before the AI must decide
 MAX_REQUESTS = 12        # data requests per round
 MAX_ACTIONS = 8          # orders and exchanges per run
-# Past decisions shown back to the AI: 24 runs is about 12 hours at one run every 30 minutes,
+# Past decisions shown back to the AI: 24 runs is about a day at one run every hour,
 # a few KB of the prompt (a remembered run is its time, summary and actions only).
 MEMORY = int(os.getenv('AI_MEMORY_RUNS', '24'))
 AI_TIMEOUT = 600
@@ -289,7 +289,7 @@ RULES = """너는 ALPHARENA 모의투자 대회에 참가한 AI 트레이더 "{n
 - 새로 사는 종목마다 stock_notes에 진입 이유, 목표가, 손절가, "이게 보이면 내 판단이 틀린 것" 조건을 남긴다. 손절은 진입가 대비 -7% 이내로 잡는다.
 - 매 실행 보유 종목부터 점검한다: 손절가에 닿았거나 무효화 조건이 나타났으면 다른 판단보다 먼저 판다. 정해둔 손절가를 내리지 마라.
 - 계좌가 최근 고점 대비 -10%면 신규 매수를 절반 크기로, -15%면 인버스를 포함한 신규 진입을 멈추고 보유 정리와 방어 자산만 한다. 노트에 그 이유를 남긴다.
-- 한 번에 바꾸는 비중은 총자산의 40% 이하. 30분마다 판단하므로 급하게 다 옮길 필요가 없다.
+- 한 번에 바꾸는 비중은 총자산의 40% 이하. 1시간마다 판단하므로 급하게 다 옮길 필요가 없다.
 
 거래 규칙
 - 지금 거래할 수 있는 시장(현재 세션): {markets}. 다른 시장 종목은 주문하지 마라.
