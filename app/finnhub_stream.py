@@ -34,6 +34,7 @@ from .instruments import instrument, valid_symbol
 from .logging_config import configure_logging
 from .redis_cache import FINNHUB_STREAM_STATUS_KEY, price_key, redis_cache, trade_key
 from .us_session import NEW_YORK, clock_session
+from .watchdog import watch
 
 log = logging.getLogger('finnhub-stream')
 HEARTBEAT = Path('/tmp/finnhub-stream-heartbeat')
@@ -333,6 +334,7 @@ class FinnhubStream:
 
 def main():
     configure_logging()
+    watch(HEARTBEAT)
     asyncio.run(FinnhubStream(os.getenv('FINNHUB_API_KEY', '')).run())
 
 

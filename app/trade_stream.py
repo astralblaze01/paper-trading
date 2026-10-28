@@ -37,6 +37,7 @@ from .market import MarketError
 from .redis_cache import STREAM_STATUS_KEY, price_key, redis_cache, trade_key
 from .us_quotes import DAY_VENUE, PRIMARY_SESSIONS, USQuotes
 from .us_session import NEW_YORK, clock_session
+from .watchdog import watch
 from . import kr_session
 from .kr_quotes import capability, valid_sessions
 
@@ -505,6 +506,7 @@ class TradeStream:
 
 def main():
     configure_logging()
+    watch(HEARTBEAT)
     from .multi_market import KoreaPrices
     kis = KoreaPrices()
     if os.getenv('KOREA_MARKET_PROVIDER', 'kis') == 'disabled':
