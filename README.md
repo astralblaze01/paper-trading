@@ -648,6 +648,8 @@ KIS 분봉 응답에는 KIS의 세션 범위(데이마켓 20:00–04:00 ET)도 �
 - 슬롯은 지금 상세 화면을 보거나 주문하는 종목(`market:stream:interest`, 최근 150초) 순으로 배정합니다. 한 번 배정한 종목은 최소 30초 유지합니다.
 - 나머지 종목은 market-worker의 REST 시세를 씁니다.
 - 연결이 끊기면 1초부터 시작하는 지수 백오프(최대 `US_STREAM_RECONNECT_MAX_SECONDS`)로 재연결합니다. 그동안 REST로 대체합니다.
+- 소켓을 읽는 작업과 heartbeat·무응답(150초)을 확인하는 관리 작업 중 하나라도 멈추면 연결을 닫고 다시 연결합니다. KIS가 아무것도 보내지 않는 소켓을 관리 작업 없이 계속 기다리는 일이 없도록 하기 위해서입니다(2026-10-25에 이렇게 3일간 멈췄습니다). `finnhub-stream`도 같습니다.
+- 그래도 heartbeat 파일(`/tmp/trade-stream-heartbeat`, `/tmp/finnhub-stream-heartbeat`)이 300초 넘게 갱신되지 않으면 프로세스가 스스로 종료하고 Docker가 다시 시작합니다. Docker 헬스체크(120초)는 컨테이너를 `unhealthy`로 표시만 할 뿐 재시작하지 않기 때문입니다.
 
 ### Finnhub WebSocket (정규장)
 
