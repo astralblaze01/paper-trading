@@ -523,6 +523,33 @@ def test_trade_stream_lookup_retries_and_leader_lease(monkeypatch):
     assert not stream.lead() and stream.cache.client.calls[-1] == ('get', 'market:stream:leader')
 
 
+class SilentSocket:
+    """A socket the server has stopped talking on: no message arrives until it is closed."""
+    def __init__(self): self.closed = asyncio.Event()
+    async def __aenter__(self): return self
+    async def __aexit__(self, *exc): self.closed.set()
+    def __aiter__(self): return self
+    async def __anext__(self):
+        await self.closed.wait()
+        raise StopAsyncIteration
+    async def close(self): self.closed.set()
+
+
+def test_trade_stream_reconnects_when_its_manager_fails_on_a_silent_socket(monkeypatch):
+    # 2026-10-25: the manager stopped and KIS sent nothing more, so the stream waited on
+    # the socket for three days with no heartbeat, no silence check and no reconnect.
+    stream, socket = ts.TradeStream(StreamKIS(), StreamCache()), SilentSocket()
+    monkeypatch.setattr('websockets.asyncio.client.connect', lambda *args, **kwargs: socket)
+    monkeypatch.setattr(stream, 'approval', lambda: 'k')
+
+    async def manage(ws, approval):
+        raise ConnectionError('redis unreachable')
+    monkeypatch.setattr(stream, 'manage', manage)
+    with pytest.raises(ConnectionError):
+        asyncio.run(asyncio.wait_for(stream.connect(), 2))
+    assert socket.closed.is_set()
+
+
 # Search merging ------------------------------------------------------------------
 
 class MasterRedis:
