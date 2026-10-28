@@ -264,18 +264,24 @@ class FinnhubStream:
         async with connect(url, open_timeout=10, close_timeout=3, max_size=2 ** 20) as ws:
             self.conn, self.state, self.last_message = uuid4().hex, 'connected', time.time()
             log.info('finnhub stream connected')
+            # Whichever stops first ends the connection: a reader waiting on a socket with
+            # no trades must not outlive the manager that checks for silence.
+            reader = asyncio.create_task(self.read(ws))
             manager = asyncio.create_task(self.manage(ws))
             try:
-                async for message in ws:
-                    self.last_message = time.time()
-                    await self.handle(ws, message)
-                    if manager.done():
-                        break
+                await asyncio.wait((reader, manager), return_when=asyncio.FIRST_COMPLETED)
             finally:
-                manager.cancel()
-                await asyncio.gather(manager, return_exceptions=True)
-        if manager.done() and not manager.cancelled() and manager.exception():
-            raise manager.exception()
+                for task in (reader, manager):
+                    task.cancel()
+                await asyncio.gather(reader, manager, return_exceptions=True)
+        for task in (reader, manager):
+            if not task.cancelled() and task.exception():
+                raise task.exception()
+
+    async def read(self, ws):
+        async for message in ws:
+            self.last_message = time.time()
+            await self.handle(ws, message)
 
     async def idle(self, state):
         self.state = state

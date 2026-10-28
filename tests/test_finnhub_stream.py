@@ -97,6 +97,30 @@ def test_viewed_symbols_come_first_and_held_slots_stay():
     assert len(ws.sent) == 5
 
 
+class SilentSocket:
+    """An open socket on which no trade arrives (pings still answered) until it is closed."""
+    def __init__(self): self.closed = asyncio.Event()
+    async def __aenter__(self): return self
+    async def __aexit__(self, *exc): self.closed.set()
+    def __aiter__(self): return self
+    async def __anext__(self):
+        await self.closed.wait()
+        raise StopAsyncIteration
+    async def close(self): self.closed.set()
+
+
+def test_the_stream_reconnects_when_its_manager_fails_on_a_quiet_socket(monkeypatch):
+    s, socket = stream(), SilentSocket()
+    monkeypatch.setattr('websockets.asyncio.client.connect', lambda *args, **kwargs: socket)
+
+    async def manage(ws):
+        raise ConnectionError('redis unreachable')
+    monkeypatch.setattr(s, 'manage', manage)
+    with pytest.raises(ConnectionError):
+        asyncio.run(asyncio.wait_for(s.connect(), 2))
+    assert socket.closed.is_set()
+
+
 def test_a_too_many_symbols_error_lowers_the_cap():
     s, ws = stream(), FakeWS()
     asyncio.run(s.reconcile(ws, [], ['AAPL', 'MSFT', 'TSLA']))
