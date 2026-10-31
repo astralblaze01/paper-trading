@@ -1,4 +1,4 @@
-"""Delete database dumps in backups/ once they are 30 days old (privacy policy, section 4).
+"""Delete database dumps in $DATA_DIR/backups/ once they are 30 days old (privacy policy, section 4).
 
 Only dump files are touched; source archives and anything else in the folder stay.
 Run daily from cron:
@@ -7,7 +7,12 @@ Run daily from cron:
 """
 from pathlib import Path
 import argparse
+import sys
 import time
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT / 'scripts') not in sys.path: sys.path.insert(0, str(ROOT / 'scripts'))
+from data_paths import data_path
 
 DUMP_SUFFIXES = ('.dump', '.sql', '.dump.gz', '.sql.gz')
 DAY = 86400
@@ -28,7 +33,7 @@ def prune(folder, days=30, now=None):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument('--dir', default=Path(__file__).resolve().parents[1] / 'backups', type=Path)
+    parser.add_argument('--dir', default=data_path('backups', ROOT / 'backups'), type=Path)
     parser.add_argument('--days', default=30, type=int)
     args = parser.parse_args()
     if args.dir.is_dir():

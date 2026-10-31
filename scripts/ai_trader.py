@@ -19,8 +19,8 @@ Antigravity also offers other vendors' models).
     5 * * * * /usr/bin/python3 /home/ubuntu/paper-trading/scripts/ai_trader.py run claude
 
 Passwords live in ~/.config/alpharena-ai/ (owner-only); decisions are logged to
-~/.local/state/alpharena-ai/<agent>.jsonl, and the last few are shown to the AI
-again so it remembers what it did and why.
+$DATA_DIR/ai-trader/<agent>.jsonl (~/.local/state/alpharena-ai/ without DATA_DIR),
+and the last few are shown to the AI again so it remembers what it did and why.
 """
 from datetime import datetime, timedelta, timezone
 from http.cookiejar import CookieJar
@@ -44,6 +44,7 @@ ROOT = Path(__file__).resolve().parent
 # The host CLI and importlib-loaded regression tests share this module.
 if str(ROOT) not in sys.path: sys.path.insert(0, str(ROOT))
 from market_context import WorldResearch
+from data_paths import data_path
 
 
 def site_url():
@@ -62,7 +63,7 @@ LOCAL_BIN = str(Path.home() / '.local' / 'bin')
 if LOCAL_BIN not in os.environ.get('PATH', '').split(os.pathsep):
     os.environ['PATH'] = LOCAL_BIN + os.pathsep + os.environ.get('PATH', '/usr/bin:/bin')
 CONFIG = Path.home() / '.config' / 'alpharena-ai'
-STATE = Path.home() / '.local' / 'state' / 'alpharena-ai'
+STATE = data_path('ai-trader', Path.home() / '.local' / 'state' / 'alpharena-ai')
 AGENTS = {
     'claude': {'username': 'ai_claude', 'name': 'Claude',
                'bio': '🤖 Claude 기반 AI 트레이더 · 1시간마다 스스로 시장을 분석해 사고팝니다. 사람의 개입 없이 운용됩니다.'},

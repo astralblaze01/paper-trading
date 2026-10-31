@@ -1,18 +1,23 @@
-"""Dump the database to backups/daily-YYYYMMDD.dump once a day (kept 30 days by prune_backups.py).
+"""Dump the database to $DATA_DIR/backups/daily-YYYYMMDD.dump once a day (kept 30 days by prune_backups.py).
 
 The dump is written to a temporary file, checked with pg_restore --list, and only
 then renamed into place, so a failed or partial dump never looks like a backup.
 Files are readable by the owner only. Run daily from cron, before the prune:
 
     7 4 * * * /usr/bin/python3 /home/ubuntu/paper-trading/scripts/backup_db.py
+
+Without DATA_DIR (environment or .env) the dumps go to the project's backups/.
 """
 from pathlib import Path
 import argparse
 import os
 import subprocess
+import sys
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT / 'scripts') not in sys.path: sys.path.insert(0, str(ROOT / 'scripts'))
+from data_paths import data_path
 COMPOSE = ['docker', 'compose', '--project-directory', str(ROOT)]
 # Compose resolves a relative COMPOSE_FILE in .env (compose.yaml:compose.https.yaml)
 # against the working folder, and cron starts this script in the home folder.
@@ -37,7 +42,7 @@ def backup(folder, run=subprocess.run, now=None):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument('--dir', default=ROOT / 'backups', type=Path)
+    parser.add_argument('--dir', default=data_path('backups', ROOT / 'backups'), type=Path)
     args = parser.parse_args()
     path = backup(args.dir)
     print(f'{time.strftime("%Y-%m-%d %H:%M:%S")} wrote {path.name} ({path.stat().st_size} bytes)')
