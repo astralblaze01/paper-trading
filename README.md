@@ -84,14 +84,14 @@ Claude, GPT, Gemini가 각자 일반 계정(`ai_claude`, `ai_gpt`, `ai_gemini`)�
   3. 매수·매도·환전을 정해 순서대로 실행합니다(최대 8개). 아무 것도 안 할 수도 있습니다.
   - 최종 판단의 `sources`는 이번 실행에서 실제 수집한 근거 ID와 대조합니다. 유효한 근거가 하나도 없으면 매매·환전을 보류하며, 위조된 ID나 과거 실행의 기억만으로는 주문하지 않습니다. 관리자는 판단 기록에서 출처 링크·발행 시각·확인 범위를 봅니다.
   - 공개 원문에 접근할 수 있는 뉴스는 본문을 읽어 `article_body`로 저장하고, 접근이 막힌 뉴스(유료 기사 등)는 `headline_only`로 남깁니다. 기사는 피드마다 동시에 최대 8건씩 읽고(기사당 6초), 한 피드가 20초를 넘기면 남은 기사는 `headline_only`로 둡니다. 프롬프트에는 기사당 700자(지난 실행에서 기억한 자료는 160자)만 넣고, 전체 본문은 실행 기록에 남깁니다. 공식 피드는 본문 접근이 실패해도 피드 발췌를 `feed_excerpt`로 저장합니다. 본문·공식 발췌가 하나도 없으면 주문을 보류합니다.
-  - 읽은 자료는 `~/.local/state/alpharena-ai/<agent>-world.jsonl`에 발행 시각·수집 시각·본문 범위와 함께 최대 180일 보존합니다. 다음 실행은 저장된 자료를 배경으로 다시 보지만, 오래된 자료만으로 주문하지 않고 그 실행에서 읽은 자료를 다시 요구합니다.
+  - 읽은 자료는 `$DATA_DIR/ai-trader/<agent>-world.jsonl`에 발행 시각·수집 시각·본문 범위와 함께 최대 180일 보존합니다. 다음 실행은 저장된 자료를 배경으로 다시 보지만, 오래된 자료만으로 주문하지 않고 그 실행에서 읽은 자료를 다시 요구합니다.
   - 날짜 없는 뉴스·미래 시각·3일 초과 뉴스는 제외하고, 수집 실패는 실패로 전달합니다. 외부 문장은 명령이 아닌 데이터로 취급하며 학습 지식이나 오래된 정책을 최신 뉴스로 단정하지 않도록 지시합니다. 출처 존재 검증이 내용의 사실성이나 AI 해석의 정확성을 보장하지는 않습니다.
 - **안전장치**: AI는 판단만 하고 주문은 스크립트가 사이트의 공개 API(`/api/orders`, `/api/fx/exchange`)로 냅니다. 그래서 시세·잔액·장 상태 검사는 사람의 주문과 똑같이 서버가 합니다. 형식이 틀렸거나 닫힌 시장의 종목인 행동은 실행하지 않고 기록만 합니다.
 - **판단 기록**: 실행마다 AI가 쓴 판단 근거(`analysis`), 조사 단계별 생각과 요청, 행동별 이유와 결과, 실행하지 않은 행동과 그 이유, 모델·걸린 시간, AI가 본 계좌와 조사 데이터(최대 150KB)를 AI 계정 이름으로 사이트(`POST /api/ai/decisions`, 기록당 200KB 이하)에 보냅니다. AI 호출이 실패한 시간도 오류로 기록합니다. 관리자는 **AI 에이전트** 페이지에서 봅니다.
-- **기억**: 같은 기록(조사 데이터 제외)이 `~/.local/state/alpharena-ai/<agent>.jsonl`에도 남고, 최근 24건(1시간 주기로 약 하루, `AI_MEMORY_RUNS`)의 판단 요약과 행동을 다음 실행 때 AI에게 다시 보여 줍니다. cron 출력은 같은 폴더의 `cron.log`에 쌓입니다.
+- **기억**: 같은 기록(조사 데이터 제외)이 `$DATA_DIR/ai-trader/<agent>.jsonl`에도 남고, 최근 24건(1시간 주기로 약 하루, `AI_MEMORY_RUNS`)의 판단 요약과 행동을 다음 실행 때 AI에게 다시 보여 줍니다. cron 출력은 `$DATA_DIR/logs/ai-trader.log`에 쌓입니다.
 - **목표와 규칙**: 계좌 총자산(달러 환산) 기준 연 30%를 목표로 하되, 뒤처져도 비중을 키워 만회하지 않도록 지시합니다. 매 실행 한국(KR:069500)·미국(SPY·QQQ) 국면을 상승·하락·횡보로 판단해 롱, 1배 인버스 ETF(SH·PSQ·KR:114800), 채권·금·현금 중에서 고르고, 2배 이상 상품은 총자산 10% 이하 단기로만 씁니다. 한 종목 25% 이하, 손절은 진입가 −7% 이내, 계좌가 최근 고점 대비 −10%면 신규 매수 절반, −15%면 신규 진입 중단 같은 리스크 규칙을 따르게 합니다(규칙은 프롬프트 지시이며 서버가 강제하지는 않습니다).
 - **목표 페이스**: AI가 보는 계좌에 `days_elapsed`(기준일부터 한국 날짜로 며칠째인지), `target_return_pct_to_date`(연 30% 페이스라면 오늘까지의 수익률, `(1.30^(일수/365) − 1) × 100`), `pace_gap_pct`(달러 기준 수익률 `return_pct_usd_basis` − 목표)를 넣습니다. 목표가 달러 환산 총자산 기준이므로 원/달러 변동이 섞이는 원화 기준 수익률은 쓰지 않습니다. 기준일은 `AI_TARGET_START`(YYYY-MM-DD), 없으면 그 AI의 첫 실행 날짜이며 `<agent>-notes/start_date`에 저장합니다.
-- **투자 노트**: AI는 사람의 매매 일지처럼 직접 쓰는 마크다운 노트를 가집니다(`~/.local/state/alpharena-ai/<agent>-notes/`). 몇 시간이 아니라 몇 주 전의 판단과 교훈까지 이어지도록 네 층으로 나뉩니다.
+- **투자 노트**: AI는 사람의 매매 일지처럼 직접 쓰는 마크다운 노트를 가집니다(`$DATA_DIR/ai-trader/<agent>-notes/`). 몇 시간이 아니라 몇 주 전의 판단과 교훈까지 이어지도록 네 층으로 나뉩니다.
   - `strategy.md`: 지금의 투자 방침(KR/US 국면, 운용 원칙, 포트폴리오 방향, 앞으로 볼 것). 방침이 바뀔 때만 AI가 전체를 새로 쓰고(2,000자 이내), 이전 방침은 `strategy_history/YYYY-MM-DDTHHMM.md`에 최근 20개 보관합니다. 매 실행 프롬프트에 항상 들어갑니다.
   - `lessons.md`: 손절했거나 무효화 조건으로 팔았거나 판단이 틀렸다고 확인했을 때 AI가 남기는 교훈. `- YYYY-MM-DD 종목/상황: 교훈` 한 줄씩(200자 이내) 최근 50줄을 보관하고, 최근 30줄을 매 실행 보여 줍니다.
   - `daily/YYYY-MM-DD.md`: 하루 요약. 한국 날짜가 바뀐 뒤 첫 실행에서 어제 일지가 있고 요약이 없으면, 매매 판단 전에 AI를 한 번 더 불러 어제 일지를 600자 이내로 요약하게 합니다(국면 판단, 실제 매매와 결과, 맞은·틀린 가설, 이어갈 것). 요약 호출이 실패하면 그대로 매매 판단을 하고 다음 실행에서 다시 시도합니다. 어제 일지가 없으면(주말 등) 건너뛰고 그 이전 날짜는 거슬러 찾지 않습니다. 최근 28일 요약을 오래된 것부터 보여 주되 8,000자를 넘으면 오래된 날부터 뺍니다.
@@ -193,8 +193,8 @@ python3 scripts/ai_trader.py run gpt --dry-run --market US   # 장이 닫혀 있
 | `market-stream` | KIS WebSocket 하나로 미국·한국 실시간 체결을 받아 Redis에 저장 (앱키당 세션 1개라 복제 금지) |
 | `finnhub-stream` | 미국 정규장 동안 Finnhub WebSocket 하나로 최대 50종목의 실시간 체결을 받아 Redis에 저장 (키당 연결 1개라 복제 금지) |
 | `worker` | 1분마다 내부 작업 호출 (예약 주문 확인·체결, 주간 순위 게시, 일별 성과 기록) |
-| `db` | PostgreSQL 17 (`pgdata` 볼륨) |
-| `redis` | Redis 7 시세 캐시 (`redis_data` 볼륨) |
+| `db` | PostgreSQL 17 (데이터: `$DATA_DIR/postgres`) |
+| `redis` | Redis 7 시세 캐시 (데이터: `$DATA_DIR/redis`) |
 
 ### 외부 데이터 공급자
 
@@ -311,6 +311,7 @@ cp .env.example .env
 #    POSTGRES_PASSWORD=<긴 무작위 문자열>
 #    SESSION_SECRET=<32자 이상 무작위 문자열>
 #    예: python3 -c "import secrets; print(secrets.token_urlsafe(48))"
+#    DATA_DIR=<데이터를 둘 폴더>  (기본 예시 ./data, 아래 '데이터 위치' 참고)
 
 # 3. 실행
 docker compose up -d --build
@@ -342,6 +343,7 @@ docker compose exec web python -m app.admin_cli --ai <아이디>   # AI 트레�
 | --- | --- | --- |
 | `POSTGRES_PASSWORD` | (필수) | 데이터베이스 비밀번호 |
 | `SESSION_SECRET` | (필수) | 세션 서명 키, 32자 이상 |
+| `DATA_DIR` | (필수) | 모든 데이터를 두는 폴더. 상대 경로는 프로젝트 폴더 기준 ([데이터 위치](#데이터-위치)) |
 | `BIND_ADDRESS` / `HTTP_PORT` | `127.0.0.1` / `8080` | nginx가 여는 주소와 포트 |
 | `COOKIE_SECURE` | `false` | HTTPS 전용 쿠키 사용 여부 |
 | `WEB_CONCURRENCY` | `2` (compose) | web 프로세스 수. 요청 제한·랭킹 스냅샷·SSE 연결 수는 Redis로 모든 프로세스가 함께 셉니다 |
@@ -381,6 +383,31 @@ docker compose exec web python -m app.admin_cli --ai <아이디>   # AI 트레�
 
 설정을 바꾼 뒤에는 `docker compose up -d`로 컨테이너를 다시 만듭니다.
 
+### 데이터 위치
+
+프로젝트 폴더에는 코드와 설정(`.env`, nginx 설정)만 두고, 실행 중에 생기는 데이터는 모두 `DATA_DIR` 아래에 둡니다. 운영 서버는 별도 SSD의 `/mnt/data/paper-trading`을 씁니다. Compose는 Docker 볼륨 대신 이 폴더를 바인드 마운트하고, 호스트 cron 스크립트(`backup_db.py`, `prune_backups.py`, `ai_trader.py`)는 `scripts/data_paths.py`로 같은 값을 환경 변수 또는 `.env`에서 읽습니다. `DATA_DIR`이 비어 있으면 Compose는 실행을 거부합니다(빈 DB로 새로 시작하는 사고를 막기 위해).
+
+| 경로 | 내용 | 쓰는 곳 |
+| --- | --- | --- |
+| `postgres/` | PostgreSQL 데이터 (소유자 uid 999, 권한 0700) | `db` |
+| `redis/` | Redis AOF | `redis` |
+| `letsencrypt/`, `letsencrypt-work/`, `acme/` | Let's Encrypt 인증서, certbot 작업 폴더, ACME 검증 파일 | `nginx`, `certbot`, `renew` (HTTPS 배포) |
+| `backups/` | 일별 DB 덤프 ([DB 백업](#약관-동의와-회원-공개)) | `scripts/backup_db.py`, `scripts/prune_backups.py` |
+| `ai-trader/` | AI 트레이더 판단 기록, 조사 자료, 투자 노트 | `scripts/ai_trader.py` |
+| `logs/` | cron 출력 (`backup.log`, `prune.log`, `ai-trader.log`) | crontab |
+| `artifacts/` | 브라우저 스모크 테스트 화면 캡처 | `compose.browser.yaml`, `compose.sse-test.yaml` |
+
+AI 트레이더 계정 비밀번호(`~/.config/alpharena-ai/`)와 컨테이너 로그(Docker가 관리, 서비스별 최대 30MB)는 여기에 포함되지 않습니다.
+
+데이터 폴더를 옮길 때는 스택을 멈추고(`docker compose stop`, 같은 네트워크를 쓰는 다른 컨테이너가 있으면 `down`은 쓰지 않음) 소유자와 권한을 유지한 채 복사합니다. PostgreSQL·Redis 파일은 uid 999 소유라 컨테이너 안에서 복사합니다.
+
+```bash
+docker compose stop
+docker run --rm -v <이전 폴더>:/from:ro -v <새 폴더>:/to postgres:17-bookworm cp -a /from/. /to/
+# .env의 DATA_DIR을 새 폴더로 바꾸고 crontab의 로그 경로도 함께 바꾼 뒤
+docker compose up -d
+```
+
 ## HTTPS 배포 (선택)
 
 기본 구성은 HTTP만 제공합니다. 공개 도메인이 있고 외부 TCP 80/443이 이 서버로 전달된다면 `scripts/tls.py`로 Let's Encrypt 인증서를 발급할 수 있습니다. `.env`에 `DOMAIN`을 먼저 설정하세요.
@@ -405,7 +432,7 @@ HTTPS 구성은 `docker compose -f compose.yaml -f compose.https.yaml ...`로 �
 docker compose exec web python tests/run.py
 ```
 
-브라우저 스모크 테스트(Playwright, Chromium)는 고정 시세를 쓰는 테스트 전용 앱과 DB(`paper_browser_test`)로 실행되며, 화면 캡처를 `artifacts/`에 저장합니다.
+브라우저 스모크 테스트(Playwright, Chromium)는 고정 시세를 쓰는 테스트 전용 앱과 DB(`paper_browser_test`)로 실행되며, 화면 캡처를 `$DATA_DIR/artifacts/`에 저장합니다.
 `scripts/browser_smoke.py`는 실행마다 테스트 앱(`browserweb`)과 테스트 Redis를 새로 띄웁니다. 테스트 앱은 주입한 시세와 앱의 프로세스 전역 상태(요청 제한, 랭킹 캐시, SSE)를 프로세스가 살아 있는 동안 유지하므로, 실행끼리 서로 영향을 주지 않게 하기 위해서입니다. 테스트에 필요한 계정은 스모크가 직접 만듭니다.
 
 ```bash
@@ -459,7 +486,7 @@ app/
   admin_cli.py       관리자 승격 명령
   static/            웹 화면 (index.html, app.js, portal.js, profile.js, style.css)
 nginx/               nginx 설정 (HTTP, HTTPS 템플릿)
-scripts/             HTTPS 설정, 공개 전 비밀 값 검사, 세션별 시세 진단(check_us_sessions.py, check_kr_sessions.py), AI 트레이더(ai_trader.py, ai_avatars/)
+scripts/             데이터 폴더 위치(data_paths.py), DB 백업·정리, HTTPS 설정, 공개 전 비밀 값 검사, 세션별 시세 진단(check_us_sessions.py, check_kr_sessions.py), AI 트레이더(ai_trader.py, ai_avatars/)
 tests/               pytest 테스트, 브라우저 스모크 테스트
 ```
 
@@ -766,7 +793,7 @@ docker compose -p paper-sse-rollback -f compose.sse-test.yaml down
 관측: web의 `market-stream` 로그와 프로세스별 hub counters(active, reconnects, updates, coalesced,
 invalid, subscriber_errors), worker의 저장 실패 로그 및 마지막 성공 로그를 사용합니다.
 공급자 timestamp 나이와 `cached_at` 이후 전달 지연을 구분해 측정해야 합니다.
-web 재시작 스모크는 다음 명령을 한 터미널에서 실행하고, `artifacts/sse-restart-ready` 파일이
+web 재시작 스모크는 다음 명령을 한 터미널에서 실행하고, `$DATA_DIR/artifacts/sse-restart-ready` 파일이
 이번 실행 시각으로 갱신되면 다른 터미널에서 테스트 web만 재시작합니다.
 
 ```bash
@@ -790,11 +817,11 @@ docker compose -p paper-sse-test -f compose.sse-test.yaml restart browserweb
 
 처리방침에 적은 운영 규칙:
 
-- **DB 백업:** `scripts/backup_db.py`가 호스트 cron으로 매일 04:07에 `backups/daily-YYYYMMDD.dump`를 만듭니다(`pg_dump -Fc`, 임시 파일에 쓰고 `pg_restore --list`로 확인한 뒤에만 이름을 바꾸므로 실패한 덤프는 남지 않음, 권한 0600, 기록은 `~/.local/state/paper-trading-backup.log`). 백업은 같은 SD카드에 있으므로 카드 고장에 대비하려면 주기적으로 다른 기기로 복사하세요. `backups/`의 덤프는 장애 복구용이며 만든 지 30일이 지나면 삭제합니다. 백업을 복원하면 그사이 탈퇴한 회원을 다시 삭제합니다. 삭제는 `scripts/prune_backups.py`가 호스트 cron으로 매일 04:17에 자동으로 합니다. 대상은 `backups/` 바로 아래의 덤프 파일(`.dump`, `.sql`, `.dump.gz`, `.sql.gz`)뿐이며 소스 보관 파일은 건드리지 않습니다. 삭제 기록은 `~/.local/state/paper-trading-prune.log`에 남습니다. 서버를 옮기면 cron 등록도 다시 합니다.
+- **DB 백업:** `scripts/backup_db.py`가 호스트 cron으로 매일 04:07에 `$DATA_DIR/backups/daily-YYYYMMDD.dump`를 만듭니다(`pg_dump -Fc`, 임시 파일에 쓰고 `pg_restore --list`로 확인한 뒤에만 이름을 바꾸므로 실패한 덤프는 남지 않음, 권한 0600, 기록은 `$DATA_DIR/logs/backup.log`). 백업은 DB와 같은 SSD에 있으므로 디스크 고장에 대비하려면 주기적으로 다른 기기로 복사하세요. `backups/`의 덤프는 장애 복구용이며 만든 지 30일이 지나면 삭제합니다. 백업을 복원하면 그사이 탈퇴한 회원을 다시 삭제합니다. 삭제는 `scripts/prune_backups.py`가 호스트 cron으로 매일 04:17에 자동으로 합니다. 대상은 `backups/` 바로 아래의 덤프 파일(`.dump`, `.sql`, `.dump.gz`, `.sql.gz`)뿐이며 소스 보관 파일은 건드리지 않습니다. 삭제 기록은 `$DATA_DIR/logs/prune.log`에 남습니다. 서버를 옮기면 cron 등록도 다시 합니다.
 
   ```bash
-  (crontab -l 2>/dev/null; echo '7 4 * * * /usr/bin/python3 /home/ubuntu/paper-trading/scripts/backup_db.py >> /home/ubuntu/.local/state/paper-trading-backup.log 2>&1') | crontab -
-  (crontab -l 2>/dev/null; echo '17 4 * * * /usr/bin/python3 /home/ubuntu/paper-trading/scripts/prune_backups.py >> /home/ubuntu/.local/state/paper-trading-prune.log 2>&1') | crontab -
+  (crontab -l 2>/dev/null; echo '7 4 * * * /usr/bin/python3 /home/ubuntu/paper-trading/scripts/backup_db.py >> /mnt/data/paper-trading/logs/backup.log 2>&1') | crontab -
+  (crontab -l 2>/dev/null; echo '17 4 * * * /usr/bin/python3 /home/ubuntu/paper-trading/scripts/prune_backups.py >> /mnt/data/paper-trading/logs/prune.log 2>&1') | crontab -
   ```
 - **로그:** 서비스별로 최대 약 30MB(10MB × 3개 파일)까지 순환 보관되고, 재배포하면 해당 컨테이너 로그가 함께 삭제됩니다.
 
