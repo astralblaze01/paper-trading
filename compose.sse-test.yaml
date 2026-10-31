@@ -60,7 +60,7 @@ services:
       context: .
       dockerfile: tests/Dockerfile.browser
     volumes:
-      - ./artifacts:/artifacts
+      - ${DATA_DIR:?Set DATA_DIR in .env}/artifacts:/artifacts
     depends_on:
       browserweb: {condition: service_healthy}
   proxy:

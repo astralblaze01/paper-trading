@@ -3,7 +3,7 @@ services:
     image: redis:7-alpine
     command: [redis-server, --appendonly, 'yes']
     volumes:
-      - redis_data:/data
+      - ${DATA_DIR:?Set DATA_DIR in .env}/redis:/data
     restart: unless-stopped
     healthcheck:
       test: [CMD, redis-cli, ping]
@@ -20,7 +20,7 @@ services:
       POSTGRES_USER: paper
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - ${DATA_DIR:?Set DATA_DIR in .env}/postgres:/var/lib/postgresql/data
     restart: unless-stopped
     healthcheck:
       test: [CMD-SHELL, 'pg_isready -U paper -d paper']
@@ -191,6 +191,3 @@ services:
       timeout: 5s
       retries: 6
     logging: *logging
-volumes:
-  pgdata:
-  redis_data:

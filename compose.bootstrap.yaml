@@ -9,6 +9,6 @@ services:
       - '${PUBLIC_HTTP_PORT:-80}:80'
     volumes: !override
       - ./nginx/tls/bootstrap.conf.template:/etc/nginx/templates/default.conf.template:ro
-      - acme:/var/www/certbot:ro
+      - ${DATA_DIR:?Set DATA_DIR in .env}/acme:/var/www/certbot:ro
   renew:
     profiles: [certificate]
